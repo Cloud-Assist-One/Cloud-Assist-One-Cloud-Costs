@@ -9,7 +9,9 @@ jest.mock('@/lib/supabase/client', () => ({
       select: () => ({
         eq: () => ({
           gte: () => ({
-            lte: (...args: unknown[]) => loadRecords(...args),
+            lte: () => ({
+              range: (...args: unknown[]) => loadRecords(...args),
+            }),
           }),
         }),
       }),
