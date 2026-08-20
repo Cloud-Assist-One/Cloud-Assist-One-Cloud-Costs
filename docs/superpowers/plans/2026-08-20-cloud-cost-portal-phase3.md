@@ -4,7 +4,7 @@
 
 **Goal:** Add the staff review workflow (notes, voice notes, todos, time-tracking — all client-visible) and the staff-only Admin tab for creating companies and user accounts. This is the third and final phase of Phase 1 of the overall product roadmap. After this phase, subscription billing and AI automation are the only remaining future work, and they are explicitly out of scope until specced separately.
 
-**Architecture:** One new migration adds `review_notes`, `review_todos`, `time_entries`, and a `voice-notes` storage bucket, following the exact RLS + GRANT pattern already established in Phase 1's schema. A single `NotesFeed` component covers notes/voice notes/todos/time entries in one chronological feed. The Admin tab reuses the training-portal's service-role admin-user-creation pattern, adapted for this app's `companies`/`profiles` shape.
+**Architecture:** One new migration adds `review_notes`, `review_todos`, `time_entries`, and a `voice-notes` storage bucket, following the exact RLS + GRANT pattern already established in Phase 1's schema. A single `NotesFeed` component covers notes/voice notes/todos/time entries in one chronological feed. The Admin tab reuses the training-portal's service-role admin-user-creation pattern, adapted for this app's `companies`/`profiles` shape. This phase also closes a scoping gap from Phase 2: the design spec called for the Compare tab to show category-level comparison where AWS/Azure service names overlap (e.g. compute, storage, database), which Phase 2's plan under-scoped to just two totals — Task 1 adds it via a small client-side service-to-category mapping, no new data fetching required.
 
 **Tech Stack:** Same as Phases 1-2 — Next.js 16, React 19, Supabase, `recharts`, Jest + Testing Library, MediaRecorder API for voice notes.
 
@@ -14,14 +14,307 @@
 
 - This phase builds directly on top of the completed, deployed Phase 1 and Phase 2 codebase — do not re-scaffold the project or re-create any earlier file. Read the existing `lib/admin-guard.ts`, `lib/types.ts`, `components/shell/AppShell.tsx`, and `supabase/migrations/*.sql` before writing anything — this plan assumes they already exist exactly as Phases 1-2 built them.
 - **The new migration in this phase MUST include explicit `grant select, insert, update, delete on public.<table> to authenticated;` (narrowed appropriately per table) and full CRUD `to service_role;` in the same migration file** — this is the exact gap that silently broke the training portal (Supabase does not grant base table privileges by default; RLS policies are never evaluated without the GRANT).
-- No public self-signup — all accounts are created by staff through the new Admin tab in this phase (Phase 1/2 bootstrapped their test accounts by hand via SQL; this phase's Task 6 verification step uses the real UI instead).
+- No public self-signup — all accounts are created by staff through the new Admin tab in this phase (Phase 1/2 bootstrapped their test accounts by hand via SQL; this phase's Task 7 verification step uses the real UI instead).
 - Follow existing project conventions: CSS Modules per component, `@/*` path alias, tests co-located as `Component.test.tsx`, functional components with hooks, 2-space indentation, `cancelled`-flag guarded `useEffect`.
 - Route Handler dynamic params are async (`await params`) — same as the training portal's Next.js version.
 - All Supabase env vars are trimmed on read — already true throughout Phases 1-2; don't regress it.
 
 ---
 
-## Task 1: Database migration — review workflow schema
+## Task 1: Category-level cost comparison
+
+**Files:**
+- Create: `lib/serviceCategory.ts`
+- Create: `lib/serviceCategory.test.ts`
+- Modify: `lib/reportAggregation.ts`
+- Modify: `lib/reportAggregation.test.ts`
+- Modify: `components/reports/CompareTab.tsx`
+- Modify: `components/reports/CompareTab.test.tsx`
+
+**Interfaces:**
+- Produces: `categorizeService(serviceName: string): string` (`lib/serviceCategory.ts`); `aggregateByCategoryComparison(records, categorize): CategoryComparisonRow[]` and the `CategoryComparisonRow`/`CategorizableCostRecord` types (added to `lib/reportAggregation.ts`, alongside the existing `aggregateByDate`/`aggregateByService`/`totalCost`).
+- Consumes: the `records` array `CompareTab` already fetches via its existing paginated query (Phase 2, unchanged) — this task only adds a client-side derived table under the two existing total cards; it does not change what's fetched from Supabase.
+
+This closes a scoping gap: the design spec (`docs/superpowers/specs/2026-08-19-cloud-cost-portal-phase1-design.md`, line 143) called for the Compare tab to show "category-level comparison where service names overlap meaningfully" in addition to the two totals, but Phase 2's plan only scoped the totals. AWS and Azure name their services differently (`Amazon EC2` vs `Azure App Service`), so a small mapping from service name to a shared category (Compute, Storage, Database, Networking, Other) is needed before they can be compared side by side.
+
+- [ ] **Step 1: Write the failing test for `categorizeService`**
+
+`lib/serviceCategory.test.ts`:
+```ts
+import { categorizeService } from './serviceCategory';
+
+describe('categorizeService', () => {
+  it('categorizes AWS compute services', () => {
+    expect(categorizeService('Amazon EC2')).toBe('Compute');
+  });
+
+  it('categorizes Azure compute services', () => {
+    expect(categorizeService('Azure App Service')).toBe('Compute');
+  });
+
+  it('categorizes AWS storage services', () => {
+    expect(categorizeService('Amazon S3')).toBe('Storage');
+  });
+
+  it('categorizes Azure storage services', () => {
+    expect(categorizeService('Azure Blob Storage')).toBe('Storage');
+  });
+
+  it('categorizes AWS database services', () => {
+    expect(categorizeService('Amazon RDS')).toBe('Database');
+  });
+
+  it('categorizes Azure database services', () => {
+    expect(categorizeService('Azure SQL Database')).toBe('Database');
+  });
+
+  it('categorizes networking services from either cloud', () => {
+    expect(categorizeService('Amazon CloudFront')).toBe('Networking');
+    expect(categorizeService('Azure Virtual Network')).toBe('Networking');
+  });
+
+  it('falls back to Other for an unrecognized service name', () => {
+    expect(categorizeService('Some Unknown Service')).toBe('Other');
+  });
+});
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `npx jest lib/serviceCategory.test.ts`
+Expected: FAIL — `Cannot find module './serviceCategory'`.
+
+- [ ] **Step 3: Write `categorizeService`**
+
+`lib/serviceCategory.ts`:
+```ts
+interface CategoryRule {
+  category: string;
+  patterns: RegExp[];
+}
+
+const CATEGORY_RULES: CategoryRule[] = [
+  { category: 'Compute', patterns: [/ec2/i, /app service/i, /lambda/i, /azure functions/i, /virtual machine/i] },
+  { category: 'Storage', patterns: [/\bs3\b/i, /blob storage/i, /storage account/i] },
+  { category: 'Database', patterns: [/\brds\b/i, /sql database/i, /dynamodb/i, /cosmos db/i] },
+  { category: 'Networking', patterns: [/cloudfront/i, /\bcdn\b/i, /virtual network/i, /load balancer/i, /elastic load balancing/i] },
+];
+
+export function categorizeService(serviceName: string): string {
+  for (const rule of CATEGORY_RULES) {
+    if (rule.patterns.some((pattern) => pattern.test(serviceName))) {
+      return rule.category;
+    }
+  }
+  return 'Other';
+}
+```
+
+- [ ] **Step 4: Run the test to verify it passes**
+
+Run: `npx jest lib/serviceCategory.test.ts`
+Expected: PASS (8 tests).
+
+- [ ] **Step 5: Write the failing test for `aggregateByCategoryComparison`**
+
+Modify `lib/reportAggregation.test.ts` — add the import and a new `describe` block (do not remove or alter the existing `aggregateByDate`/`aggregateByService`/`totalCost` tests):
+
+```ts
+import { aggregateByCategoryComparison, aggregateByDate, aggregateByService, totalCost } from './reportAggregation';
+```
+(merge this into the existing import line at the top of the file rather than adding a second import statement)
+
+```ts
+describe('aggregateByCategoryComparison', () => {
+  const categorize = (serviceName: string) => (serviceName.includes('EC2') || serviceName.includes('App Service') ? 'Compute' : 'Storage');
+
+  it('sums cost per category, split by cloud provider', () => {
+    const mixedRecords = [
+      { service_name: 'Amazon EC2', cloud_provider: 'aws' as const, cost: 10 },
+      { service_name: 'Azure App Service', cloud_provider: 'azure' as const, cost: 8 },
+      { service_name: 'Amazon S3', cloud_provider: 'aws' as const, cost: 3 },
+    ];
+
+    expect(aggregateByCategoryComparison(mixedRecords, categorize)).toEqual([
+      { category: 'Compute', aws: 10, azure: 8 },
+      { category: 'Storage', aws: 3, azure: 0 },
+    ]);
+  });
+
+  it('returns an empty array for no records', () => {
+    expect(aggregateByCategoryComparison([], categorize)).toEqual([]);
+  });
+});
+```
+
+- [ ] **Step 6: Run the test to verify it fails**
+
+Run: `npx jest lib/reportAggregation.test.ts`
+Expected: FAIL — `aggregateByCategoryComparison is not a function` (or similar), while the pre-existing tests in this file continue to pass up to that point.
+
+- [ ] **Step 7: Add `aggregateByCategoryComparison` to `lib/reportAggregation.ts`**
+
+Append to the end of the existing `lib/reportAggregation.ts` (do not modify `aggregateByDate`, `aggregateByService`, or `totalCost`):
+
+```ts
+export interface CategoryComparisonRow {
+  category: string;
+  aws: number;
+  azure: number;
+}
+
+export interface CategorizableCostRecord {
+  service_name: string;
+  cloud_provider: 'aws' | 'azure';
+  cost: number;
+}
+
+export function aggregateByCategoryComparison(
+  records: CategorizableCostRecord[],
+  categorize: (serviceName: string) => string
+): CategoryComparisonRow[] {
+  const totals = new Map<string, { aws: number; azure: number }>();
+  for (const record of records) {
+    const category = categorize(record.service_name);
+    const entry = totals.get(category) ?? { aws: 0, azure: 0 };
+    entry[record.cloud_provider] += record.cost;
+    totals.set(category, entry);
+  }
+  return Array.from(totals.entries())
+    .map(([category, { aws, azure }]) => ({ category, aws, azure }))
+    .sort((a, b) => b.aws + b.azure - (a.aws + a.azure));
+}
+```
+
+- [ ] **Step 8: Run the test to verify it passes**
+
+Run: `npx jest lib/reportAggregation.test.ts`
+Expected: PASS (7 tests — the 5 pre-existing plus 2 new).
+
+- [ ] **Step 9: Write the failing test for the `CompareTab` category table**
+
+Read the current `components/reports/CompareTab.tsx` and `components/reports/CompareTab.test.tsx` in full before editing — this step adds a new test to the existing test file; do not remove or alter the existing `it('shows separate AWS and Azure totals for the current range', ...)` test.
+
+Add this test inside the existing `describe('CompareTab', ...)` block in `components/reports/CompareTab.test.tsx`:
+
+```tsx
+  it('shows a category-level breakdown table for overlapping service types', async () => {
+    loadRecords.mockResolvedValueOnce({
+      data: [
+        { id: 'r1', cloud_provider: 'aws', service_name: 'Amazon EC2', usage_date: '2026-07-01', cost: 10 },
+        { id: 'r2', cloud_provider: 'azure', service_name: 'Azure App Service', usage_date: '2026-07-01', cost: 8 },
+        { id: 'r3', cloud_provider: 'aws', service_name: 'Amazon S3', usage_date: '2026-07-02', cost: 3 },
+      ],
+    });
+
+    render(<CompareTab companyId="company-1" />);
+
+    expect(await screen.findByText('Compute')).toBeInTheDocument();
+    expect(screen.getByText('Storage')).toBeInTheDocument();
+
+    const computeRow = screen.getByText('Compute').closest('tr');
+    expect(computeRow).not.toBeNull();
+    expect(computeRow as HTMLElement).toHaveTextContent('$10.00');
+    expect(computeRow as HTMLElement).toHaveTextContent('$8.00');
+
+    const storageRow = screen.getByText('Storage').closest('tr');
+    expect(storageRow).not.toBeNull();
+    expect(storageRow as HTMLElement).toHaveTextContent('$3.00');
+    expect(storageRow as HTMLElement).toHaveTextContent('$0.00');
+  });
+```
+
+- [ ] **Step 10: Run the test to verify it fails**
+
+Run: `npx jest components/reports/CompareTab.test.tsx`
+Expected: the pre-existing test still PASSES; the new test FAILS because there's no category table yet.
+
+- [ ] **Step 11: Add the category table to `CompareTab.tsx`**
+
+Modify `components/reports/CompareTab.tsx`. Add the import alongside the existing ones:
+
+```tsx
+import { aggregateByCategoryComparison, totalCost } from '@/lib/reportAggregation';
+import { categorizeService } from '@/lib/serviceCategory';
+```
+
+(this replaces the existing `import { totalCost } from '@/lib/reportAggregation';` line — merge `aggregateByCategoryComparison` into the same import)
+
+Add a new memoized value alongside the existing `awsRecords`/`azureRecords`/`awsTotal`/`azureTotal` ones:
+
+```tsx
+  const categoryComparison = useMemo(
+    () => aggregateByCategoryComparison(records, categorizeService),
+    [records]
+  );
+```
+
+In the JSX, add the table inside the existing `<div className={styles.cards}>` block's sibling position — directly after the closing `</div>` of `styles.cards` and before the closing `</>`/final `)}`  of the ternary's success branch (i.e., still inside the `records.length === 0 ? (...) : (...)` block's non-empty branch, after the two total cards):
+
+```tsx
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>AWS</th>
+                <th>Azure</th>
+              </tr>
+            </thead>
+            <tbody>
+              {categoryComparison.map((row) => (
+                <tr key={row.category}>
+                  <td>{row.category}</td>
+                  <td>{formatCurrency(row.aws)}</td>
+                  <td>{formatCurrency(row.azure)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+```
+
+Read the current file's JSX structure carefully first — the existing success branch currently renders only the `<div className={styles.cards}>...</div>` block; add the table as a second element in that same branch (wrap both in a fragment or a parent `<div>` if the branch currently returns a single element and needs to return two — use whichever matches the existing code's style with minimal restructuring).
+
+- [ ] **Step 12: Run the test to verify it passes**
+
+Run: `npx jest components/reports/CompareTab.test.tsx`
+Expected: PASS (2 tests — the pre-existing total-cards test plus the new category-table test).
+
+- [ ] **Step 13: Add table styling to `CompareTab.module.css`**
+
+Append to the existing `components/reports/CompareTab.module.css`:
+
+```css
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+}
+```
+
+- [ ] **Step 14: Verify the full pipeline**
+
+Run: `npx tsc --noEmit` — expect no errors.
+Run: `npm test` — expect all tests passing (the full accumulated suite, including the 2 new `serviceCategory`/`reportAggregation` test additions and the 1 new `CompareTab` test).
+Run: `npm run lint` — expect no errors.
+Run: `npm run build` — expect a successful production build.
+
+- [ ] **Step 15: Commit**
+
+```bash
+git add lib/serviceCategory.ts lib/serviceCategory.test.ts lib/reportAggregation.ts lib/reportAggregation.test.ts components/reports/CompareTab.tsx components/reports/CompareTab.test.tsx components/reports/CompareTab.module.css
+git commit -m "Add category-level AWS/Azure comparison to the Compare tab"
+```
+
+---
+
+## Task 2: Database migration — review workflow schema
 
 **Files:**
 - Create: `supabase/migrations/20260820000002_review_workflow_schema.sql`
@@ -205,7 +498,7 @@ git commit -m "Add review workflow schema: notes, todos, time entries"
 
 ---
 
-## Task 2: Notes & Follow-ups feed
+## Task 3: Notes & Follow-ups feed
 
 **Files:**
 - Create: `components/notes/NotesFeed.tsx`
@@ -214,7 +507,7 @@ git commit -m "Add review workflow schema: notes, todos, time entries"
 
 **Interfaces:**
 - Consumes: `createClient` from `@/lib/supabase/client`. (`ReviewNote`, `ReviewTodo`, `TimeEntry`, `TodoStatus` types are new in this phase — add them to `lib/types.ts` as part of Step 1 below, following the exact shape from the spec's Data Model section: `ReviewNote { id, company_id, cost_record_id: string | null, author_id, note_text: string | null, voice_note_path: string | null, created_at }`; `ReviewTodo { id, company_id, cost_record_id: string | null, title, status: TodoStatus, created_by, created_at, completed_at: string | null }`; `TimeEntry { id, company_id, staff_id, entry_date, minutes_spent, description, created_at }`.)
-- Produces: `NotesFeed` (default export, props `{ companyId: string; userId: string; isStaff: boolean }`) — consumed by `AppShell` in Task 4 of this phase.
+- Produces: `NotesFeed` (default export, props `{ companyId: string; userId: string; isStaff: boolean }`) — consumed by `AppShell` in Task 6 of this phase.
 
 - [ ] **Step 1: Add the new shared types**
 
@@ -668,7 +961,7 @@ git commit -m "Add Notes and Follow-ups feed with voice notes, todos, and time e
 
 ---
 
-## Task 3: Admin API routes and guard
+## Task 4: Admin API routes and guard
 
 **Files:**
 - Modify: `lib/admin-guard.ts`
@@ -677,7 +970,7 @@ git commit -m "Add Notes and Follow-ups feed with voice notes, todos, and time e
 
 **Interfaces:**
 - Consumes: `createClient` (server) from `@/lib/supabase/server`, `createAdminClient` from `@/lib/supabase/admin` (both existing from Phase 1). Existing `requireCompanyAccess` in `lib/admin-guard.ts` is untouched.
-- Produces: `requireStaff()` (added to `lib/admin-guard.ts`, alongside the existing `requireCompanyAccess`); `GET /api/admin/users` → list of profiles with company info; `POST /api/admin/users` (body: `email`, `password`, `role`, `companyId` — required when `role` is `'client'`) → creates an auth user + profile; `DELETE /api/admin/users/[id]` — consumed by `AdminUsers` in Task 4 of this phase.
+- Produces: `requireStaff()` (added to `lib/admin-guard.ts`, alongside the existing `requireCompanyAccess`); `GET /api/admin/users` → list of profiles with company info; `POST /api/admin/users` (body: `email`, `password`, `role`, `companyId` — required when `role` is `'client'`) → creates an auth user + profile; `DELETE /api/admin/users/[id]` — consumed by `AdminUsers` in Task 5 of this phase.
 
 - [ ] **Step 1: Read the existing `lib/admin-guard.ts`**
 
@@ -812,7 +1105,7 @@ Note: `RouteContext<'/api/admin/users/[id]'>` is the typed async-params helper t
 
 - [ ] **Step 5: Verify the routes type-check**
 
-Run: `npx tsc --noEmit` — expect no errors. There are no dedicated route-handler tests here, matching the Phase 1 `app/api/upload/route.ts` precedent (thin, guard-delegating routes verified end-to-end in Task 6 rather than unit-tested in isolation).
+Run: `npx tsc --noEmit` — expect no errors. There are no dedicated route-handler tests here, matching the Phase 1 `app/api/upload/route.ts` precedent (thin, guard-delegating routes verified end-to-end in Task 7 rather than unit-tested in isolation).
 
 - [ ] **Step 6: Commit**
 
@@ -823,7 +1116,7 @@ git commit -m "Add staff admin API routes for user management"
 
 ---
 
-## Task 4: Admin UI — companies and users
+## Task 5: Admin UI — companies and users
 
 **Files:**
 - Create: `components/admin/AdminCompanies.tsx`
@@ -834,8 +1127,8 @@ git commit -m "Add staff admin API routes for user management"
 - Create: `components/admin/AdminUsers.test.tsx`
 
 **Interfaces:**
-- Consumes: `createClient` from `@/lib/supabase/client` (for `AdminCompanies`'s list+create, which only touches `companies` and is covered by existing RLS — no new API route needed for companies, matching the pattern that `profiles_insert` is staff-gated by RLS already); `fetch('/api/admin/users', ...)` (Task 3, for `AdminUsers`); `Company` type from `@/lib/types`.
-- Produces: `AdminCompanies` (default export, no props), `AdminUsers` (default export, no props) — both consumed together by `AppShell` in Task 5 of this phase.
+- Consumes: `createClient` from `@/lib/supabase/client` (for `AdminCompanies`'s list+create, which only touches `companies` and is covered by existing RLS — no new API route needed for companies, matching the pattern that `profiles_insert` is staff-gated by RLS already); `fetch('/api/admin/users', ...)` (Task 4, for `AdminUsers`); `Company` type from `@/lib/types`.
+- Produces: `AdminCompanies` (default export, no props), `AdminUsers` (default export, no props) — both consumed together by `AppShell` in Task 6 of this phase.
 
 - [ ] **Step 1: Write the failing test for `AdminCompanies`**
 
@@ -1254,14 +1547,14 @@ git commit -m "Add Admin tab: company and user management"
 
 ---
 
-## Task 5: Wire Notes & Follow-ups and Admin tabs into the app shell
+## Task 6: Wire Notes & Follow-ups and Admin tabs into the app shell
 
 **Files:**
 - Modify: `components/shell/AppShell.tsx`
 - Modify: `components/shell/AppShell.test.tsx`
 
 **Interfaces:**
-- Consumes: `NotesFeed` from `../notes/NotesFeed` (Task 2), `AdminCompanies` from `../admin/AdminCompanies`, `AdminUsers` from `../admin/AdminUsers` (both Task 4).
+- Consumes: `NotesFeed` from `../notes/NotesFeed` (Task 3), `AdminCompanies` from `../admin/AdminCompanies`, `AdminUsers` from `../admin/AdminUsers` (both Task 5).
 - Produces: no new exports — `AppShell`'s props are unchanged from Phases 1-2 (`{ userId: string; role: ProfileRole; companyId: string | null }`). This is the final planned modification to `AppShell.tsx` across all three phases.
 
 - [ ] **Step 1: Read the current `AppShell.tsx` and its test**
@@ -1400,7 +1693,7 @@ git commit -m "Add Notes & Follow-ups and Admin tabs to the app shell"
 
 ---
 
-## Task 6: Manual verification and final deployment
+## Task 7: Manual verification and final deployment
 
 **Files:** none (verification and deployment only).
 
@@ -1408,22 +1701,23 @@ git commit -m "Add Notes & Follow-ups and Admin tabs to the app shell"
 
 Run `npm run dev`, sign in as the existing staff test account (from Phase 1/2's manual bootstrap):
 
-1. Go to the new Admin tab. Confirm the existing "Test Company" (created via SQL in Phase 1) appears in Companies.
-2. Create a brand-new company through the UI, e.g. "Initech".
-3. Create a new staff user through the UI (role: staff, no company).
-4. Create a new client user through the UI tied to "Initech" (role: client, company: Initech).
-5. Sign out, sign in as the new client user — confirm they land on a dashboard scoped to "Initech" with no data yet (clean slate, proving multi-tenancy isolation from "Test Company").
-6. Sign back in as staff, switch the company switcher to "Initech", upload an AWS file for it, confirm it shows up correctly in that company's AWS tab only (not in "Test Company"'s).
-7. As staff, go to Notes & Follow-ups for "Initech": post a text note, record and post a voice note (grant microphone permission when prompted), add a todo, then toggle it done. Log time is deferred to a follow-up if no `time_entries` insert UI was built in Task 2 — if so, insert a `time_entries` row via `mcp__supabase__execute_sql` for verification purposes and confirm it displays; note this UI gap to the user afterward rather than silently leaving it unverified.
-8. Sign out, sign in as the "Initech" client user — confirm the note, voice note (playable), todo (marked done), and time entry are all visible in their own Notes & Follow-ups tab, and that they cannot see or edit the add-note/add-todo forms (client, not staff).
-9. Confirm the original "Test Company" client (from Phase 1/2) still sees only their own data, unaffected by anything done for "Initech".
+1. Go to the Compare tab for an existing company with both AWS and Azure data uploaded (from Phase 2's verification). Confirm the category-level table (Task 1) appears below the two total cards, with categories like Compute/Storage/Database showing sensible AWS/Azure splits that sum to each provider's total shown above.
+2. Go to the new Admin tab. Confirm the existing "Test Company" (created via SQL in Phase 1) appears in Companies.
+3. Create a brand-new company through the UI, e.g. "Initech".
+4. Create a new staff user through the UI (role: staff, no company).
+5. Create a new client user through the UI tied to "Initech" (role: client, company: Initech).
+6. Sign out, sign in as the new client user — confirm they land on a dashboard scoped to "Initech" with no data yet (clean slate, proving multi-tenancy isolation from "Test Company").
+7. Sign back in as staff, switch the company switcher to "Initech", upload an AWS file for it, confirm it shows up correctly in that company's AWS tab only (not in "Test Company"'s).
+8. As staff, go to Notes & Follow-ups for "Initech": post a text note, record and post a voice note (grant microphone permission when prompted), add a todo, then toggle it done. Log time is deferred to a follow-up if no `time_entries` insert UI was built in Task 3 — if so, insert a `time_entries` row via `mcp__supabase__execute_sql` for verification purposes and confirm it displays; note this UI gap to the user afterward rather than silently leaving it unverified.
+9. Sign out, sign in as the "Initech" client user — confirm the note, voice note (playable), todo (marked done), and time entry are all visible in their own Notes & Follow-ups tab, and that they cannot see or edit the add-note/add-todo forms (client, not staff).
+10. Confirm the original "Test Company" client (from Phase 1/2) still sees only their own data, unaffected by anything done for "Initech".
 
 If anything fails, fix it and re-run the affected steps before deploying.
 
 - [ ] **Step 2: Deploy**
 
-Push the branch and confirm the production Vercel deployment builds successfully. Re-run the Step 1 verification pass (or at minimum steps 5-9) against the production URL.
+Push the branch and confirm the production Vercel deployment builds successfully. Re-run the Step 1 verification pass (or at minimum steps 6-10, plus step 1's category-table check) against the production URL.
 
 - [ ] **Step 3: Report completion**
 
-Summarize to the user that all three phases of Phase 1 of the overall product roadmap are complete and deployed: login, multi-tenant AWS/Azure billing upload and reporting, cross-cloud comparison, and the staff review workflow (notes/voice notes/todos/time-tracking) with a full Admin UI for company and user management. Remind them that subscription billing (product-roadmap Phase 2) and AI-driven automation (product-roadmap Phase 3) remain explicitly out of scope until specced separately, per the original design spec's Future Work section.
+Summarize to the user that all three phases of Phase 1 of the overall product roadmap are complete and deployed: login, multi-tenant AWS/Azure billing upload and reporting, cross-cloud comparison (including the category-level breakdown that closes Phase 2's scoping gap against the spec), and the staff review workflow (notes/voice notes/todos/time-tracking) with a full Admin UI for company and user management. Remind them that subscription billing (product-roadmap Phase 2) and AI-driven automation (product-roadmap Phase 3) remain explicitly out of scope until specced separately, per the original design spec's Future Work section.
