@@ -20,20 +20,42 @@ export default function UploadedFilesList({ companyId }: UploadedFilesListProps)
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const loadFiles = useCallback(async () => {
+  const fetchFiles = useCallback(async (onComplete?: (files: UploadedFile[]) => void) => {
     const supabase = createClient();
     const { data } = await supabase
       .from('uploaded_files')
       .select('*')
       .eq('company_id', companyId)
       .order('created_at', { ascending: false });
-    setFiles(data ?? []);
-    setLoading(false);
+    const fileList = data ?? [];
+    if (onComplete) {
+      onComplete(fileList);
+    }
+    return fileList;
   }, [companyId]);
 
+  const loadFiles = useCallback(async () => {
+    const fileList = await fetchFiles();
+    setFiles(fileList);
+    setLoading(false);
+  }, [fetchFiles]);
+
   useEffect(() => {
-    loadFiles();
-  }, [loadFiles]);
+    let cancelled = false;
+
+    async function load() {
+      const fileList = await fetchFiles();
+      if (!cancelled) {
+        setFiles(fileList);
+        setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchFiles]);
 
   return (
     <div className={styles.wrapper}>
