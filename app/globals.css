@@ -1,0 +1,29 @@
+:root {
+  --color-bg: #ffffff;
+  --color-bg-alt: #f3f6fa;
+  --color-fg: #0f2540;
+  --color-border: #dce3ec;
+  --color-accent: #2258d3;
+  --color-muted: #64748b;
+  --radius-pill: 999px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-fg);
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
