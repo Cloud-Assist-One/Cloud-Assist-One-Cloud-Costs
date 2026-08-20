@@ -32,16 +32,32 @@ export default function CostReportTab({ companyId, cloudProvider }: CostReportTa
     async function load() {
       setLoading(true);
       const supabase = createClient();
-      const { data } = await supabase
-        .from('cost_records')
-        .select('*')
-        .eq('company_id', companyId)
-        .eq('cloud_provider', cloudProvider)
-        .gte('usage_date', range.start)
-        .lte('usage_date', range.end);
+      const pageSize = 1000;
+      const allRows: CostRecord[] = [];
+      let offset = 0;
+
+      // PostgREST caps rows per request (commonly 1000), so page through until a
+      // short page tells us we've reached the end — otherwise large result sets
+      // would be silently truncated.
+      for (;;) {
+        const { data } = await supabase
+          .from('cost_records')
+          .select('*')
+          .eq('company_id', companyId)
+          .eq('cloud_provider', cloudProvider)
+          .gte('usage_date', range.start)
+          .lte('usage_date', range.end)
+          .range(offset, offset + pageSize - 1);
+
+        const page = data ?? [];
+        allRows.push(...page);
+
+        if (page.length < pageSize) break;
+        offset += pageSize;
+      }
 
       if (!cancelled) {
-        setRecords(data ?? []);
+        setRecords(allRows);
         setLoading(false);
       }
     }

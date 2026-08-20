@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import { parseCostFile } from './parseCostFile';
 
-function buildWorkbookBuffer(rows: (string | number)[][]): Buffer {
+function buildWorkbookBuffer(rows: (string | number | Date)[][]): Buffer {
   const worksheet = XLSX.utils.aoa_to_sheet(rows);
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1');
@@ -78,6 +78,20 @@ describe('parseCostFile', () => {
     expect(result.errors).toEqual([
       'Row 3: could not parse service/date/cost.',
       'Row 4: could not parse service/date/cost.',
+    ]);
+  });
+
+  it('parses a native Excel date cell (not a string) into an ISO date', () => {
+    const buffer = buildWorkbookBuffer([
+      ['Service', 'Date', 'Cost'],
+      ['Amazon EC2', new Date(2026, 6, 15), 12.5],
+    ]);
+
+    const result = parseCostFile(buffer);
+
+    expect(result.errors).toEqual([]);
+    expect(result.rows).toEqual([
+      { service_name: 'Amazon EC2', usage_date: '2026-07-15', cost: 12.5, account_id: null },
     ]);
   });
 });

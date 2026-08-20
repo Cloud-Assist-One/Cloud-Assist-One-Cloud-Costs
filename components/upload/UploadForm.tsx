@@ -31,25 +31,30 @@ export default function UploadForm({ companyId, onUploaded }: UploadFormProps) {
     formData.append('cloudProvider', cloudProvider);
     formData.append('companyId', companyId);
 
-    const response = await fetch('/api/upload', { method: 'POST', body: formData });
-    const body = await response.json();
+    try {
+      const response = await fetch('/api/upload', { method: 'POST', body: formData });
+      const body = await response.json();
 
-    if (!response.ok) {
+      if (!response.ok) {
+        setStatus('error');
+        setErrors([body.error ?? 'Upload failed.']);
+        return;
+      }
+
+      if (body.status === 'error') {
+        setStatus('error');
+        setErrors(body.errors ?? ['Could not process the file.']);
+        return;
+      }
+
+      setStatus('idle');
+      setFile(null);
+      setSuccessMessage(`Uploaded — ${body.rowCount} rows processed.`);
+      onUploaded?.();
+    } catch {
       setStatus('error');
-      setErrors([body.error ?? 'Upload failed.']);
-      return;
+      setErrors(['Upload failed. Please check your connection and try again.']);
     }
-
-    if (body.status === 'error') {
-      setStatus('error');
-      setErrors(body.errors ?? ['Could not process the file.']);
-      return;
-    }
-
-    setStatus('idle');
-    setFile(null);
-    setSuccessMessage(`Uploaded — ${body.rowCount} rows processed.`);
-    onUploaded?.();
   }
 
   return (

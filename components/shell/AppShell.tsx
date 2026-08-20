@@ -25,17 +25,22 @@ export default function AppShell({ role, companyId }: AppShellProps) {
   useEffect(() => {
     if (role !== 'staff') return;
 
+    let cancelled = false;
+
     async function loadCompanies() {
       const supabase = createClient();
       const { data } = await supabase.from('companies').select('*').order('name', { ascending: true });
+      if (cancelled) return;
       setCompanies(data ?? []);
-      if (data && data.length > 0 && !selectedCompanyId) {
-        setSelectedCompanyId(data[0].id);
+      if (data && data.length > 0) {
+        setSelectedCompanyId((prev) => prev ?? data[0].id);
       }
     }
 
     loadCompanies();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      cancelled = true;
+    };
   }, [role]);
 
   async function handleSignOut() {

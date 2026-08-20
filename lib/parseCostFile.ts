@@ -32,12 +32,26 @@ function findColumnIndex(headers: string[], aliases: string[]): number {
 
 function parseDateValue(value: unknown): string | null {
   if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
     return value.toISOString().slice(0, 10);
   }
   if (typeof value === 'string') {
     const parsed = new Date(value);
     if (!Number.isNaN(parsed.getTime())) {
       return parsed.toISOString().slice(0, 10);
+    }
+  }
+  // Fallback for a raw Excel serial-number date: cellDates: true should already convert
+  // date-formatted cells to JS Date objects, but some sheets store dates as plain numbers
+  // with cell-format metadata that XLSX.read doesn't always resolve. parse_date_code's
+  // `.m` is 1-indexed (matches ISO month numbering), so no adjustment is needed there.
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    if (parsed && Number.isFinite(parsed.y) && Number.isFinite(parsed.m) && Number.isFinite(parsed.d) && parsed.d > 0) {
+      const year = String(parsed.y).padStart(4, '0');
+      const month = String(parsed.m).padStart(2, '0');
+      const day = String(parsed.d).padStart(2, '0');
+      return `${year}-${month}-${day}`;
     }
   }
   return null;
@@ -55,7 +69,7 @@ function parseCostValue(value: unknown): number | null {
 }
 
 export function parseCostFile(buffer: ArrayBuffer | Buffer): ParseResult {
-  const workbook = XLSX.read(buffer, { type: 'buffer' });
+  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
   const sheetName = workbook.SheetNames[0];
   if (!sheetName) {
     return { rows: [], errors: ['The file has no sheets.'] };
