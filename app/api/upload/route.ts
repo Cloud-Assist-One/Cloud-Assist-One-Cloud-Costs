@@ -63,6 +63,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ uploadedFileId: uploadedFile.id, status: 'error', errors });
     }
 
+    // A re-upload for the same company/provider/date-range should replace the
+    // prior data, not add to it — otherwise costs double every time a
+    // corrected file is re-uploaded. Delete any existing records covering
+    // the range this file parses to (a no-op on a first-time upload) before
+    // inserting the fresh set.
+    const usageDates = rows.map((row) => row.usage_date);
+    const rangeStart = usageDates.reduce((min, date) => (date < min ? date : min));
+    const rangeEnd = usageDates.reduce((max, date) => (date > max ? date : max));
+
+    const { error: deleteRecordsError } = await adminClient
+      .from('cost_records')
+      .delete()
+      .eq('company_id', companyId)
+      .eq('cloud_provider', cloudProvider)
+      .gte('usage_date', rangeStart)
+      .lte('usage_date', rangeEnd);
+
+    if (deleteRecordsError) {
+      // Best-effort update; see note above.
+      await adminClient
+        .from('uploaded_files')
+        .update({ status: 'error', error_message: deleteRecordsError.message })
+        .eq('id', uploadedFile.id);
+      return NextResponse.json({ uploadedFileId: uploadedFile.id, status: 'error', errors: [deleteRecordsError.message] });
+    }
+
     const { error: insertRecordsError } = await adminClient.from('cost_records').insert(
       rows.map((row) => ({
         company_id: companyId,
