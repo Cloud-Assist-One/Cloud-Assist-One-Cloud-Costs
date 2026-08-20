@@ -21,6 +21,7 @@ export default function CompareTab({ companyId }: CompareTabProps) {
   const [referenceDate, setReferenceDate] = useState(() => new Date());
   const [records, setRecords] = useState<CostRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const range = useMemo(() => computeDateRange(granularity, referenceDate), [granularity, referenceDate]);
 
@@ -29,6 +30,7 @@ export default function CompareTab({ companyId }: CompareTabProps) {
 
     async function load() {
       setLoading(true);
+      setError(null);
       const supabase = createClient();
       const pageSize = 1000;
       const allRows: CostRecord[] = [];
@@ -38,13 +40,22 @@ export default function CompareTab({ companyId }: CompareTabProps) {
       // short page tells us we've reached the end — otherwise large result sets
       // would be silently truncated.
       for (;;) {
-        const { data } = await supabase
+        const { data, error: pageError } = await supabase
           .from('cost_records')
           .select('*')
           .eq('company_id', companyId)
           .gte('usage_date', range.start)
           .lte('usage_date', range.end)
+          .order('id', { ascending: true })
           .range(offset, offset + pageSize - 1);
+
+        if (pageError) {
+          if (!cancelled) {
+            setError('Could not load cost data. Please try again.');
+            setLoading(false);
+          }
+          return;
+        }
 
         const page = data ?? [];
         allRows.push(...page);
@@ -82,6 +93,10 @@ export default function CompareTab({ companyId }: CompareTabProps) {
 
       {loading ? (
         <p>Loading…</p>
+      ) : error ? (
+        <p role="alert" className={styles.error}>
+          {error}
+        </p>
       ) : records.length === 0 ? (
         <p>No cost data for this range.</p>
       ) : (

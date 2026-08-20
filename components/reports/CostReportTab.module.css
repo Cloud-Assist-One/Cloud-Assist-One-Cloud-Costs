@@ -9,6 +9,11 @@
   font-weight: 800;
 }
 
+.error {
+  color: #d1274b;
+  font-size: 0.875rem;
+}
+
 .chart {
   background: var(--color-bg-alt);
   border-radius: 8px;
