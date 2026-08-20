@@ -6,9 +6,10 @@ import { createClient } from '@/lib/supabase/client';
 import type { Company, ProfileRole } from '@/lib/types';
 import UploadedFilesList from '../files/UploadedFilesList';
 import CostReportTab from '../reports/CostReportTab';
+import CompareTab from '../reports/CompareTab';
 import styles from './AppShell.module.css';
 
-type TabKey = 'aws' | 'files';
+type TabKey = 'aws' | 'azure' | 'compare' | 'files';
 
 interface AppShellProps {
   userId: string;
@@ -80,6 +81,12 @@ export default function AppShell({ role, companyId }: AppShellProps) {
         <button type="button" role="tab" aria-selected={activeTab === 'aws'} onClick={() => setActiveTab('aws')}>
           AWS
         </button>
+        <button type="button" role="tab" aria-selected={activeTab === 'azure'} onClick={() => setActiveTab('azure')}>
+          Azure
+        </button>
+        <button type="button" role="tab" aria-selected={activeTab === 'compare'} onClick={() => setActiveTab('compare')}>
+          Compare
+        </button>
         <button type="button" role="tab" aria-selected={activeTab === 'files'} onClick={() => setActiveTab('files')}>
           Uploaded Files
         </button>
@@ -91,6 +98,8 @@ export default function AppShell({ role, companyId }: AppShellProps) {
         ) : (
           <>
             {activeTab === 'aws' && <CostReportTab companyId={effectiveCompanyId} cloudProvider="aws" />}
+            {activeTab === 'azure' && <CostReportTab companyId={effectiveCompanyId} cloudProvider="azure" />}
+            {activeTab === 'compare' && <CompareTab companyId={effectiveCompanyId} />}
             {activeTab === 'files' && <UploadedFilesList companyId={effectiveCompanyId} />}
           </>
         )}

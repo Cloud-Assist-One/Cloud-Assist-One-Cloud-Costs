@@ -10,6 +10,10 @@ jest.mock('./../reports/CostReportTab', () => ({
   __esModule: true,
   default: ({ cloudProvider }: { cloudProvider: string }) => <div>report-tab-content for {cloudProvider}</div>,
 }));
+jest.mock('./../reports/CompareTab', () => ({
+  __esModule: true,
+  default: () => <div>compare-tab-content</div>,
+}));
 
 const signOut = jest.fn();
 const listCompanies = jest.fn();
@@ -68,5 +72,16 @@ describe('AppShell', () => {
     await user.click(screen.getByRole('button', { name: /sign out/i }));
 
     expect(signOut).toHaveBeenCalled();
+  });
+
+  it('shows the Azure tab and the Compare tab, and switches to each', async () => {
+    const user = userEvent.setup();
+    render(<AppShell userId="client-1" role="client" companyId="c1" />);
+
+    await user.click(screen.getByRole('tab', { name: /azure/i }));
+    expect(screen.getByText('report-tab-content for azure')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: /compare/i }));
+    expect(screen.getByText('compare-tab-content')).toBeInTheDocument();
   });
 });
