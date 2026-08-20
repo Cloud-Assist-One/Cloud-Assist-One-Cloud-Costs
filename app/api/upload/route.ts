@@ -50,40 +50,56 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: insertFileError?.message ?? 'Could not record the upload.' }, { status: 500 });
   }
 
-  const { rows, errors } = parseCostFile(fileBuffer);
+  try {
+    const { rows, errors } = parseCostFile(fileBuffer);
 
-  if (rows.length === 0) {
+    if (rows.length === 0) {
+      // Best-effort: if this update fails, the row is left at 'processing', but
+      // the response below still reports the parse error to the caller.
+      await adminClient
+        .from('uploaded_files')
+        .update({ status: 'error', error_message: errors.join(' ') || 'No valid rows found.' })
+        .eq('id', uploadedFile.id);
+      return NextResponse.json({ uploadedFileId: uploadedFile.id, status: 'error', errors });
+    }
+
+    const { error: insertRecordsError } = await adminClient.from('cost_records').insert(
+      rows.map((row) => ({
+        company_id: companyId,
+        cloud_provider: cloudProvider,
+        service_name: row.service_name,
+        usage_date: row.usage_date,
+        cost: row.cost,
+        account_id: row.account_id,
+        source_file_id: uploadedFile.id,
+      }))
+    );
+
+    if (insertRecordsError) {
+      // Best-effort update; see note above.
+      await adminClient
+        .from('uploaded_files')
+        .update({ status: 'error', error_message: insertRecordsError.message })
+        .eq('id', uploadedFile.id);
+      return NextResponse.json({ uploadedFileId: uploadedFile.id, status: 'error', errors: [insertRecordsError.message] });
+    }
+
+    // Best-effort update; see note above.
     await adminClient
       .from('uploaded_files')
-      .update({ status: 'error', error_message: errors.join(' ') || 'No valid rows found.' })
+      .update({ status: 'processed', row_count: rows.length })
       .eq('id', uploadedFile.id);
-    return NextResponse.json({ uploadedFileId: uploadedFile.id, status: 'error', errors });
-  }
 
-  const { error: insertRecordsError } = await adminClient.from('cost_records').insert(
-    rows.map((row) => ({
-      company_id: companyId,
-      cloud_provider: cloudProvider,
-      service_name: row.service_name,
-      usage_date: row.usage_date,
-      cost: row.cost,
-      account_id: row.account_id,
-      source_file_id: uploadedFile.id,
-    }))
-  );
-
-  if (insertRecordsError) {
+    return NextResponse.json({ uploadedFileId: uploadedFile.id, status: 'processed', rowCount: rows.length });
+  } catch (err) {
+    // parseCostFile (via XLSX.read) throws on corrupted/unparseable binary
+    // input rather than returning an error — catch that here so the
+    // uploaded_files row never gets stuck at 'processing'.
+    const message = err instanceof Error ? err.message : 'Could not process the file.';
     await adminClient
       .from('uploaded_files')
-      .update({ status: 'error', error_message: insertRecordsError.message })
+      .update({ status: 'error', error_message: message })
       .eq('id', uploadedFile.id);
-    return NextResponse.json({ uploadedFileId: uploadedFile.id, status: 'error', errors: [insertRecordsError.message] });
+    return NextResponse.json({ uploadedFileId: uploadedFile.id, status: 'error', errors: [message] }, { status: 500 });
   }
-
-  await adminClient
-    .from('uploaded_files')
-    .update({ status: 'processed', row_count: rows.length })
-    .eq('id', uploadedFile.id);
-
-  return NextResponse.json({ uploadedFileId: uploadedFile.id, status: 'processed', rowCount: rows.length });
 }
