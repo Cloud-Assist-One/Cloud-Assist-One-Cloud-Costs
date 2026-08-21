@@ -6,15 +6,24 @@ import ThemeToggle from './ThemeToggle';
 
 const setTheme = jest.fn();
 let mockTheme = 'system';
+// Real next-themes has no access to localStorage during server rendering, so
+// theme is unresolved there; the client's first render already has it. `renderPhase`
+// lets the hydration test below simulate that asymmetry explicitly (jsdom runs both
+// renderToString and hydrateRoot in the same environment, so nothing does this for us).
+let renderPhase: 'server' | 'client' = 'client';
 
 jest.mock('next-themes', () => ({
-  useTheme: () => ({ theme: mockTheme, setTheme: (...args: unknown[]) => setTheme(...args) }),
+  useTheme: () => ({
+    theme: renderPhase === 'server' ? undefined : mockTheme,
+    setTheme: (...args: unknown[]) => setTheme(...args),
+  }),
 }));
 
 describe('ThemeToggle', () => {
   beforeEach(() => {
     setTheme.mockReset();
     mockTheme = 'system';
+    renderPhase = 'client';
   });
 
   it('cycles from system to light when clicked', async () => {
@@ -48,9 +57,11 @@ describe('ThemeToggle', () => {
 
   it('does not cause a hydration mismatch when a non-system theme is already persisted', () => {
     mockTheme = 'dark';
+    renderPhase = 'server';
     const container = document.createElement('div');
     container.innerHTML = renderToString(<ThemeToggle />);
 
+    renderPhase = 'client';
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
     act(() => {
       hydrateRoot(container, <ThemeToggle />);
