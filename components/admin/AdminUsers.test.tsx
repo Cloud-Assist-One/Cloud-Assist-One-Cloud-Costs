@@ -57,4 +57,31 @@ describe('AdminUsers', () => {
       )
     );
   });
+
+  it('deletes a user after confirmation and refreshes the list', async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          users: [{ id: 'u1', email: 'client@example.com', role: 'client', company_id: 'c1', created_at: '2026-07-01T00:00:00.000Z' }],
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ deleted: true }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ users: [] }) });
+
+    const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = userEvent.setup();
+    render(<AdminUsers />);
+
+    await screen.findByText('client@example.com');
+    await user.click(screen.getByRole('button', { name: /delete/i }));
+
+    expect(confirmSpy).toHaveBeenCalled();
+    await waitFor(() =>
+      expect(global.fetch).toHaveBeenCalledWith('/api/admin/users/u1', expect.objectContaining({ method: 'DELETE' }))
+    );
+    await waitFor(() => expect(screen.getByText('No users yet.')).toBeInTheDocument());
+
+    confirmSpy.mockRestore();
+  });
 });

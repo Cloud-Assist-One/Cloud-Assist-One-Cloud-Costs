@@ -9,23 +9,46 @@ export default function AdminCompanies() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const loadCompanies = useCallback(async () => {
+  const fetchCompanies = useCallback(async () => {
     const supabase = createClient();
     const { data } = await supabase.from('companies').select('*').order('name', { ascending: true });
-    setCompanies(data ?? []);
-    setLoading(false);
+    return (data ?? []) as Company[];
   }, []);
 
+  const loadCompanies = useCallback(async () => {
+    const companyList = await fetchCompanies();
+    setCompanies(companyList);
+    setLoading(false);
+  }, [fetchCompanies]);
+
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadCompanies();
-  }, [loadCompanies]);
+    let cancelled = false;
+
+    async function load() {
+      const companyList = await fetchCompanies();
+      if (!cancelled) {
+        setCompanies(companyList);
+        setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchCompanies]);
 
   async function handleCreate() {
     if (!name.trim()) return;
+    setError(null);
     const supabase = createClient();
-    await supabase.from('companies').insert({ name: name.trim() });
+    const { error: insertError } = await supabase.from('companies').insert({ name: name.trim() });
+    if (insertError) {
+      setError(insertError.message ?? 'Could not create the company.');
+      return;
+    }
     setName('');
     loadCompanies();
   }
@@ -40,6 +63,8 @@ export default function AdminCompanies() {
           Create company
         </button>
       </div>
+
+      {error && <p role="alert">{error}</p>}
 
       {loading ? (
         <p>Loading…</p>

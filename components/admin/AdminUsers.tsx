@@ -15,28 +15,51 @@ export default function AdminUsers() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadUsers = useCallback(async () => {
+  const fetchUsers = useCallback(async () => {
     const response = await fetch('/api/admin/users');
     const body = await response.json();
-    setUsers(body.users ?? []);
-    setLoading(false);
+    return (body.users ?? []) as Profile[];
   }, []);
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadUsers();
-  }, [loadUsers]);
+  const loadUsers = useCallback(async () => {
+    const userList = await fetchUsers();
+    setUsers(userList);
+    setLoading(false);
+  }, [fetchUsers]);
 
   useEffect(() => {
-    const supabase = createClient();
-    supabase
-      .from('companies')
-      .select('*')
-      .order('name', { ascending: true })
-      .then(({ data }) => {
+    let cancelled = false;
+
+    async function load() {
+      const userList = await fetchUsers();
+      if (!cancelled) {
+        setUsers(userList);
+        setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchUsers]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      const supabase = createClient();
+      const { data } = await supabase.from('companies').select('*').order('name', { ascending: true });
+      if (!cancelled) {
         setCompanies(data ?? []);
         if (data && data.length > 0) setCompanyId(data[0].id);
-      });
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   function companyName(id: string | null): string {
@@ -58,6 +81,18 @@ export default function AdminUsers() {
     }
     setEmail('');
     setPassword('');
+    loadUsers();
+  }
+
+  async function handleDelete(user: Profile) {
+    if (!window.confirm(`Delete ${user.email}? This cannot be undone.`)) return;
+    setError(null);
+    const response = await fetch(`/api/admin/users/${user.id}`, { method: 'DELETE' });
+    const body = await response.json();
+    if (!response.ok) {
+      setError(body.error ?? 'Could not delete the user.');
+      return;
+    }
     loadUsers();
   }
 
@@ -108,6 +143,7 @@ export default function AdminUsers() {
               <th>Email</th>
               <th>Role</th>
               <th>Company</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -116,6 +152,11 @@ export default function AdminUsers() {
                 <td>{u.email}</td>
                 <td>{u.role}</td>
                 <td>{companyName(u.company_id)}</td>
+                <td>
+                  <button type="button" className={styles.deleteButton} onClick={() => handleDelete(u)}>
+                    Delete
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
