@@ -47,10 +47,17 @@ describe('CompareTab', () => {
 
     render(<CompareTab companyId="company-1" />);
 
-    expect(await screen.findByText('$15.00')).toBeInTheDocument();
-    expect(screen.getAllByText('$8.00')[0]).toBeInTheDocument();
-    expect(screen.getAllByText('AWS')[0]).toBeInTheDocument();
-    expect(screen.getAllByText('Azure')[0]).toBeInTheDocument();
+    // Find AWS card by heading (h3) and verify it shows $15.00
+    const awsHeading = await screen.findByRole('heading', { name: 'AWS' });
+    const awsCard = awsHeading.closest('.card');
+    expect(awsCard).not.toBeNull();
+    expect(awsCard as HTMLElement).toHaveTextContent('$15.00');
+
+    // Find Azure card by heading (h3) and verify it shows $8.00
+    const azureHeading = screen.getByRole('heading', { name: 'Azure' });
+    const azureCard = azureHeading.closest('.card');
+    expect(azureCard).not.toBeNull();
+    expect(azureCard as HTMLElement).toHaveTextContent('$8.00');
   });
 
   it('shows a category-level breakdown table for overlapping service types', async () => {
