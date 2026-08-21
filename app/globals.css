@@ -46,6 +46,16 @@
 }
 
 .dark {
+  /* --color-bg/--color-bg-alt/--color-fg get real dark values here (matching
+     --background/--card/--foreground below) so every not-yet-migrated
+     component -- which reads these 3 directly, not through shadcn's tokens --
+     also darkens correctly. Light-mode values are untouched (still exactly
+     the original 3 colors), so this only adds dark-mode reactivity; it
+     doesn't change what any component looks like today. */
+  --color-bg: #0b1220;
+  --color-bg-alt: #121b2e;
+  --color-fg: #e6edf7;
+
   --background: #0b1220;
   --foreground: #e6edf7;
   --card: #121b2e;
