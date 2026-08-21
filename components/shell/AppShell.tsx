@@ -10,6 +10,9 @@ import CompareTab from '../reports/CompareTab';
 import NotesFeed from '../notes/NotesFeed';
 import AdminCompanies from '../admin/AdminCompanies';
 import AdminUsers from '../admin/AdminUsers';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
+import ThemeToggle from './ThemeToggle';
 import styles from './AppShell.module.css';
 
 type TabKey = 'aws' | 'azure' | 'compare' | 'files' | 'notes' | 'admin';
@@ -75,33 +78,22 @@ export default function AppShell({ userId, role, companyId }: AppShellProps) {
             </select>
           </div>
         )}
-        <button type="button" className={styles.signOut} onClick={handleSignOut}>
+        <Button type="button" variant="outline" size="sm" onClick={handleSignOut}>
           Sign out
-        </button>
+        </Button>
+        <ThemeToggle />
       </div>
 
-      <div className={styles.tabList} role="tablist">
-        <button type="button" role="tab" aria-selected={activeTab === 'aws'} onClick={() => setActiveTab('aws')}>
-          AWS
-        </button>
-        <button type="button" role="tab" aria-selected={activeTab === 'azure'} onClick={() => setActiveTab('azure')}>
-          Azure
-        </button>
-        <button type="button" role="tab" aria-selected={activeTab === 'compare'} onClick={() => setActiveTab('compare')}>
-          Compare
-        </button>
-        <button type="button" role="tab" aria-selected={activeTab === 'files'} onClick={() => setActiveTab('files')}>
-          Uploaded Files
-        </button>
-        <button type="button" role="tab" aria-selected={activeTab === 'notes'} onClick={() => setActiveTab('notes')}>
-          Notes & Follow-ups
-        </button>
-        {role === 'staff' && (
-          <button type="button" role="tab" aria-selected={activeTab === 'admin'} onClick={() => setActiveTab('admin')}>
-            Admin
-          </button>
-        )}
-      </div>
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TabKey)}>
+        <TabsList>
+          <TabsTrigger value="aws">AWS</TabsTrigger>
+          <TabsTrigger value="azure">Azure</TabsTrigger>
+          <TabsTrigger value="compare">Compare</TabsTrigger>
+          <TabsTrigger value="files">Uploaded Files</TabsTrigger>
+          <TabsTrigger value="notes">Notes & Follow-ups</TabsTrigger>
+          {role === 'staff' && <TabsTrigger value="admin">Admin</TabsTrigger>}
+        </TabsList>
+      </Tabs>
 
       <div className={styles.panel}>
         {activeTab === 'admin' && role === 'staff' ? (
