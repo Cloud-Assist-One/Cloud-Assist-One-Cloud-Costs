@@ -111,7 +111,7 @@ export default function CostReportTab({ companyId, cloudProvider }: CostReportTa
                 <XAxis dataKey="date" />
                 <YAxis />
                 <Tooltip />
-                <Line type="monotone" dataKey="total" stroke="#2258d3" />
+                <Line type="monotone" dataKey="total" stroke="var(--primary)" />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -122,7 +122,7 @@ export default function CostReportTab({ companyId, cloudProvider }: CostReportTa
                 <XAxis dataKey="service_name" />
                 <YAxis />
                 <Tooltip />
-                <Bar dataKey="total" fill="#2258d3" />
+                <Bar dataKey="total" fill="var(--primary)" />
               </BarChart>
             </ResponsiveContainer>
           </div>
