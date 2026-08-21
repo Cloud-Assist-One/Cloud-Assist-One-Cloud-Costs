@@ -20,16 +20,16 @@
      from the @theme inline block below instead of a standalone line --
      Tailwind v4's @theme directives compile to real, usable :root custom
      properties, not just internal engine-only registrations.
-     Task 3 (a later task) remaps the remaining generic shadcn defaults below
+     Task 3 remapped the remaining generic shadcn defaults below
      (background/foreground/card/primary/secondary/destructive/radius) to
      full brand colors, including real dark-mode values under .dark. */
   --background: #ffffff;
   --foreground: #0f2540;
-  --card: #ffffff;
+  --card: #f3f6fa;
   --card-foreground: #0f2540;
-  --popover: #ffffff;
+  --popover: #f3f6fa;
   --popover-foreground: #0f2540;
-  --primary: #0f2540;
+  --primary: #2258d3;
   --primary-foreground: #ffffff;
   --secondary: #f3f6fa;
   --secondary-foreground: #0f2540;
@@ -37,12 +37,34 @@
   --muted-foreground: #64748b;
   --accent: #2258d3;
   --accent-foreground: #ffffff;
-  --destructive: #b3261e;
+  --destructive: #d1274b;
   --destructive-foreground: #ffffff;
   --border: #dce3ec;
   --input: #dce3ec;
   --ring: #64748b;
   --radius: 0.5rem;
+}
+
+.dark {
+  --background: #0b1220;
+  --foreground: #e6edf7;
+  --card: #121b2e;
+  --card-foreground: #e6edf7;
+  --popover: #121b2e;
+  --popover-foreground: #e6edf7;
+  --primary: #5b8def;
+  --primary-foreground: #0b1220;
+  --secondary: #121b2e;
+  --secondary-foreground: #e6edf7;
+  --muted: #121b2e;
+  --muted-foreground: #94a3b8;
+  --accent: #5b8def;
+  --accent-foreground: #0b1220;
+  --destructive: #f2596b;
+  --destructive-foreground: #0b1220;
+  --border: #243248;
+  --input: #243248;
+  --ring: #94a3b8;
 }
 
 @theme inline {
