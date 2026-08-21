@@ -34,3 +34,24 @@ export async function requireCompanyAccess(companyId: string): Promise<AccessGua
 
   return { authorized: false, status: 403, message: 'You do not have access to this company.' };
 }
+
+type StaffGuardResult = { authorized: true; userId: string } | { authorized: false; status: number; message: string };
+
+export async function requireStaff(): Promise<StaffGuardResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { authorized: false, status: 401, message: 'Not signed in.' };
+  }
+
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+
+  if (profile?.role !== 'staff') {
+    return { authorized: false, status: 403, message: 'Staff access required.' };
+  }
+
+  return { authorized: true, userId: user.id };
+}
