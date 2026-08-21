@@ -49,7 +49,7 @@
   padding: 0.25rem 0.85rem;
   cursor: pointer;
   font: inherit;
-  color: var(--color-muted);
+  color: var(--muted-foreground);
 }
 
 .deleteButton:hover {

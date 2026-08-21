@@ -49,11 +49,11 @@
 
 .done {
   text-decoration: line-through;
-  color: var(--color-muted);
+  color: var(--muted-foreground);
 }
 
 .timestamp {
-  color: var(--color-muted);
+  color: var(--muted-foreground);
   font-size: 0.8rem;
 }
 
