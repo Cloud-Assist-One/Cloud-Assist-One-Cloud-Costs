@@ -1,13 +1,74 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:is(.dark *));
+
 :root {
   --color-bg: #ffffff;
   --color-bg-alt: #f3f6fa;
   --color-fg: #0f2540;
-  --color-border: #dce3ec;
-  --color-accent: #2258d3;
-  --color-muted: #64748b;
   --radius-pill: 999px;
+
+  /* shadcn/ui theme tokens. --accent, --border, and --muted-foreground below
+     intentionally converge with this project's pre-existing --color-accent/
+     --color-border/--color-muted concepts (Tailwind v4's @theme convention
+     requires these exact slot names for bg-accent/border-border/etc. utility
+     classes to work) -- their values are set to match the original colors
+     exactly, so every not-yet-migrated component's appearance is unchanged.
+     The standalone --color-accent/--color-border/--color-muted declarations
+     that used to live here are gone; they're still fully defined and
+     readable via var(--color-accent) etc. by any component, now compiled
+     from the @theme inline block below instead of a standalone line --
+     Tailwind v4's @theme directives compile to real, usable :root custom
+     properties, not just internal engine-only registrations.
+     Task 3 (a later task) remaps the remaining generic shadcn defaults below
+     (background/foreground/card/primary/secondary/destructive/radius) to
+     full brand colors, including real dark-mode values under .dark. */
+  --background: #ffffff;
+  --foreground: #0f2540;
+  --card: #ffffff;
+  --card-foreground: #0f2540;
+  --popover: #ffffff;
+  --popover-foreground: #0f2540;
+  --primary: #0f2540;
+  --primary-foreground: #ffffff;
+  --secondary: #f3f6fa;
+  --secondary-foreground: #0f2540;
+  --muted: #f3f6fa;
+  --muted-foreground: #64748b;
+  --accent: #2258d3;
+  --accent-foreground: #ffffff;
+  --destructive: #b3261e;
+  --destructive-foreground: #ffffff;
+  --border: #dce3ec;
+  --input: #dce3ec;
+  --ring: #64748b;
+  --radius: 0.5rem;
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
 }
 
 * {
