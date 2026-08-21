@@ -7,9 +7,12 @@ import type { Company, ProfileRole } from '@/lib/types';
 import UploadedFilesList from '../files/UploadedFilesList';
 import CostReportTab from '../reports/CostReportTab';
 import CompareTab from '../reports/CompareTab';
+import NotesFeed from '../notes/NotesFeed';
+import AdminCompanies from '../admin/AdminCompanies';
+import AdminUsers from '../admin/AdminUsers';
 import styles from './AppShell.module.css';
 
-type TabKey = 'aws' | 'azure' | 'compare' | 'files';
+type TabKey = 'aws' | 'azure' | 'compare' | 'files' | 'notes' | 'admin';
 
 interface AppShellProps {
   userId: string;
@@ -17,7 +20,7 @@ interface AppShellProps {
   companyId: string | null;
 }
 
-export default function AppShell({ role, companyId }: AppShellProps) {
+export default function AppShell({ userId, role, companyId }: AppShellProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('aws');
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(companyId);
@@ -90,10 +93,23 @@ export default function AppShell({ role, companyId }: AppShellProps) {
         <button type="button" role="tab" aria-selected={activeTab === 'files'} onClick={() => setActiveTab('files')}>
           Uploaded Files
         </button>
+        <button type="button" role="tab" aria-selected={activeTab === 'notes'} onClick={() => setActiveTab('notes')}>
+          Notes & Follow-ups
+        </button>
+        {role === 'staff' && (
+          <button type="button" role="tab" aria-selected={activeTab === 'admin'} onClick={() => setActiveTab('admin')}>
+            Admin
+          </button>
+        )}
       </div>
 
       <div className={styles.panel}>
-        {!effectiveCompanyId ? (
+        {activeTab === 'admin' && role === 'staff' ? (
+          <div className={styles.adminSections}>
+            <AdminCompanies />
+            <AdminUsers />
+          </div>
+        ) : !effectiveCompanyId ? (
           <p>Select a company to view its data.</p>
         ) : (
           <>
@@ -101,6 +117,9 @@ export default function AppShell({ role, companyId }: AppShellProps) {
             {activeTab === 'azure' && <CostReportTab companyId={effectiveCompanyId} cloudProvider="azure" />}
             {activeTab === 'compare' && <CompareTab companyId={effectiveCompanyId} />}
             {activeTab === 'files' && <UploadedFilesList companyId={effectiveCompanyId} />}
+            {activeTab === 'notes' && (
+              <NotesFeed companyId={effectiveCompanyId} userId={userId} isStaff={role === 'staff'} />
+            )}
           </>
         )}
       </div>

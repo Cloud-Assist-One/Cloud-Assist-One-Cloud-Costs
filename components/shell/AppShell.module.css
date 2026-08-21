@@ -59,3 +59,9 @@
   color: var(--color-accent);
   border-bottom-color: var(--color-accent);
 }
+
+.adminSections {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+}
