@@ -20,10 +20,17 @@ export async function DELETE(_request: Request, context: RouteContext<'/api/admi
     .from('profiles')
     .select('role')
     .eq('id', id)
-    .single();
+    .maybeSingle();
 
-  if (targetError || !target) {
-    return NextResponse.json({ error: targetError?.message ?? 'User not found.' }, { status: 404 });
+  // A genuine query failure must not be reported as "not found", and PostgREST's
+  // raw message must not reach the client.
+  if (targetError) {
+    console.error('Failed to look up profile before delete:', targetError);
+    return NextResponse.json({ error: 'Could not look up that user.' }, { status: 500 });
+  }
+
+  if (!target) {
+    return NextResponse.json({ error: 'User not found.' }, { status: 404 });
   }
 
   // Deleting the last staff account would permanently lock the org out of the
@@ -35,7 +42,8 @@ export async function DELETE(_request: Request, context: RouteContext<'/api/admi
       .eq('role', 'staff');
 
     if (countError) {
-      return NextResponse.json({ error: countError.message }, { status: 500 });
+      console.error('Failed to count staff profiles before delete:', countError);
+      return NextResponse.json({ error: 'Could not verify the remaining staff accounts.' }, { status: 500 });
     }
 
     if ((count ?? 0) <= 1) {

@@ -85,7 +85,13 @@ export default function AdminUsers() {
   }
 
   async function handleDelete(user: Profile) {
-    if (!window.confirm(`Delete ${user.email}? This cannot be undone.`)) return;
+    // review_notes.author_id, review_todos.created_by, and time_entries.staff_id
+    // all cascade from profiles, so the delete takes billing-relevant data with it.
+    const confirmed = window.confirm(
+      `Delete ${user.email}? This permanently deletes their account and ALL notes, follow-ups, ` +
+        `and logged time entries they created across every company. This cannot be undone.`
+    );
+    if (!confirmed) return;
     setError(null);
     const response = await fetch(`/api/admin/users/${user.id}`, { method: 'DELETE' });
     const body = await response.json();
