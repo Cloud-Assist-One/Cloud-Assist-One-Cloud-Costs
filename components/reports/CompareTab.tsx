@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { CostRecord } from '@/lib/types';
-import { totalCost } from '@/lib/reportAggregation';
+import { aggregateByCategoryComparison, totalCost } from '@/lib/reportAggregation';
+import { categorizeService } from '@/lib/serviceCategory';
 import { computeDateRange, shiftReferenceDate, type Granularity } from '@/lib/dateRange';
 import DateRangePicker from './DateRangePicker';
 import styles from './CompareTab.module.css';
@@ -80,6 +81,10 @@ export default function CompareTab({ companyId }: CompareTabProps) {
   const azureRecords = useMemo(() => records.filter((r) => r.cloud_provider === 'azure'), [records]);
   const awsTotal = useMemo(() => totalCost(awsRecords), [awsRecords]);
   const azureTotal = useMemo(() => totalCost(azureRecords), [azureRecords]);
+  const categoryComparison = useMemo(
+    () => aggregateByCategoryComparison(records, categorizeService),
+    [records]
+  );
 
   return (
     <div className={styles.wrapper}>
@@ -100,16 +105,36 @@ export default function CompareTab({ companyId }: CompareTabProps) {
       ) : records.length === 0 ? (
         <p>No cost data for this range.</p>
       ) : (
-        <div className={styles.cards}>
-          <div className={styles.card}>
-            <h3>AWS</h3>
-            <p className={styles.total}>{formatCurrency(awsTotal)}</p>
+        <>
+          <div className={styles.cards}>
+            <div className={styles.card}>
+              <h3>AWS</h3>
+              <p className={styles.total}>{formatCurrency(awsTotal)}</p>
+            </div>
+            <div className={styles.card}>
+              <h3>Azure</h3>
+              <p className={styles.total}>{formatCurrency(azureTotal)}</p>
+            </div>
           </div>
-          <div className={styles.card}>
-            <h3>Azure</h3>
-            <p className={styles.total}>{formatCurrency(azureTotal)}</p>
-          </div>
-        </div>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>AWS</th>
+                <th>Azure</th>
+              </tr>
+            </thead>
+            <tbody>
+              {categoryComparison.map((row) => (
+                <tr key={row.category}>
+                  <td>{row.category}</td>
+                  <td>{formatCurrency(row.aws)}</td>
+                  <td>{formatCurrency(row.azure)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
       )}
     </div>
   );

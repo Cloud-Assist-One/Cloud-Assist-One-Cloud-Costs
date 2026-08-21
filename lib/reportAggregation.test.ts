@@ -1,4 +1,4 @@
-import { aggregateByDate, aggregateByService, totalCost } from './reportAggregation';
+import { aggregateByCategoryComparison, aggregateByDate, aggregateByService, totalCost } from './reportAggregation';
 
 const records = [
   { service_name: 'Amazon EC2', usage_date: '2026-07-01', cost: 10 },
@@ -35,5 +35,26 @@ describe('totalCost', () => {
 
   it('returns 0 for no records', () => {
     expect(totalCost([])).toBe(0);
+  });
+});
+
+describe('aggregateByCategoryComparison', () => {
+  const categorize = (serviceName: string) => (serviceName.includes('EC2') || serviceName.includes('App Service') ? 'Compute' : 'Storage');
+
+  it('sums cost per category, split by cloud provider', () => {
+    const mixedRecords = [
+      { service_name: 'Amazon EC2', cloud_provider: 'aws' as const, cost: 10 },
+      { service_name: 'Azure App Service', cloud_provider: 'azure' as const, cost: 8 },
+      { service_name: 'Amazon S3', cloud_provider: 'aws' as const, cost: 3 },
+    ];
+
+    expect(aggregateByCategoryComparison(mixedRecords, categorize)).toEqual([
+      { category: 'Compute', aws: 10, azure: 8 },
+      { category: 'Storage', aws: 3, azure: 0 },
+    ]);
+  });
+
+  it('returns an empty array for no records', () => {
+    expect(aggregateByCategoryComparison([], categorize)).toEqual([]);
   });
 });

@@ -48,8 +48,33 @@ describe('CompareTab', () => {
     render(<CompareTab companyId="company-1" />);
 
     expect(await screen.findByText('$15.00')).toBeInTheDocument();
-    expect(screen.getByText('$8.00')).toBeInTheDocument();
-    expect(screen.getByText('AWS')).toBeInTheDocument();
-    expect(screen.getByText('Azure')).toBeInTheDocument();
+    expect(screen.getAllByText('$8.00')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('AWS')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('Azure')[0]).toBeInTheDocument();
+  });
+
+  it('shows a category-level breakdown table for overlapping service types', async () => {
+    loadRecords.mockResolvedValueOnce({
+      data: [
+        { id: 'r1', cloud_provider: 'aws', service_name: 'Amazon EC2', usage_date: '2026-07-01', cost: 10 },
+        { id: 'r2', cloud_provider: 'azure', service_name: 'Azure App Service', usage_date: '2026-07-01', cost: 8 },
+        { id: 'r3', cloud_provider: 'aws', service_name: 'Amazon S3', usage_date: '2026-07-02', cost: 3 },
+      ],
+    });
+
+    render(<CompareTab companyId="company-1" />);
+
+    expect(await screen.findByText('Compute')).toBeInTheDocument();
+    expect(screen.getByText('Storage')).toBeInTheDocument();
+
+    const computeRow = screen.getByText('Compute').closest('tr');
+    expect(computeRow).not.toBeNull();
+    expect(computeRow as HTMLElement).toHaveTextContent('$10.00');
+    expect(computeRow as HTMLElement).toHaveTextContent('$8.00');
+
+    const storageRow = screen.getByText('Storage').closest('tr');
+    expect(storageRow).not.toBeNull();
+    expect(storageRow as HTMLElement).toHaveTextContent('$3.00');
+    expect(storageRow as HTMLElement).toHaveTextContent('$0.00');
   });
 });

@@ -37,3 +37,31 @@ export function aggregateByService(records: AggregatableCostRecord[]): CostBySer
 export function totalCost(records: AggregatableCostRecord[]): number {
   return records.reduce((sum, record) => sum + record.cost, 0);
 }
+
+export interface CategoryComparisonRow {
+  category: string;
+  aws: number;
+  azure: number;
+}
+
+export interface CategorizableCostRecord {
+  service_name: string;
+  cloud_provider: 'aws' | 'azure';
+  cost: number;
+}
+
+export function aggregateByCategoryComparison(
+  records: CategorizableCostRecord[],
+  categorize: (serviceName: string) => string
+): CategoryComparisonRow[] {
+  const totals = new Map<string, { aws: number; azure: number }>();
+  for (const record of records) {
+    const category = categorize(record.service_name);
+    const entry = totals.get(category) ?? { aws: 0, azure: 0 };
+    entry[record.cloud_provider] += record.cost;
+    totals.set(category, entry);
+  }
+  return Array.from(totals.entries())
+    .map(([category, { aws, azure }]) => ({ category, aws, azure }))
+    .sort((a, b) => b.aws + b.azure - (a.aws + a.azure));
+}
