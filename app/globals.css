@@ -1,4 +1,5 @@
-@import "tailwindcss";
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
 
 @custom-variant dark (&:is(.dark *));
 
@@ -8,18 +9,22 @@
   --color-fg: #0f2540;
   --radius-pill: 999px;
 
-  /* shadcn/ui theme tokens. --accent, --border, and --muted-foreground below
-     intentionally converge with this project's pre-existing --color-accent/
-     --color-border/--color-muted concepts (Tailwind v4's @theme convention
-     requires these exact slot names for bg-accent/border-border/etc. utility
-     classes to work) -- their values are set to match the original colors
-     exactly, so every not-yet-migrated component's appearance is unchanged.
-     The standalone --color-accent/--color-border/--color-muted declarations
-     that used to live here are gone; they're still fully defined and
-     readable via var(--color-accent) etc. by any component, now compiled
-     from the @theme inline block below instead of a standalone line --
-     Tailwind v4's @theme directives compile to real, usable :root custom
-     properties, not just internal engine-only registrations.
+  /* shadcn/ui theme tokens.
+     --accent and --border are value-preserving: they carry the same
+     light-mode values as the old standalone --color-accent/--color-border
+     declarations, and now also get real .dark overrides below, so any
+     component reading var(--color-accent)/var(--color-border)) directly is
+     unaffected in light mode and gains correct dark-mode reactivity for free.
+     --color-muted, by contrast, is REPURPOSED, not preserved: it used to hold
+     the muted TEXT color, but now resolves through --muted to a
+     background-tint value (matching --card). A component reading
+     var(--color-muted) for text color would now get a near-invisible
+     background tint instead -- the muted-text value moved to
+     var(--muted-foreground), and that's what text usages must reference.
+     Note also that Tailwind v4's @theme inline block only emits a --color-X
+     custom property for names actually referenced somewhere in a scanned
+     source file -- listing a slot in @theme inline does not by itself
+     guarantee var(--color-X) exists at runtime; emission is usage-driven.
      Task 3 remapped the remaining generic shadcn defaults below
      (background/foreground/card/primary/secondary/destructive/radius) to
      full brand colors, including real dark-mode values under .dark. */

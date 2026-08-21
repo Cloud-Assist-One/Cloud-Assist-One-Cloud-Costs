@@ -15,6 +15,9 @@ export default function ThemeToggle() {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    // Intentional one-time mount flag for the SSR/hydration guard below --
+    // not a case of deriving state from props/other state during render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
   }, []);
 
@@ -29,7 +32,13 @@ export default function ThemeToggle() {
   const label = mounted ? (theme === 'dark' ? 'Dark' : theme === 'light' ? 'Light' : 'System') : 'System';
 
   return (
-    <Button type="button" variant="ghost" size="sm" aria-label="Toggle theme" onClick={handleClick}>
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      aria-label={`Toggle theme (currently ${label})`}
+      onClick={handleClick}
+    >
       {label}
     </Button>
   );

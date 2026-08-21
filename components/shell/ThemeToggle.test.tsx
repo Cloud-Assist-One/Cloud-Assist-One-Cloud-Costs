@@ -1,5 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { renderToString } from 'react-dom/server';
+import { hydrateRoot } from 'react-dom/client';
 import ThemeToggle from './ThemeToggle';
 
 const setTheme = jest.fn();
@@ -42,5 +44,23 @@ describe('ThemeToggle', () => {
     await user.click(screen.getByRole('button', { name: /theme/i }));
 
     expect(setTheme).toHaveBeenCalledWith('system');
+  });
+
+  it('does not cause a hydration mismatch when a non-system theme is already persisted', () => {
+    mockTheme = 'dark';
+    const container = document.createElement('div');
+    container.innerHTML = renderToString(<ThemeToggle />);
+
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    act(() => {
+      hydrateRoot(container, <ThemeToggle />);
+    });
+
+    const hydrationErrors = consoleError.mock.calls.filter(
+      ([message]) => typeof message === 'string' && message.includes('Hydration')
+    );
+    expect(hydrationErrors).toHaveLength(0);
+
+    consoleError.mockRestore();
   });
 });

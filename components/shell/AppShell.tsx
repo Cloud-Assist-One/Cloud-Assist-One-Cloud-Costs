@@ -84,7 +84,7 @@ export default function AppShell({ userId, role, companyId }: AppShellProps) {
         <ThemeToggle />
       </div>
 
-      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TabKey)}>
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TabKey)} className="mb-6">
         <TabsList>
           <TabsTrigger value="aws">AWS</TabsTrigger>
           <TabsTrigger value="azure">Azure</TabsTrigger>

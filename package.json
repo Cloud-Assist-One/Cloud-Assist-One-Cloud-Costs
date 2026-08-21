@@ -14,7 +14,6 @@
     "@radix-ui/react-tabs": "^1.1.21",
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.112.3",
-    "@tailwindcss/postcss": "^4.3.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "next": "16.3.1",
@@ -23,10 +22,10 @@
     "react-dom": "19.2.8",
     "recharts": "^2.15.0",
     "tailwind-merge": "^3.6.0",
-    "tailwindcss": "^4.3.3",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.4",
@@ -37,6 +36,7 @@
     "eslint-config-next": "16.3.1",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5"
   }
 }
