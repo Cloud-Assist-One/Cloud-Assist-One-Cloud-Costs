@@ -22,25 +22,46 @@ export default function NotesFeed({ companyId, userId, isStaff }: NotesFeedProps
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
-  const loadAll = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     const supabase = createClient();
     const [notesResult, todosResult, timeEntriesResult] = await Promise.all([
       supabase.from('review_notes').select('*').eq('company_id', companyId).order('created_at', { ascending: false }),
       supabase.from('review_todos').select('*').eq('company_id', companyId).order('created_at', { ascending: false }),
       supabase.from('time_entries').select('*').eq('company_id', companyId).order('entry_date', { ascending: false }),
     ]);
-    setNotes(notesResult.data ?? []);
-    setTodos(todosResult.data ?? []);
-    setTimeEntries(timeEntriesResult.data ?? []);
-    setLoading(false);
+    return {
+      notes: notesResult.data ?? [],
+      todos: todosResult.data ?? [],
+      timeEntries: timeEntriesResult.data ?? [],
+    };
   }, [companyId]);
 
+  const loadAll = useCallback(async () => {
+    const result = await fetchAll();
+    setNotes(result.notes);
+    setTodos(result.todos);
+    setTimeEntries(result.timeEntries);
+    setLoading(false);
+  }, [fetchAll]);
+
   useEffect(() => {
+    let cancelled = false;
+
     async function load() {
-      await loadAll();
+      const result = await fetchAll();
+      if (!cancelled) {
+        setNotes(result.notes);
+        setTodos(result.todos);
+        setTimeEntries(result.timeEntries);
+        setLoading(false);
+      }
     }
+
     load();
-  }, [loadAll]);
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchAll]);
 
   async function handleAddNote() {
     if (!noteText.trim()) return;
