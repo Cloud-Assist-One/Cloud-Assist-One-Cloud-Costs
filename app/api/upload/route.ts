@@ -22,6 +22,18 @@ export async function POST(request: NextRequest) {
   }
 
   const adminClient = createAdminClient();
+
+  const { data: activePeriod, error: activePeriodError } = await adminClient
+    .from('billing_periods')
+    .select('id')
+    .eq('company_id', companyId)
+    .eq('status', 'active')
+    .single();
+
+  if (activePeriodError || !activePeriod) {
+    return NextResponse.json({ error: 'No active billing period found for this company.' }, { status: 500 });
+  }
+
   const storagePath = `${companyId}/${Date.now()}-${file.name}`;
   const fileBuffer = Buffer.from(await file.arrayBuffer());
 
@@ -77,6 +89,7 @@ export async function POST(request: NextRequest) {
       .delete()
       .eq('company_id', companyId)
       .eq('cloud_provider', cloudProvider)
+      .eq('period_id', activePeriod.id)
       .gte('usage_date', rangeStart)
       .lte('usage_date', rangeEnd);
 

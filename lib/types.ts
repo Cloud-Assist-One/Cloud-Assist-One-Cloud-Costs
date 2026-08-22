@@ -8,6 +8,16 @@ export interface Company {
   created_at: string;
 }
 
+export type BillingPeriodStatus = 'active' | 'archived';
+
+export interface BillingPeriod {
+  id: string;
+  company_id: string;
+  status: BillingPeriodStatus;
+  created_at: string;
+  archived_at: string | null;
+}
+
 export interface Profile {
   id: string;
   company_id: string | null;
@@ -19,6 +29,7 @@ export interface Profile {
 export interface UploadedFile {
   id: string;
   company_id: string;
+  period_id: string;
   cloud_provider: CloudProvider;
   filename: string;
   storage_path: string;
@@ -32,6 +43,7 @@ export interface UploadedFile {
 export interface CostRecord {
   id: string;
   company_id: string;
+  period_id: string;
   cloud_provider: CloudProvider;
   service_name: string;
   usage_date: string;
@@ -46,6 +58,7 @@ export type TodoStatus = 'open' | 'done';
 export interface ReviewNote {
   id: string;
   company_id: string;
+  period_id: string;
   cost_record_id: string | null;
   author_id: string;
   note_text: string | null;
@@ -56,6 +69,7 @@ export interface ReviewNote {
 export interface ReviewTodo {
   id: string;
   company_id: string;
+  period_id: string;
   cost_record_id: string | null;
   title: string;
   status: TodoStatus;
@@ -67,6 +81,7 @@ export interface ReviewTodo {
 export interface TimeEntry {
   id: string;
   company_id: string;
+  period_id: string;
   staff_id: string;
   entry_date: string;
   minutes_spent: number;
