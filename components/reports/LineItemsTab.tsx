@@ -121,7 +121,7 @@ export default function LineItemsTab({ companyId, periodId, initialServiceFilter
 
   return (
     <div className={styles.wrapper}>
-      <div className={styles.controls}>
+      <div className={`${styles.controls} print-hidden`}>
         <label htmlFor="line-items-provider">Provider</label>
         <select
           id="line-items-provider"
@@ -187,7 +187,7 @@ export default function LineItemsTab({ companyId, periodId, initialServiceFilter
             </TableBody>
           </Table>
 
-          <div className={styles.pagination}>
+          <div className={`${styles.pagination} print-hidden`}>
             <button type="button" disabled={pageIndex === 0} onClick={() => setPageIndex((p) => p - 1)}>
               Previous
             </button>

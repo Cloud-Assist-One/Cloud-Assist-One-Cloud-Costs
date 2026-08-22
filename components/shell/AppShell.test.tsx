@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AppShell from './AppShell';
 
@@ -36,7 +36,12 @@ jest.mock('./../admin/AdminUsers', () => ({
 }));
 jest.mock('./ArchiveTab', () => ({
   __esModule: true,
-  default: () => <div>archive-tab-content</div>,
+  default: ({ onSelectPeriod }: { onSelectPeriod: (periodId: string) => void }) => (
+    <div>
+      archive-tab-content
+      <button onClick={() => onSelectPeriod('archived-period-1')}>select archived period</button>
+    </div>
+  ),
 }));
 
 const signOut = jest.fn();
@@ -153,5 +158,53 @@ describe('AppShell', () => {
     await screen.findByText('report-tab-content for aws');
     await user.click(screen.getByRole('tab', { name: /archive/i }));
     expect(await screen.findByText('archive-tab-content')).toBeInTheDocument();
+  });
+
+  it('resets the archived-period view and line-items filter when switching companies', async () => {
+    listCompanies.mockResolvedValue({
+      data: [
+        { id: 'c1', name: 'Acme Corp', created_at: '2026-07-01T00:00:00.000Z' },
+        { id: 'c2', name: 'Globex', created_at: '2026-07-02T00:00:00.000Z' },
+      ],
+    });
+    const user = userEvent.setup();
+    render(<AppShell userId="staff-1" role="staff" companyId={null} />);
+
+    await screen.findByText('report-tab-content for aws');
+    await user.click(screen.getByRole('tab', { name: /archive/i }));
+    await user.click(screen.getByRole('button', { name: /select archived period/i }));
+
+    expect(await screen.findByText('Viewing archived period')).toBeInTheDocument();
+
+    listActivePeriod.mockClear();
+    await user.selectOptions(screen.getByLabelText(/viewing company/i), 'c2');
+
+    await waitFor(() => expect(listActivePeriod).toHaveBeenCalled());
+    expect(screen.queryByText('Viewing archived period')).not.toBeInTheDocument();
+  });
+
+  it('archives the current period on confirm and surfaces an error if the request fails', async () => {
+    const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
+    global.fetch = jest.fn();
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ error: 'No active billing period found for company c1' }),
+    });
+    const user = userEvent.setup();
+    render(<AppShell userId="client-1" role="client" companyId="c1" />);
+
+    await screen.findByText('report-tab-content for aws');
+    await user.click(screen.getByRole('button', { name: /archive this period/i }));
+
+    expect(confirmSpy).toHaveBeenCalled();
+    await waitFor(() =>
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/periods/archive',
+        expect.objectContaining({ method: 'POST' })
+      )
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent('No active billing period found for company c1');
+
+    confirmSpy.mockRestore();
   });
 });

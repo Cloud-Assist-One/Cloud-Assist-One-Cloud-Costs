@@ -132,4 +132,11 @@ a {
   .print-hidden {
     display: none !important;
   }
+
+  :root,
+  .dark {
+    --color-fg: #0f2540;
+    --color-bg: #ffffff;
+    --color-bg-alt: #ffffff;
+  }
 }

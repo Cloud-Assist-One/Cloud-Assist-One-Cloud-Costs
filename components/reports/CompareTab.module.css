@@ -4,6 +4,16 @@
   gap: 1rem;
 }
 
+.printButton {
+  align-self: flex-end;
+}
+
+.chart {
+  background: var(--color-bg-alt);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
 .cards {
   display: flex;
   gap: 1.5rem;

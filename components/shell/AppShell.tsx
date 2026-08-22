@@ -35,6 +35,7 @@ export default function AppShell({ userId, role, companyId }: AppShellProps) {
   const [activePeriodId, setActivePeriodId] = useState<string | null>(null);
   const [viewingPeriodId, setViewingPeriodId] = useState<string | null>(null);
   const [lineItemsFilter, setLineItemsFilter] = useState<string[] | undefined>(undefined);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -68,6 +69,7 @@ export default function AppShell({ userId, role, companyId }: AppShellProps) {
     async function loadActivePeriod() {
       setViewingPeriodId(null);
       setActivePeriodId(null);
+      setLineItemsFilter(undefined);
       if (!effectiveCompanyId) return;
 
       const supabase = createClient();
@@ -101,14 +103,21 @@ export default function AppShell({ userId, role, companyId }: AppShellProps) {
     );
     if (!confirmed) return;
 
-    const response = await fetch('/api/periods/archive', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ companyId: effectiveCompanyId }),
-    });
-    if (response.ok) {
+    setArchiveError(null);
+    try {
+      const response = await fetch('/api/periods/archive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId: effectiveCompanyId }),
+      });
       const body = await response.json();
+      if (!response.ok) {
+        setArchiveError(body.error ?? 'Could not archive this period.');
+        return;
+      }
       setActivePeriodId(body.newPeriodId);
+    } catch {
+      setArchiveError('Could not archive this period. Please check your connection and try again.');
     }
   }
 
@@ -167,10 +176,23 @@ export default function AppShell({ userId, role, companyId }: AppShellProps) {
       {viewingArchivedPeriod && (
         <div className={styles.archiveBanner}>
           <span>Viewing archived period</span>
-          <button type="button" onClick={() => setViewingPeriodId(null)}>
+          <button
+            type="button"
+            className="print-hidden"
+            onClick={() => {
+              setViewingPeriodId(null);
+              setLineItemsFilter(undefined);
+            }}
+          >
             Back to current
           </button>
         </div>
+      )}
+
+      {archiveError && (
+        <p role="alert" className={styles.archiveError}>
+          {archiveError}
+        </p>
       )}
 
       <div className={styles.panel}>

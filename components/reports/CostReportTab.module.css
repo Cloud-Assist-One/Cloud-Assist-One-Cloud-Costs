@@ -14,6 +14,10 @@
   font-size: 0.875rem;
 }
 
+.printButton {
+  align-self: flex-end;
+}
+
 .chart {
   background: var(--color-bg-alt);
   border-radius: 8px;
