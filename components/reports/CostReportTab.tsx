@@ -1,31 +1,27 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { CartesianGrid, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { createClient } from '@/lib/supabase/client';
 import type { CloudProvider, CostRecord } from '@/lib/types';
 import { aggregateByDate, aggregateByService, totalCost } from '@/lib/reportAggregation';
-import { computeDateRange, shiftReferenceDate, type Granularity } from '@/lib/dateRange';
-import DateRangePicker from './DateRangePicker';
 import styles from './CostReportTab.module.css';
 
 interface CostReportTabProps {
   companyId: string;
   cloudProvider: CloudProvider;
+  periodId: string;
+  onServiceClick?: (serviceName: string) => void;
 }
 
 function formatCurrency(amount: number): string {
   return `$${amount.toFixed(2)}`;
 }
 
-export default function CostReportTab({ companyId, cloudProvider }: CostReportTabProps) {
-  const [granularity, setGranularity] = useState<Granularity>('month');
-  const [referenceDate, setReferenceDate] = useState(() => new Date());
+export default function CostReportTab({ companyId, cloudProvider, periodId, onServiceClick }: CostReportTabProps) {
   const [records, setRecords] = useState<CostRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const range = useMemo(() => computeDateRange(granularity, referenceDate), [granularity, referenceDate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,8 +43,7 @@ export default function CostReportTab({ companyId, cloudProvider }: CostReportTa
           .select('*')
           .eq('company_id', companyId)
           .eq('cloud_provider', cloudProvider)
-          .gte('usage_date', range.start)
-          .lte('usage_date', range.end)
+          .eq('period_id', periodId)
           .order('id', { ascending: true })
           .range(offset, offset + pageSize - 1);
 
@@ -77,7 +72,7 @@ export default function CostReportTab({ companyId, cloudProvider }: CostReportTa
     return () => {
       cancelled = true;
     };
-  }, [companyId, cloudProvider, range.start, range.end]);
+  }, [companyId, cloudProvider, periodId]);
 
   const byDate = useMemo(() => aggregateByDate(records), [records]);
   const byService = useMemo(() => aggregateByService(records), [records]);
@@ -85,13 +80,9 @@ export default function CostReportTab({ companyId, cloudProvider }: CostReportTa
 
   return (
     <div className={styles.wrapper}>
-      <DateRangePicker
-        granularity={granularity}
-        onGranularityChange={setGranularity}
-        rangeLabel={`${range.start} – ${range.end}`}
-        onPrev={() => setReferenceDate((prev) => shiftReferenceDate(granularity, prev, -1))}
-        onNext={() => setReferenceDate((prev) => shiftReferenceDate(granularity, prev, 1))}
-      />
+      <button type="button" className={`${styles.printButton} print-hidden`} onClick={() => window.print()}>
+        Print
+      </button>
 
       {loading ? (
         <p>Loading…</p>
@@ -100,7 +91,7 @@ export default function CostReportTab({ companyId, cloudProvider }: CostReportTa
           {error}
         </p>
       ) : records.length === 0 ? (
-        <p>No cost data for this range.</p>
+        <p>No cost data for this period.</p>
       ) : (
         <>
           <p className={styles.total}>{formatCurrency(total)}</p>
@@ -108,10 +99,12 @@ export default function CostReportTab({ companyId, cloudProvider }: CostReportTa
           <div className={styles.chart}>
             <ResponsiveContainer width="100%" height={250}>
               <LineChart data={byDate}>
+                <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" />
                 <YAxis />
-                <Tooltip />
-                <Line type="monotone" dataKey="total" stroke="var(--primary)" />
+                <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                <Legend />
+                <Line type="monotone" dataKey="total" name="Daily total" stroke="var(--primary)" />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -119,10 +112,18 @@ export default function CostReportTab({ companyId, cloudProvider }: CostReportTa
           <div className={styles.chart}>
             <ResponsiveContainer width="100%" height={250}>
               <BarChart data={byService}>
+                <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="service_name" />
                 <YAxis />
-                <Tooltip />
-                <Bar dataKey="total" fill="var(--primary)" />
+                <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                <Legend />
+                <Bar
+                  dataKey="total"
+                  name="Cost by service"
+                  fill="var(--primary)"
+                  onClick={(data) => onServiceClick?.(data.service_name)}
+                  cursor={onServiceClick ? 'pointer' : undefined}
+                />
               </BarChart>
             </ResponsiveContainer>
           </div>

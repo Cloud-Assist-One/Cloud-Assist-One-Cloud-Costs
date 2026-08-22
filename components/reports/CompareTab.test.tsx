@@ -8,11 +8,9 @@ jest.mock('@/lib/supabase/client', () => ({
     from: () => ({
       select: () => ({
         eq: () => ({
-          gte: () => ({
-            lte: () => ({
-              order: () => ({
-                range: (...args: unknown[]) => loadRecords(...args),
-              }),
+          eq: () => ({
+            order: () => ({
+              range: (...args: unknown[]) => loadRecords(...args),
             }),
           }),
         }),
@@ -36,7 +34,7 @@ describe('CompareTab', () => {
     loadRecords.mockReset();
   });
 
-  it('shows separate AWS and Azure totals for the current range', async () => {
+  it('shows separate AWS and Azure totals for the period', async () => {
     loadRecords.mockResolvedValueOnce({
       data: [
         { id: 'r1', cloud_provider: 'aws', service_name: 'Amazon EC2', usage_date: '2026-07-01', cost: 10 },
@@ -45,15 +43,13 @@ describe('CompareTab', () => {
       ],
     });
 
-    render(<CompareTab companyId="company-1" />);
+    render(<CompareTab companyId="company-1" periodId="period-1" />);
 
-    // Find AWS card by heading (h3) and verify it shows $15.00
     const awsHeading = await screen.findByRole('heading', { name: 'AWS' });
     const awsCard = awsHeading.closest('.card');
     expect(awsCard).not.toBeNull();
     expect(awsCard as HTMLElement).toHaveTextContent('$15.00');
 
-    // Find Azure card by heading (h3) and verify it shows $8.00
     const azureHeading = screen.getByRole('heading', { name: 'Azure' });
     const azureCard = azureHeading.closest('.card');
     expect(azureCard).not.toBeNull();
@@ -69,7 +65,7 @@ describe('CompareTab', () => {
       ],
     });
 
-    render(<CompareTab companyId="company-1" />);
+    render(<CompareTab companyId="company-1" periodId="period-1" />);
 
     expect(await screen.findByText('Compute')).toBeInTheDocument();
     expect(screen.getByText('Storage')).toBeInTheDocument();

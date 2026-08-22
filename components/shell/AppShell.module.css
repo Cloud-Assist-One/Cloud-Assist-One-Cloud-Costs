@@ -31,3 +31,24 @@
   flex-direction: column;
   gap: 2.5rem;
 }
+
+.reportLayout {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+.reportContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.archiveBanner {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  margin-bottom: 1rem;
+  border-radius: var(--radius-pill, 0.5rem);
+  background: var(--color-bg-alt);
+}

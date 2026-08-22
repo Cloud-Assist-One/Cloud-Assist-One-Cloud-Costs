@@ -14,6 +14,14 @@ jest.mock('./../reports/CompareTab', () => ({
   __esModule: true,
   default: () => <div>compare-tab-content</div>,
 }));
+jest.mock('./../reports/LineItemsTab', () => ({
+  __esModule: true,
+  default: () => <div>line-items-tab-content</div>,
+}));
+jest.mock('./../reports/TrendSidebar', () => ({
+  __esModule: true,
+  default: () => <div>trend-sidebar-content</div>,
+}));
 jest.mock('./../notes/NotesFeed', () => ({
   __esModule: true,
   default: ({ isStaff }: { isStaff: boolean }) => <div>notes-feed-content isStaff={String(isStaff)}</div>,
@@ -26,14 +34,28 @@ jest.mock('./../admin/AdminUsers', () => ({
   __esModule: true,
   default: () => <div>admin-users-content</div>,
 }));
+jest.mock('./ArchiveTab', () => ({
+  __esModule: true,
+  default: () => <div>archive-tab-content</div>,
+}));
 
 const signOut = jest.fn();
 const listCompanies = jest.fn();
+const listActivePeriod = jest.fn();
 
 jest.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
     auth: { signOut: (...args: unknown[]) => signOut(...args) },
-    from: () => ({ select: () => ({ order: (...args: unknown[]) => listCompanies(...args) }) }),
+    from: (table: string) => {
+      if (table === 'billing_periods') {
+        return {
+          select: () => ({
+            eq: () => ({ eq: () => ({ single: (...args: unknown[]) => listActivePeriod(...args) }) }),
+          }),
+        };
+      }
+      return { select: () => ({ order: (...args: unknown[]) => listCompanies(...args) }) };
+    },
   }),
 }));
 
@@ -45,12 +67,13 @@ describe('AppShell', () => {
   beforeEach(() => {
     signOut.mockReset();
     listCompanies.mockReset();
+    listActivePeriod.mockReset().mockResolvedValue({ data: { id: 'period-1' } });
   });
 
   it('shows the AWS tab and the Uploaded Files tab for a client', async () => {
     render(<AppShell userId="client-1" role="client" companyId="c1" />);
 
-    expect(screen.getByText('report-tab-content for aws')).toBeInTheDocument();
+    expect(await screen.findByText('report-tab-content for aws')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /uploaded files/i })).toBeInTheDocument();
   });
 
@@ -58,9 +81,10 @@ describe('AppShell', () => {
     const user = userEvent.setup();
     render(<AppShell userId="client-1" role="client" companyId="c1" />);
 
+    await screen.findByText('report-tab-content for aws');
     await user.click(screen.getByRole('tab', { name: /uploaded files/i }));
 
-    expect(screen.getByText('files-tab-content')).toBeInTheDocument();
+    expect(await screen.findByText('files-tab-content')).toBeInTheDocument();
   });
 
   it('shows a company switcher for staff', async () => {
@@ -90,19 +114,21 @@ describe('AppShell', () => {
     const user = userEvent.setup();
     render(<AppShell userId="client-1" role="client" companyId="c1" />);
 
+    await screen.findByText('report-tab-content for aws');
     await user.click(screen.getByRole('tab', { name: /azure/i }));
-    expect(screen.getByText('report-tab-content for azure')).toBeInTheDocument();
+    expect(await screen.findByText('report-tab-content for azure')).toBeInTheDocument();
 
     await user.click(screen.getByRole('tab', { name: /compare/i }));
-    expect(screen.getByText('compare-tab-content')).toBeInTheDocument();
+    expect(await screen.findByText('compare-tab-content')).toBeInTheDocument();
   });
 
   it('shows the Notes & Follow-ups tab for a client, but not the Admin tab', async () => {
     const user = userEvent.setup();
     render(<AppShell userId="client-1" role="client" companyId="c1" />);
 
+    await screen.findByText('report-tab-content for aws');
     await user.click(screen.getByRole('tab', { name: /notes/i }));
-    expect(screen.getByText('notes-feed-content isStaff=false')).toBeInTheDocument();
+    expect(await screen.findByText('notes-feed-content isStaff=false')).toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: /admin/i })).not.toBeInTheDocument();
   });
 
@@ -111,11 +137,21 @@ describe('AppShell', () => {
     const user = userEvent.setup();
     render(<AppShell userId="staff-1" role="staff" companyId={null} />);
 
+    await screen.findByText('report-tab-content for aws');
     await user.click(screen.getByRole('tab', { name: /notes/i }));
-    expect(screen.getByText('notes-feed-content isStaff=true')).toBeInTheDocument();
+    expect(await screen.findByText('notes-feed-content isStaff=true')).toBeInTheDocument();
 
     await user.click(screen.getByRole('tab', { name: /admin/i }));
-    expect(screen.getByText('admin-companies-content')).toBeInTheDocument();
+    expect(await screen.findByText('admin-companies-content')).toBeInTheDocument();
     expect(screen.getByText('admin-users-content')).toBeInTheDocument();
+  });
+
+  it('shows the Archive tab and switches to it', async () => {
+    const user = userEvent.setup();
+    render(<AppShell userId="client-1" role="client" companyId="c1" />);
+
+    await screen.findByText('report-tab-content for aws');
+    await user.click(screen.getByRole('tab', { name: /archive/i }));
+    expect(await screen.findByText('archive-tab-content')).toBeInTheDocument();
   });
 });
