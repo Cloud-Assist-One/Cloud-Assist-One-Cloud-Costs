@@ -8,7 +8,9 @@ jest.mock('@/lib/supabase/client', () => ({
     from: () => ({
       select: () => ({
         eq: () => ({
-          order: (...args: unknown[]) => listFiles(...args),
+          eq: () => ({
+            order: (...args: unknown[]) => listFiles(...args),
+          }),
         }),
       }),
     }),
@@ -38,7 +40,7 @@ describe('UploadedFilesList', () => {
       ],
     });
 
-    render(<UploadedFilesList companyId="company-1" />);
+    render(<UploadedFilesList companyId="company-1" periodId="period-1" isReadOnly={false} />);
 
     expect(await screen.findByText('july-aws.xlsx')).toBeInTheDocument();
     expect(screen.getByText('Processed')).toBeInTheDocument();
@@ -63,7 +65,7 @@ describe('UploadedFilesList', () => {
       ],
     });
 
-    render(<UploadedFilesList companyId="company-1" />);
+    render(<UploadedFilesList companyId="company-1" periodId="period-1" isReadOnly={false} />);
 
     expect(await screen.findByText('bad.xlsx')).toBeInTheDocument();
     expect(screen.getByText(/could not find a "cost" column/i)).toBeInTheDocument();
@@ -72,8 +74,17 @@ describe('UploadedFilesList', () => {
   it('shows an empty state when there are no files', async () => {
     listFiles.mockResolvedValueOnce({ data: [] });
 
-    render(<UploadedFilesList companyId="company-1" />);
+    render(<UploadedFilesList companyId="company-1" periodId="period-1" isReadOnly={false} />);
 
     expect(await screen.findByText(/no files uploaded yet/i)).toBeInTheDocument();
+  });
+
+  it('hides the upload form when viewing a read-only (archived) period', async () => {
+    listFiles.mockResolvedValueOnce({ data: [] });
+
+    render(<UploadedFilesList companyId="company-1" periodId="period-1" isReadOnly />);
+
+    await screen.findByText(/no files uploaded yet/i);
+    expect(screen.queryByRole('heading', { name: /upload a billing file/i })).not.toBeInTheDocument();
   });
 });

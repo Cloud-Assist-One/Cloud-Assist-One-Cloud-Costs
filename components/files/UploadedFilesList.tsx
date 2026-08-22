@@ -8,6 +8,8 @@ import styles from './UploadedFilesList.module.css';
 
 interface UploadedFilesListProps {
   companyId: string;
+  periodId: string;
+  isReadOnly: boolean;
 }
 
 const STATUS_LABELS: Record<UploadedFile['status'], string> = {
@@ -16,7 +18,7 @@ const STATUS_LABELS: Record<UploadedFile['status'], string> = {
   error: 'Error',
 };
 
-export default function UploadedFilesList({ companyId }: UploadedFilesListProps) {
+export default function UploadedFilesList({ companyId, periodId, isReadOnly }: UploadedFilesListProps) {
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -26,13 +28,14 @@ export default function UploadedFilesList({ companyId }: UploadedFilesListProps)
       .from('uploaded_files')
       .select('*')
       .eq('company_id', companyId)
+      .eq('period_id', periodId)
       .order('created_at', { ascending: false });
     const fileList = data ?? [];
     if (onComplete) {
       onComplete(fileList);
     }
     return fileList;
-  }, [companyId]);
+  }, [companyId, periodId]);
 
   const loadFiles = useCallback(async () => {
     const fileList = await fetchFiles();
@@ -59,7 +62,7 @@ export default function UploadedFilesList({ companyId }: UploadedFilesListProps)
 
   return (
     <div className={styles.wrapper}>
-      <UploadForm companyId={companyId} onUploaded={loadFiles} />
+      {!isReadOnly && <UploadForm companyId={companyId} onUploaded={loadFiles} />}
 
       {loading ? (
         <p>Loading files…</p>

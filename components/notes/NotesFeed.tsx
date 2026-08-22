@@ -9,6 +9,8 @@ interface NotesFeedProps {
   companyId: string;
   userId: string;
   isStaff: boolean;
+  periodId: string;
+  isReadOnly: boolean;
 }
 
 const SIGNED_URL_TTL_SECONDS = 3600;
@@ -45,7 +47,7 @@ async function resolveVoiceNoteUrls(notes: ReviewNote[]): Promise<Record<string,
   return resolved;
 }
 
-export default function NotesFeed({ companyId, userId, isStaff }: NotesFeedProps) {
+export default function NotesFeed({ companyId, userId, isStaff, periodId, isReadOnly }: NotesFeedProps) {
   const [notes, setNotes] = useState<ReviewNote[]>([]);
   const [todos, setTodos] = useState<ReviewTodo[]>([]);
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
@@ -65,16 +67,31 @@ export default function NotesFeed({ companyId, userId, isStaff }: NotesFeedProps
   const fetchAll = useCallback(async () => {
     const supabase = createClient();
     const [notesResult, todosResult, timeEntriesResult] = await Promise.all([
-      supabase.from('review_notes').select('*').eq('company_id', companyId).order('created_at', { ascending: false }),
-      supabase.from('review_todos').select('*').eq('company_id', companyId).order('created_at', { ascending: false }),
-      supabase.from('time_entries').select('*').eq('company_id', companyId).order('entry_date', { ascending: false }),
+      supabase
+        .from('review_notes')
+        .select('*')
+        .eq('company_id', companyId)
+        .eq('period_id', periodId)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('review_todos')
+        .select('*')
+        .eq('company_id', companyId)
+        .eq('period_id', periodId)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('time_entries')
+        .select('*')
+        .eq('company_id', companyId)
+        .eq('period_id', periodId)
+        .order('entry_date', { ascending: false }),
     ]);
     return {
       notes: notesResult.data ?? [],
       todos: todosResult.data ?? [],
       timeEntries: timeEntriesResult.data ?? [],
     };
-  }, [companyId]);
+  }, [companyId, periodId]);
 
   const loadAll = useCallback(async () => {
     const result = await fetchAll();
@@ -249,7 +266,7 @@ export default function NotesFeed({ companyId, userId, isStaff }: NotesFeedProps
       <section>
         <h3>Time reviewed</h3>
         <p className={styles.timeSummary}>{totalMinutes} min reviewed</p>
-        {isStaff && (
+        {isStaff && !isReadOnly && (
           <div className={styles.addForm}>
             <label htmlFor="time-entry-date">Date</label>
             <input
@@ -295,7 +312,7 @@ export default function NotesFeed({ companyId, userId, isStaff }: NotesFeedProps
 
       <section>
         <h3>Follow-ups</h3>
-        {isStaff && (
+        {isStaff && !isReadOnly && (
           <div className={styles.addForm}>
             <label htmlFor="new-todo">New todo</label>
             <input id="new-todo" value={todoTitle} onChange={(e) => setTodoTitle(e.target.value)} />
@@ -315,7 +332,7 @@ export default function NotesFeed({ companyId, userId, isStaff }: NotesFeedProps
                     type="checkbox"
                     checked={todo.status === 'done'}
                     onChange={() => handleToggleTodo(todo)}
-                    disabled={!isStaff}
+                    disabled={!isStaff || isReadOnly}
                     aria-label={todo.title}
                   />
                   <span className={todo.status === 'done' ? styles.done : undefined}>{todo.title}</span>
@@ -328,7 +345,7 @@ export default function NotesFeed({ companyId, userId, isStaff }: NotesFeedProps
 
       <section>
         <h3>Notes</h3>
-        {isStaff && (
+        {isStaff && !isReadOnly && (
           <div className={styles.addForm}>
             <label htmlFor="new-note">Add a note</label>
             <textarea id="new-note" value={noteText} onChange={(e) => setNoteText(e.target.value)} />

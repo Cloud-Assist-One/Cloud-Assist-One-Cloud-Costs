@@ -16,13 +16,13 @@ jest.mock('@/lib/supabase/client', () => ({
     from: (table: string) => {
       if (table === 'review_notes') {
         return {
-          select: () => ({ eq: () => ({ order: (...args: unknown[]) => selectNotes(...args) }) }),
+          select: () => ({ eq: () => ({ eq: () => ({ order: (...args: unknown[]) => selectNotes(...args) }) }) }),
           insert: (...args: unknown[]) => insertNote(...args),
         };
       }
       if (table === 'review_todos') {
         return {
-          select: () => ({ eq: () => ({ order: (...args: unknown[]) => selectTodos(...args) }) }),
+          select: () => ({ eq: () => ({ eq: () => ({ order: (...args: unknown[]) => selectTodos(...args) }) }) }),
           insert: (...args: unknown[]) => insertTodo(...args),
           update: (...args: unknown[]) => {
             updateTodo(...args);
@@ -31,7 +31,7 @@ jest.mock('@/lib/supabase/client', () => ({
         };
       }
       return {
-        select: () => ({ eq: () => ({ order: (...args: unknown[]) => selectTimeEntries(...args) }) }),
+        select: () => ({ eq: () => ({ eq: () => ({ order: (...args: unknown[]) => selectTimeEntries(...args) }) }) }),
         insert: (...args: unknown[]) => insertTimeEntry(...args),
       };
     },
@@ -95,7 +95,7 @@ describe('NotesFeed', () => {
   });
 
   it('lists notes, todos, and time entries', async () => {
-    render(<NotesFeed companyId="company-1" userId="staff-1" isStaff />);
+    render(<NotesFeed companyId="company-1" userId="staff-1" isStaff periodId="period-1" isReadOnly={false} />);
 
     expect(await screen.findByText('Reviewed the July EC2 spike.')).toBeInTheDocument();
     expect(screen.getByText('Confirm with client about unused RDS instance')).toBeInTheDocument();
@@ -104,7 +104,7 @@ describe('NotesFeed', () => {
 
   it('lets staff add a text note', async () => {
     const user = userEvent.setup();
-    render(<NotesFeed companyId="company-1" userId="staff-1" isStaff />);
+    render(<NotesFeed companyId="company-1" userId="staff-1" isStaff periodId="period-1" isReadOnly={false} />);
 
     await screen.findByText('Reviewed the July EC2 spike.');
     await user.type(screen.getByLabelText(/add a note/i), 'New note text');
@@ -121,7 +121,7 @@ describe('NotesFeed', () => {
     insertNote.mockReturnValue(Promise.resolve({ error: { message: 'Insert rejected by RLS.' } }));
 
     const user = userEvent.setup();
-    render(<NotesFeed companyId="company-1" userId="staff-1" isStaff />);
+    render(<NotesFeed companyId="company-1" userId="staff-1" isStaff periodId="period-1" isReadOnly={false} />);
 
     await screen.findByText('Reviewed the July EC2 spike.');
     await user.type(screen.getByLabelText(/add a note/i), 'Draft that must survive');
@@ -133,7 +133,7 @@ describe('NotesFeed', () => {
 
   it('lets staff add a todo and toggle it done', async () => {
     const user = userEvent.setup();
-    render(<NotesFeed companyId="company-1" userId="staff-1" isStaff />);
+    render(<NotesFeed companyId="company-1" userId="staff-1" isStaff periodId="period-1" isReadOnly={false} />);
 
     await screen.findByText('Confirm with client about unused RDS instance');
     await user.type(screen.getByLabelText(/new todo/i), 'Check S3 lifecycle rules');
@@ -152,7 +152,7 @@ describe('NotesFeed', () => {
 
   it('lets staff log a time entry', async () => {
     const user = userEvent.setup();
-    render(<NotesFeed companyId="company-1" userId="staff-1" isStaff />);
+    render(<NotesFeed companyId="company-1" userId="staff-1" isStaff periodId="period-1" isReadOnly={false} />);
 
     await screen.findByText('Reviewed the July EC2 spike.');
     await user.clear(screen.getByLabelText(/^date$/i));
@@ -175,7 +175,7 @@ describe('NotesFeed', () => {
   });
 
   it('shows a time-tracking total across loaded entries', async () => {
-    render(<NotesFeed companyId="company-1" userId="staff-1" isStaff />);
+    render(<NotesFeed companyId="company-1" userId="staff-1" isStaff periodId="period-1" isReadOnly={false} />);
     expect(await screen.findByText('30 min reviewed')).toBeInTheDocument();
   });
 
@@ -194,7 +194,9 @@ describe('NotesFeed', () => {
       ],
     });
 
-    const { container } = render(<NotesFeed companyId="company-1" userId="staff-1" isStaff />);
+    const { container } = render(
+      <NotesFeed companyId="company-1" userId="staff-1" isStaff periodId="period-1" isReadOnly={false} />
+    );
 
     await waitFor(() => expect(container.querySelector('audio')).not.toBeNull());
     expect(container.querySelector('audio')).toHaveAttribute('src', 'https://signed.example/voice.webm');
@@ -202,7 +204,18 @@ describe('NotesFeed', () => {
   });
 
   it('hides the add-note and add-todo forms for non-staff users', async () => {
-    render(<NotesFeed companyId="company-1" userId="client-1" isStaff={false} />);
+    render(
+      <NotesFeed companyId="company-1" userId="client-1" isStaff={false} periodId="period-1" isReadOnly={false} />
+    );
+
+    await screen.findByText('Reviewed the July EC2 spike.');
+    expect(screen.queryByLabelText(/add a note/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/new todo/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/minutes spent/i)).not.toBeInTheDocument();
+  });
+
+  it('hides all write forms when viewing a read-only (archived) period, even for staff', async () => {
+    render(<NotesFeed companyId="company-1" userId="staff-1" isStaff periodId="period-1" isReadOnly />);
 
     await screen.findByText('Reviewed the July EC2 spike.');
     expect(screen.queryByLabelText(/add a note/i)).not.toBeInTheDocument();
