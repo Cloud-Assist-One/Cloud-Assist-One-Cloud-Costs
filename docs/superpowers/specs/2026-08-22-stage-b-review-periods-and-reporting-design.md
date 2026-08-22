@@ -63,7 +63,7 @@ This is a substantially bigger, more foundational change than the original Stage
 
 `POST /api/periods/archive` (Node runtime, following the existing admin-route pattern): body `{ companyId }`. Authorization via `requireCompanyAccess(companyId)` from `lib/admin-guard.ts` (already correctly allows staff-any-company or client-own-company — no new guard needed). Using the service-role client, in one transaction: update the current active period to `status = 'archived', archived_at = now()`, then insert a new `status = 'active'` period for that company. Returns the new active period's id.
 
-New company creation (`AdminCompanies`'s existing create-company API route) additionally inserts that company's first active `billing_periods` row in the same request.
+Company creation (`AdminCompanies.tsx`) is currently a direct client-side insert into `public.companies` (RLS-permitted for staff), not a server route — so a new company's first active period is provisioned the same way `profiles` rows already are for new auth users in this codebase: a `security definer` trigger function (`private.handle_new_company()`), `after insert on public.companies`, that inserts one `status = 'active'` `billing_periods` row for the new company. No change needed to `AdminCompanies.tsx` itself.
 
 ### Tabs & navigation
 
