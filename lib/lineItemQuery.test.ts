@@ -1,4 +1,4 @@
-import { fetchLineItemsPage } from './lineItemQuery';
+import { fetchLineItemsPage, fetchReferencedRecordIds } from './lineItemQuery';
 
 function makeMockSupabase(response: { data: unknown[] | null; count: number | null; error: { message: string } | null }) {
   const range = jest.fn().mockResolvedValue(response);
@@ -79,5 +79,36 @@ describe('fetchLineItemsPage', () => {
         { pageIndex: 0, pageSize: 50 }
       )
     ).rejects.toThrow('boom');
+  });
+});
+
+describe('fetchReferencedRecordIds', () => {
+  function makeMockSupabaseForReferences(notesIds: string[], todosIds: string[]) {
+    const from = jest.fn((table: string) => ({
+      select: () => ({
+        in: () =>
+          Promise.resolve({
+            data: (table === 'review_notes' ? notesIds : todosIds).map((cost_record_id) => ({ cost_record_id })),
+            error: null,
+          }),
+      }),
+    }));
+    return { from } as never;
+  }
+
+  it('returns the union of cost_record_ids referenced by notes and todos', async () => {
+    const client = makeMockSupabaseForReferences(['r1', 'r2'], ['r2', 'r3']);
+
+    const result = await fetchReferencedRecordIds(client, ['r1', 'r2', 'r3', 'r4']);
+
+    expect(result).toEqual(new Set(['r1', 'r2', 'r3']));
+  });
+
+  it('returns an empty set when given no record ids', async () => {
+    const client = makeMockSupabaseForReferences([], []);
+
+    const result = await fetchReferencedRecordIds(client, []);
+
+    expect(result).toEqual(new Set());
   });
 });
