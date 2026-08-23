@@ -5,6 +5,7 @@ import { CartesianGrid, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, L
 import { createClient } from '@/lib/supabase/client';
 import type { CloudProvider, CostRecord } from '@/lib/types';
 import { aggregateByDate, aggregateByService, totalCost } from '@/lib/reportAggregation';
+import { formatBillingMonth } from '@/lib/cloudProvider';
 import styles from './CostReportTab.module.css';
 
 interface CostReportTabProps {
@@ -20,8 +21,35 @@ function formatCurrency(amount: number): string {
 
 export default function CostReportTab({ companyId, cloudProvider, periodId, onServiceClick }: CostReportTabProps) {
   const [records, setRecords] = useState<CostRecord[]>([]);
+  const [billingMonth, setBillingMonth] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadBillingMonth() {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from('uploaded_files')
+        .select('billing_month')
+        .eq('company_id', companyId)
+        .eq('cloud_provider', cloudProvider)
+        .eq('period_id', periodId)
+        .eq('status', 'processed')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!cancelled) {
+        setBillingMonth(data?.billing_month ?? null);
+      }
+    }
+
+    loadBillingMonth();
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId, cloudProvider, periodId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,6 +111,8 @@ export default function CostReportTab({ companyId, cloudProvider, periodId, onSe
       <button type="button" className={`${styles.printButton} print-hidden`} onClick={() => window.print()}>
         Print
       </button>
+
+      {billingMonth && <p className={styles.billingMonth}>Billing month: {formatBillingMonth(billingMonth)}</p>}
 
       {loading ? (
         <p>Loading…</p>

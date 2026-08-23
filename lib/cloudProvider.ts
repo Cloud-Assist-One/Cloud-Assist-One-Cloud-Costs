@@ -15,3 +15,12 @@ export const CLOUD_PROVIDER_COLORS: Record<CloudProvider, string> = {
   gcp: '#22a06b',
   snowflake: '#e08a2e',
 };
+
+export function formatBillingMonth(billingMonth: string | null): string {
+  if (!billingMonth) return '—';
+  return new Date(`${billingMonth}T00:00:00Z`).toLocaleDateString('en-US', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}

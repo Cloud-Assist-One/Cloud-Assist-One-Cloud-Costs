@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { UploadedFile } from '@/lib/types';
-import { CLOUD_PROVIDER_LABELS } from '@/lib/cloudProvider';
+import { CLOUD_PROVIDER_LABELS, formatBillingMonth } from '@/lib/cloudProvider';
 import UploadForm from '@/components/upload/UploadForm';
 import styles from './UploadedFilesList.module.css';
 
@@ -18,15 +18,6 @@ const STATUS_LABELS: Record<UploadedFile['status'], string> = {
   processed: 'Processed',
   error: 'Error',
 };
-
-function formatBillingMonth(billingMonth: string | null): string {
-  if (!billingMonth) return '—';
-  return new Date(`${billingMonth}T00:00:00Z`).toLocaleDateString('en-US', {
-    month: 'long',
-    year: 'numeric',
-    timeZone: 'UTC',
-  });
-}
 
 export default function UploadedFilesList({ companyId, periodId, isReadOnly }: UploadedFilesListProps) {
   const [files, setFiles] = useState<UploadedFile[]>([]);
