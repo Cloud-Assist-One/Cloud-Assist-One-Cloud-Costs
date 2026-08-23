@@ -93,6 +93,33 @@ describe('AdminUsers', () => {
     expect(screen.queryByRole('option', { name: 'Admin' })).not.toBeInTheDocument();
   });
 
+  it('refreshes the company list on demand without discarding the current selection', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => ({ users: [] }) });
+    listCompanies.mockResolvedValueOnce({
+      data: [
+        { id: 'c1', name: 'Acme Corp', created_at: '2026-07-01T00:00:00.000Z' },
+        { id: 'c2', name: 'Globex', created_at: '2026-07-02T00:00:00.000Z' },
+      ],
+    });
+    const user = userEvent.setup();
+    render(<AdminUsers />);
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/api/admin/users'));
+    await user.selectOptions(screen.getByLabelText(/company/i), 'c2');
+
+    listCompanies.mockResolvedValueOnce({
+      data: [
+        { id: 'c1', name: 'Acme Corp', created_at: '2026-07-01T00:00:00.000Z' },
+        { id: 'c2', name: 'Globex', created_at: '2026-07-02T00:00:00.000Z' },
+        { id: 'c3', name: 'Brand New Co', created_at: '2026-08-01T00:00:00.000Z' },
+      ],
+    });
+    await user.click(screen.getByRole('button', { name: /refresh companies/i }));
+
+    expect(await screen.findByRole('option', { name: 'Brand New Co' })).toBeInTheDocument();
+    expect(screen.getByLabelText(/company/i)).toHaveValue('c2');
+  });
+
   it('lets an admin create another admin account', async () => {
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce({ ok: true, json: async () => ({ users: [] }) })

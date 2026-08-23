@@ -31,6 +31,21 @@ export default function AdminUsers({ isAdmin = false }: AdminUsersProps) {
     setLoading(false);
   }, [fetchUsers]);
 
+  const fetchCompanies = useCallback(async () => {
+    const supabase = createClient();
+    const { data } = await supabase.from('companies').select('*').order('name', { ascending: true });
+    return (data ?? []) as Company[];
+  }, []);
+
+  const loadCompanies = useCallback(async () => {
+    const companyList = await fetchCompanies();
+    setCompanies(companyList);
+    // Only default to the first company when nothing is selected yet -- a
+    // manual refresh (e.g. to pick up a company just created elsewhere)
+    // must not silently discard whichever company is already chosen.
+    setCompanyId((prev) => prev || (companyList.length > 0 ? companyList[0].id : ''));
+  }, [fetchCompanies]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -52,11 +67,10 @@ export default function AdminUsers({ isAdmin = false }: AdminUsersProps) {
     let cancelled = false;
 
     async function load() {
-      const supabase = createClient();
-      const { data } = await supabase.from('companies').select('*').order('name', { ascending: true });
+      const companyList = await fetchCompanies();
       if (!cancelled) {
-        setCompanies(data ?? []);
-        if (data && data.length > 0) setCompanyId(data[0].id);
+        setCompanies(companyList);
+        if (companyList.length > 0) setCompanyId(companyList[0].id);
       }
     }
 
@@ -64,7 +78,7 @@ export default function AdminUsers({ isAdmin = false }: AdminUsersProps) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [fetchCompanies]);
 
   function companyName(id: string | null): string {
     if (!id) return '—';
@@ -130,13 +144,18 @@ export default function AdminUsers({ isAdmin = false }: AdminUsersProps) {
         {role === 'client' && (
           <>
             <label htmlFor="new-user-company">Company</label>
-            <select id="new-user-company" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
-              {companies.map((company) => (
-                <option key={company.id} value={company.id}>
-                  {company.name}
-                </option>
-              ))}
-            </select>
+            <div className={styles.companyRow}>
+              <select id="new-user-company" value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+                {companies.map((company) => (
+                  <option key={company.id} value={company.id}>
+                    {company.name}
+                  </option>
+                ))}
+              </select>
+              <button type="button" className={styles.refreshButton} onClick={loadCompanies}>
+                Refresh companies
+              </button>
+            </div>
           </>
         )}
 
