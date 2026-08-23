@@ -17,6 +17,7 @@ import ArchiveTab from './ArchiveTab';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import ThemeToggle from './ThemeToggle';
+import AccentColorPicker from './AccentColorPicker';
 import styles from './AppShell.module.css';
 
 type TabKey = 'aws' | 'azure' | 'gcp' | 'snowflake' | 'compare' | 'lineItems' | 'files' | 'notes' | 'archive' | 'admin';
@@ -166,6 +167,7 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
           Sign out
         </Button>
         <ThemeToggle />
+        <AccentColorPicker />
       </div>
 
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TabKey)} className={`mb-6 print-hidden`}>
