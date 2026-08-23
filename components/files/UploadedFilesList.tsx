@@ -22,6 +22,7 @@ const STATUS_LABELS: Record<UploadedFile['status'], string> = {
 export default function UploadedFilesList({ companyId, periodId, isReadOnly }: UploadedFilesListProps) {
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const fetchFiles = useCallback(async (onComplete?: (files: UploadedFile[]) => void) => {
     const supabase = createClient();
@@ -61,9 +62,29 @@ export default function UploadedFilesList({ companyId, periodId, isReadOnly }: U
     };
   }, [fetchFiles]);
 
+  async function handleDelete(file: UploadedFile) {
+    const confirmed = window.confirm(`Delete "${file.filename}"? This cannot be undone.`);
+    if (!confirmed) return;
+
+    setDeleteError(null);
+    const response = await fetch(`/api/upload/${file.id}`, { method: 'DELETE' });
+    const body = await response.json();
+    if (!response.ok) {
+      setDeleteError(body.error ?? 'Could not delete the file.');
+      return;
+    }
+    loadFiles();
+  }
+
   return (
     <div className={styles.wrapper}>
       {!isReadOnly && <UploadForm companyId={companyId} onUploaded={loadFiles} />}
+
+      {deleteError && (
+        <p role="alert" className={styles.errorMessage}>
+          {deleteError}
+        </p>
+      )}
 
       {loading ? (
         <p>Loading files…</p>
@@ -77,6 +98,7 @@ export default function UploadedFilesList({ companyId, periodId, isReadOnly }: U
               <th>Provider</th>
               <th>Status</th>
               <th>Uploaded</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -97,6 +119,13 @@ export default function UploadedFilesList({ companyId, periodId, isReadOnly }: U
                   )}
                 </td>
                 <td>{new Date(file.created_at).toLocaleDateString()}</td>
+                <td>
+                  {!isReadOnly && file.status === 'error' && (
+                    <button type="button" className={styles.deleteButton} onClick={() => handleDelete(file)}>
+                      Delete
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

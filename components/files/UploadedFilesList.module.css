@@ -19,3 +19,18 @@
 .errorMessage {
   color: #d1274b;
 }
+
+.deleteButton {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  padding: 0.25rem 0.85rem;
+  cursor: pointer;
+  font: inherit;
+  color: var(--muted-foreground);
+}
+
+.deleteButton:hover {
+  border-color: currentColor;
+  color: #b3261e;
+}
