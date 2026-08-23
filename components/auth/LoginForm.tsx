@@ -55,7 +55,7 @@ export default function LoginForm() {
   return (
     <div className={styles.wrapper}>
       <form className={styles.form} onSubmit={handleSubmit} noValidate>
-        <h1>Cloud Cost Review Portal</h1>
+        <h1>Cloud Cost Assistant</h1>
 
         <label htmlFor="login-email">Email</label>
         <input

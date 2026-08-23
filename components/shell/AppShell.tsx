@@ -139,7 +139,7 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
   return (
     <div className={styles.wrapper}>
       <div className={`${styles.topBar} print-hidden`}>
-        <h1>Cloud Cost Review Portal</h1>
+        <h1>Cloud Cost Assistant</h1>
         {canManage && (
           <div className={styles.companySwitcher}>
             <label htmlFor="company-switcher">Viewing company</label>

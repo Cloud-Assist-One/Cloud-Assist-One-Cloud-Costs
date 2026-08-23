@@ -1,4 +1,4 @@
-# Cloud Assist One — Cloud Cost Review Portal
+# Cloud Cost Assistant
 
 A multi-tenant portal where client companies upload AWS/Azure billing exports and get live cost/usage reports, and Cloud Assist One staff review that spend, leaving notes, voice notes, and follow-up todos visible to the client.
 
