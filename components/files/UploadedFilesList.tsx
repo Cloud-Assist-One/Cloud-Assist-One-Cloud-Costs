@@ -19,6 +19,15 @@ const STATUS_LABELS: Record<UploadedFile['status'], string> = {
   error: 'Error',
 };
 
+function formatBillingMonth(billingMonth: string | null): string {
+  if (!billingMonth) return '—';
+  return new Date(`${billingMonth}T00:00:00Z`).toLocaleDateString('en-US', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
 export default function UploadedFilesList({ companyId, periodId, isReadOnly }: UploadedFilesListProps) {
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -96,6 +105,7 @@ export default function UploadedFilesList({ companyId, periodId, isReadOnly }: U
             <tr>
               <th>File</th>
               <th>Provider</th>
+              <th>Billing Month</th>
               <th>Status</th>
               <th>Uploaded</th>
               <th></th>
@@ -106,6 +116,7 @@ export default function UploadedFilesList({ companyId, periodId, isReadOnly }: U
               <tr key={file.id}>
                 <td>{file.filename}</td>
                 <td>{CLOUD_PROVIDER_LABELS[file.cloud_provider]}</td>
+                <td>{formatBillingMonth(file.billing_month)}</td>
                 <td>
                   <span>{STATUS_LABELS[file.status]}</span>
                   {file.status === 'processed' && file.row_count !== null && (

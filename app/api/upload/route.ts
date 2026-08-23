@@ -2,23 +2,40 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireCompanyAccess } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { parseCostFile } from '@/lib/parseCostFile';
-import { CLOUD_PROVIDERS } from '@/lib/cloudProvider';
+import { CLOUD_PROVIDERS, CLOUD_PROVIDER_LABELS } from '@/lib/cloudProvider';
 import type { CloudProvider } from '@/lib/types';
+
+function formatMonth(isoDate: string): string {
+  return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString('en-US', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
 
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const file = formData.get('file');
   const cloudProvider = formData.get('cloudProvider');
   const companyId = formData.get('companyId');
+  const billingMonth = formData.get('billingMonth');
 
-  if (!(file instanceof File) || typeof cloudProvider !== 'string' || typeof companyId !== 'string') {
-    return NextResponse.json({ error: 'Missing file, cloudProvider, or companyId.' }, { status: 400 });
+  if (
+    !(file instanceof File) ||
+    typeof cloudProvider !== 'string' ||
+    typeof companyId !== 'string' ||
+    typeof billingMonth !== 'string'
+  ) {
+    return NextResponse.json({ error: 'Missing file, cloudProvider, companyId, or billingMonth.' }, { status: 400 });
   }
   if (!CLOUD_PROVIDERS.includes(cloudProvider as CloudProvider)) {
     return NextResponse.json(
       { error: `cloudProvider must be one of: ${CLOUD_PROVIDERS.join(', ')}.` },
       { status: 400 }
     );
+  }
+  if (!/^\d{4}-\d{2}-01$/.test(billingMonth)) {
+    return NextResponse.json({ error: 'billingMonth must be the first day of a month, e.g. 2026-08-01.' }, { status: 400 });
   }
 
   const guard = await requireCompanyAccess(companyId);
@@ -37,6 +54,35 @@ export async function POST(request: NextRequest) {
 
   if (activePeriodError || !activePeriod) {
     return NextResponse.json({ error: 'No active billing period found for this company.' }, { status: 500 });
+  }
+
+  // Every cloud provider's data in a period must be for the same billing
+  // month — otherwise the charts/Compare/trend view would silently mix
+  // different months together. Check before touching Storage or the DB.
+  const { data: otherProviderFiles, error: otherFilesError } = await adminClient
+    .from('uploaded_files')
+    .select('cloud_provider, billing_month')
+    .eq('period_id', activePeriod.id)
+    .eq('status', 'processed')
+    .neq('cloud_provider', cloudProvider)
+    .not('billing_month', 'is', null);
+
+  if (otherFilesError) {
+    return NextResponse.json({ error: 'Could not verify this period\'s billing month.' }, { status: 500 });
+  }
+
+  const mismatch = (otherProviderFiles ?? []).find((f) => f.billing_month !== billingMonth);
+  if (mismatch) {
+    return NextResponse.json(
+      {
+        error:
+          `${CLOUD_PROVIDER_LABELS[cloudProvider as CloudProvider]} is billed for ${formatMonth(billingMonth)}, but ` +
+          `${CLOUD_PROVIDER_LABELS[mismatch.cloud_provider as CloudProvider]} in this period is for ` +
+          `${formatMonth(mismatch.billing_month as string)}. Every provider in a period must be for the same ` +
+          `billing month — archive this period and start a new one, then re-upload every provider for the same month.`,
+      },
+      { status: 409 }
+    );
   }
 
   const storagePath = `${companyId}/${Date.now()}-${file.name}`;
@@ -59,6 +105,7 @@ export async function POST(request: NextRequest) {
       storage_path: storagePath,
       status: 'processing',
       uploaded_by: guard.userId,
+      billing_month: billingMonth,
     })
     .select()
     .single();

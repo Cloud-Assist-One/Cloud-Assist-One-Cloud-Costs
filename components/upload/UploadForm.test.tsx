@@ -31,6 +31,27 @@ describe('UploadForm', () => {
     expect(screen.getByText(/overwrite any existing cost data/i)).toBeInTheDocument();
   });
 
+  it('defaults the billing month to the current month/year and sends it with the upload', async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ uploadedFileId: 'file-1', status: 'processed', rowCount: 1 }),
+    });
+    const now = new Date();
+    const expectedValue = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    const user = userEvent.setup();
+    render(<UploadForm companyId="company-1" />);
+
+    expect(screen.getByLabelText(/billing month/i)).toHaveValue(expectedValue);
+
+    const file = new File(['a,b,c'], 'export.csv', { type: 'text/csv' });
+    await user.upload(screen.getByLabelText(/file/i), file);
+    await user.click(screen.getByRole('button', { name: /upload/i }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    const formData = (global.fetch as jest.Mock).mock.calls[0][1].body as FormData;
+    expect(formData.get('billingMonth')).toBe(expectedValue);
+  });
+
   it('offers all 4 cloud providers', () => {
     render(<UploadForm companyId="company-1" />);
 

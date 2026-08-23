@@ -12,8 +12,24 @@ interface UploadFormProps {
 
 type Status = 'idle' | 'uploading' | 'error';
 
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+function buildMonthOptions(year: number): { label: string; value: string }[] {
+  return MONTH_NAMES.map((name, i) => ({
+    label: `${name} ${year}`,
+    value: `${year}-${String(i + 1).padStart(2, '0')}-01`,
+  }));
+}
+
 export default function UploadForm({ companyId, onUploaded }: UploadFormProps) {
+  const now = new Date();
+  const monthOptions = buildMonthOptions(now.getFullYear());
+
   const [cloudProvider, setCloudProvider] = useState<CloudProvider>('aws');
+  const [billingMonth, setBillingMonth] = useState(monthOptions[now.getMonth()].value);
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<Status>('idle');
   const [errors, setErrors] = useState<string[]>([]);
@@ -31,6 +47,7 @@ export default function UploadForm({ companyId, onUploaded }: UploadFormProps) {
     formData.append('file', file);
     formData.append('cloudProvider', cloudProvider);
     formData.append('companyId', companyId);
+    formData.append('billingMonth', billingMonth);
 
     try {
       const response = await fetch('/api/upload', { method: 'POST', body: formData });
@@ -75,8 +92,18 @@ export default function UploadForm({ companyId, onUploaded }: UploadFormProps) {
         ))}
       </select>
 
+      <label htmlFor="billing-month">Billing month</label>
+      <select id="billing-month" value={billingMonth} onChange={(e) => setBillingMonth(e.target.value)}>
+        {monthOptions.map((month) => (
+          <option key={month.value} value={month.value}>
+            {month.label}
+          </option>
+        ))}
+      </select>
+
       <p className={styles.reminder}>
-        Uploading will overwrite any existing cost data for the same date range in your current period.
+        Uploading will overwrite any existing cost data for the same date range in your current period. Every
+        cloud provider in this period must be billed for the same month.
       </p>
 
       <label htmlFor="upload-file">File</label>

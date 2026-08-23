@@ -38,6 +38,7 @@ export interface UploadedFile {
   row_count: number | null;
   uploaded_by: string;
   created_at: string;
+  billing_month: string | null;
 }
 
 export interface CostRecord {

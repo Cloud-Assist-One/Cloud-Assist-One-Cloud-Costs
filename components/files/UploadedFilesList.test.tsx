@@ -38,6 +38,7 @@ describe('UploadedFilesList', () => {
           row_count: 42,
           uploaded_by: 'user-1',
           created_at: '2026-07-01T00:00:00.000Z',
+          billing_month: '2026-07-01',
         },
       ],
     });
@@ -48,6 +49,7 @@ describe('UploadedFilesList', () => {
     expect(screen.getByText('Processed')).toBeInTheDocument();
     expect(screen.getByText('42 rows')).toBeInTheDocument();
     expect(screen.getByRole('cell', { name: 'Amazon Web Services' })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: 'July 2026' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /delete/i })).not.toBeInTheDocument();
   });
 
