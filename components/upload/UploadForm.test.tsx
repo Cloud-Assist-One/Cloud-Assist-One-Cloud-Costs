@@ -25,6 +25,12 @@ describe('UploadForm', () => {
     expect(onUploaded).toHaveBeenCalled();
   });
 
+  it('reminds the user that uploading overwrites existing data for the period', () => {
+    render(<UploadForm companyId="company-1" />);
+
+    expect(screen.getByText(/overwrite any existing cost data/i)).toBeInTheDocument();
+  });
+
   it('offers all 4 cloud providers', () => {
     render(<UploadForm companyId="company-1" />);
 

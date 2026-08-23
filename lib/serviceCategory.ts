@@ -4,10 +4,42 @@ interface CategoryRule {
 }
 
 const CATEGORY_RULES: CategoryRule[] = [
-  { category: 'Compute', patterns: [/ec2/i, /app service/i, /lambda/i, /azure functions/i, /virtual machine/i] },
-  { category: 'Storage', patterns: [/\bs3\b/i, /blob storage/i, /storage account/i] },
-  { category: 'Database', patterns: [/\brds\b/i, /sql database/i, /dynamodb/i, /cosmos db/i] },
-  { category: 'Networking', patterns: [/cloudfront/i, /\bcdn\b/i, /virtual network/i, /load balancer/i, /elastic load balancing/i] },
+  {
+    category: 'Compute',
+    patterns: [
+      /ec2/i,
+      /app service/i,
+      /lambda/i,
+      /azure functions/i,
+      /virtual machine/i,
+      /compute engine/i,
+      /app engine/i,
+      /cloud run/i,
+      /kubernetes engine/i,
+      /\bgke\b/i,
+    ],
+  },
+  {
+    category: 'Storage',
+    patterns: [/\bs3\b/i, /blob storage/i, /storage account/i, /cloud storage/i],
+  },
+  {
+    category: 'Database',
+    patterns: [/\brds\b/i, /sql database/i, /dynamodb/i, /cosmos db/i, /cloud sql/i, /bigquery/i, /firestore/i],
+  },
+  {
+    category: 'Networking',
+    patterns: [
+      /cloudfront/i,
+      /\bcdn\b/i,
+      /virtual network/i,
+      /load balancer/i,
+      /elastic load balancing/i,
+      /cloud cdn/i,
+      /cloud load balancing/i,
+      /virtual private cloud/i,
+    ],
+  },
 ];
 
 export function categorizeService(serviceName: string): string {

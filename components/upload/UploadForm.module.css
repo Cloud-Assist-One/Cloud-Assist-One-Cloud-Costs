@@ -35,3 +35,9 @@
 .status {
   color: var(--color-fg);
 }
+
+.reminder {
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+  margin: 0;
+}

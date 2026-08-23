@@ -75,6 +75,10 @@ export default function UploadForm({ companyId, onUploaded }: UploadFormProps) {
         ))}
       </select>
 
+      <p className={styles.reminder}>
+        Uploading will overwrite any existing cost data for the same date range in your current period.
+      </p>
+
       <label htmlFor="upload-file">File</label>
       <input
         id="upload-file"

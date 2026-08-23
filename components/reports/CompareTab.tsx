@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import type { CostRecord } from '@/lib/types';
 import { aggregateByCategoryComparison, totalCost } from '@/lib/reportAggregation';
 import { categorizeService } from '@/lib/serviceCategory';
+import { CLOUD_PROVIDER_LABELS, CLOUD_PROVIDER_COLORS } from '@/lib/cloudProvider';
 import styles from './CompareTab.module.css';
 
 interface CompareTabProps {
@@ -75,14 +76,19 @@ export default function CompareTab({ companyId, periodId, onCategoryClick }: Com
 
   const awsRecords = useMemo(() => records.filter((r) => r.cloud_provider === 'aws'), [records]);
   const azureRecords = useMemo(() => records.filter((r) => r.cloud_provider === 'azure'), [records]);
+  const gcpRecords = useMemo(() => records.filter((r) => r.cloud_provider === 'gcp'), [records]);
   const awsTotal = useMemo(() => totalCost(awsRecords), [awsRecords]);
   const azureTotal = useMemo(() => totalCost(azureRecords), [azureRecords]);
-  // Compare is scoped to AWS vs Azure only — Google Cloud/Snowflake records
-  // (if any) are excluded here rather than silently folded into either column.
+  const gcpTotal = useMemo(() => totalCost(gcpRecords), [gcpRecords]);
+  // Compare covers AWS/Azure/Google Cloud — Snowflake records (if any) are
+  // excluded here rather than silently folded into another column.
   const categoryComparison = useMemo(
     () =>
       aggregateByCategoryComparison(
-        records.filter((r): r is typeof r & { cloud_provider: 'aws' | 'azure' } => r.cloud_provider === 'aws' || r.cloud_provider === 'azure'),
+        records.filter(
+          (r): r is typeof r & { cloud_provider: 'aws' | 'azure' | 'gcp' } =>
+            r.cloud_provider === 'aws' || r.cloud_provider === 'azure' || r.cloud_provider === 'gcp'
+        ),
         categorizeService
       ),
     [records]
@@ -114,12 +120,16 @@ export default function CompareTab({ companyId, periodId, onCategoryClick }: Com
         <>
           <div className={styles.cards}>
             <div className={styles.card}>
-              <h3>AWS</h3>
+              <h3>{CLOUD_PROVIDER_LABELS.aws}</h3>
               <p className={styles.total}>{formatCurrency(awsTotal)}</p>
             </div>
             <div className={styles.card}>
-              <h3>Azure</h3>
+              <h3>{CLOUD_PROVIDER_LABELS.azure}</h3>
               <p className={styles.total}>{formatCurrency(azureTotal)}</p>
+            </div>
+            <div className={styles.card}>
+              <h3>{CLOUD_PROVIDER_LABELS.gcp}</h3>
+              <p className={styles.total}>{formatCurrency(gcpTotal)}</p>
             </div>
           </div>
 
@@ -133,15 +143,22 @@ export default function CompareTab({ companyId, periodId, onCategoryClick }: Com
                 <Legend />
                 <Bar
                   dataKey="aws"
-                  name="AWS"
-                  fill="var(--primary)"
+                  name={CLOUD_PROVIDER_LABELS.aws}
+                  fill={CLOUD_PROVIDER_COLORS.aws}
                   onClick={(data) => handleCategoryClick(data.category)}
                   cursor={onCategoryClick ? 'pointer' : undefined}
                 />
                 <Bar
                   dataKey="azure"
-                  name="Azure"
-                  fill="var(--muted-foreground)"
+                  name={CLOUD_PROVIDER_LABELS.azure}
+                  fill={CLOUD_PROVIDER_COLORS.azure}
+                  onClick={(data) => handleCategoryClick(data.category)}
+                  cursor={onCategoryClick ? 'pointer' : undefined}
+                />
+                <Bar
+                  dataKey="gcp"
+                  name={CLOUD_PROVIDER_LABELS.gcp}
+                  fill={CLOUD_PROVIDER_COLORS.gcp}
                   onClick={(data) => handleCategoryClick(data.category)}
                   cursor={onCategoryClick ? 'pointer' : undefined}
                 />
@@ -153,8 +170,9 @@ export default function CompareTab({ companyId, periodId, onCategoryClick }: Com
             <thead>
               <tr>
                 <th>Category</th>
-                <th>AWS</th>
-                <th>Azure</th>
+                <th>{CLOUD_PROVIDER_LABELS.aws}</th>
+                <th>{CLOUD_PROVIDER_LABELS.azure}</th>
+                <th>{CLOUD_PROVIDER_LABELS.gcp}</th>
               </tr>
             </thead>
             <tbody>
@@ -163,6 +181,7 @@ export default function CompareTab({ companyId, periodId, onCategoryClick }: Com
                   <td>{row.category}</td>
                   <td>{formatCurrency(row.aws)}</td>
                   <td>{formatCurrency(row.azure)}</td>
+                  <td>{formatCurrency(row.gcp)}</td>
                 </tr>
               ))}
             </tbody>

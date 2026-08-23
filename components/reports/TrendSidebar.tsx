@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { createClient } from '@/lib/supabase/client';
 import type { CloudProvider } from '@/lib/types';
-import { CLOUD_PROVIDERS, CLOUD_PROVIDER_LABELS } from '@/lib/cloudProvider';
+import { CLOUD_PROVIDERS, CLOUD_PROVIDER_LABELS, CLOUD_PROVIDER_COLORS } from '@/lib/cloudProvider';
 import styles from './TrendSidebar.module.css';
 
 interface TrendSidebarProps {
@@ -18,13 +18,6 @@ interface MonthlyTotal {
 }
 
 type MonthlyEntry = { month: string } & Record<CloudProvider, number>;
-
-const PROVIDER_COLORS: Record<CloudProvider, string> = {
-  aws: 'var(--primary)',
-  azure: 'var(--muted-foreground)',
-  gcp: '#22a06b',
-  snowflake: '#e08a2e',
-};
 
 function formatCurrency(amount: number): string {
   return `$${amount.toFixed(2)}`;
@@ -91,7 +84,7 @@ export default function TrendSidebar({ companyId }: TrendSidebarProps) {
                 key={provider}
                 type="monotone"
                 dataKey={provider}
-                stroke={PROVIDER_COLORS[provider]}
+                stroke={CLOUD_PROVIDER_COLORS[provider]}
                 name={CLOUD_PROVIDER_LABELS[provider]}
                 dot={false}
               />

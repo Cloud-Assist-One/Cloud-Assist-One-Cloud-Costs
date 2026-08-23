@@ -46,11 +46,16 @@ describe('aggregateByCategoryComparison', () => {
       { service_name: 'Amazon EC2', cloud_provider: 'aws' as const, cost: 10 },
       { service_name: 'Azure App Service', cloud_provider: 'azure' as const, cost: 8 },
       { service_name: 'Amazon S3', cloud_provider: 'aws' as const, cost: 3 },
+      { service_name: 'Compute Engine', cloud_provider: 'gcp' as const, cost: 6 },
     ];
+    const categorizeWithCompute = (serviceName: string) =>
+      serviceName.includes('EC2') || serviceName.includes('App Service') || serviceName.includes('Compute Engine')
+        ? 'Compute'
+        : 'Storage';
 
-    expect(aggregateByCategoryComparison(mixedRecords, categorize)).toEqual([
-      { category: 'Compute', aws: 10, azure: 8 },
-      { category: 'Storage', aws: 3, azure: 0 },
+    expect(aggregateByCategoryComparison(mixedRecords, categorizeWithCompute)).toEqual([
+      { category: 'Compute', aws: 10, azure: 8, gcp: 6 },
+      { category: 'Storage', aws: 3, azure: 0, gcp: 0 },
     ]);
   });
 

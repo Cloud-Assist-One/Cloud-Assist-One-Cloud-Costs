@@ -94,8 +94,6 @@ export default function CostReportTab({ companyId, cloudProvider, periodId, onSe
         <p>No cost data for this period.</p>
       ) : (
         <>
-          <p className={styles.total}>{formatCurrency(total)}</p>
-
           <div className={styles.chart}>
             <ResponsiveContainer width="100%" height={250}>
               <LineChart data={byDate}>
@@ -143,6 +141,12 @@ export default function CostReportTab({ companyId, cloudProvider, periodId, onSe
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr>
+                <td>Total</td>
+                <td>{formatCurrency(total)}</td>
+              </tr>
+            </tfoot>
           </table>
         </>
       )}
