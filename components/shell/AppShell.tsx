@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import type { Company, ProfileRole } from '@/lib/types';
+import { CLOUD_PROVIDER_LABELS } from '@/lib/cloudProvider';
 import UploadedFilesList from '../files/UploadedFilesList';
 import CostReportTab from '../reports/CostReportTab';
 import CompareTab from '../reports/CompareTab';
@@ -18,9 +19,13 @@ import { Button } from '@/components/ui/button';
 import ThemeToggle from './ThemeToggle';
 import styles from './AppShell.module.css';
 
-type TabKey = 'aws' | 'azure' | 'compare' | 'lineItems' | 'files' | 'notes' | 'archive' | 'admin';
+type TabKey = 'aws' | 'azure' | 'gcp' | 'snowflake' | 'compare' | 'lineItems' | 'files' | 'notes' | 'archive' | 'admin';
 
-const REPORT_TABS: TabKey[] = ['aws', 'azure', 'compare', 'lineItems'];
+const REPORT_TABS: TabKey[] = ['aws', 'azure', 'gcp', 'snowflake', 'compare', 'lineItems'];
+
+// The "Archive this period" action only makes sense while looking at one of
+// the single-cloud-provider report tabs, not Compare/Line Items/Files/etc.
+const SINGLE_PROVIDER_TABS: TabKey[] = ['aws', 'azure', 'gcp', 'snowflake'];
 
 interface AppShellProps {
   userId: string;
@@ -151,7 +156,7 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
             </select>
           </div>
         )}
-        {!viewingArchivedPeriod && activePeriodId && (
+        {!viewingArchivedPeriod && activePeriodId && SINGLE_PROVIDER_TABS.includes(activeTab) && (
           <Button type="button" variant="outline" size="sm" onClick={handleArchive}>
             Archive this period
           </Button>
@@ -165,8 +170,10 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
 
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TabKey)} className={`mb-6 print-hidden`}>
         <TabsList>
-          <TabsTrigger value="aws">AWS</TabsTrigger>
-          <TabsTrigger value="azure">Azure</TabsTrigger>
+          <TabsTrigger value="aws">{CLOUD_PROVIDER_LABELS.aws}</TabsTrigger>
+          <TabsTrigger value="azure">{CLOUD_PROVIDER_LABELS.azure}</TabsTrigger>
+          <TabsTrigger value="gcp">{CLOUD_PROVIDER_LABELS.gcp}</TabsTrigger>
+          <TabsTrigger value="snowflake">{CLOUD_PROVIDER_LABELS.snowflake}</TabsTrigger>
           <TabsTrigger value="compare">Compare</TabsTrigger>
           <TabsTrigger value="lineItems">Line Items</TabsTrigger>
           <TabsTrigger value="files">Uploaded Files</TabsTrigger>
@@ -238,6 +245,22 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
                 <CostReportTab
                   companyId={effectiveCompanyId}
                   cloudProvider="azure"
+                  periodId={periodIdForReports}
+                  onServiceClick={(serviceName) => handleServiceDrillDown([serviceName])}
+                />
+              )}
+              {activeTab === 'gcp' && (
+                <CostReportTab
+                  companyId={effectiveCompanyId}
+                  cloudProvider="gcp"
+                  periodId={periodIdForReports}
+                  onServiceClick={(serviceName) => handleServiceDrillDown([serviceName])}
+                />
+              )}
+              {activeTab === 'snowflake' && (
+                <CostReportTab
+                  companyId={effectiveCompanyId}
+                  cloudProvider="snowflake"
                   periodId={periodIdForReports}
                   onServiceClick={(serviceName) => handleServiceDrillDown([serviceName])}
                 />

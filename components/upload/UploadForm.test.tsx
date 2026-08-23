@@ -25,6 +25,15 @@ describe('UploadForm', () => {
     expect(onUploaded).toHaveBeenCalled();
   });
 
+  it('offers all 4 cloud providers', () => {
+    render(<UploadForm companyId="company-1" />);
+
+    expect(screen.getByRole('option', { name: 'Amazon Web Services' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Microsoft Azure' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Google Cloud' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Snowflake' })).toBeInTheDocument();
+  });
+
   it('shows the parser errors when the file fails to process', async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,

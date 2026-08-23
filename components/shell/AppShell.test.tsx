@@ -127,6 +127,38 @@ describe('AppShell', () => {
     expect(await screen.findByText('compare-tab-content')).toBeInTheDocument();
   });
 
+  it('shows the Google Cloud and Snowflake tabs, and switches to each', async () => {
+    const user = userEvent.setup();
+    render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);
+
+    await screen.findByText('report-tab-content for aws');
+    await user.click(screen.getByRole('tab', { name: /google cloud/i }));
+    expect(await screen.findByText('report-tab-content for gcp')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: /^snowflake$/i }));
+    expect(await screen.findByText('report-tab-content for snowflake')).toBeInTheDocument();
+  });
+
+  it('only shows the Archive this period button on the 4 cloud-provider tabs', async () => {
+    const user = userEvent.setup();
+    render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);
+
+    await screen.findByText('report-tab-content for aws');
+    expect(screen.getByRole('button', { name: /archive this period/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: /compare/i }));
+    await screen.findByText('compare-tab-content');
+    expect(screen.queryByRole('button', { name: /archive this period/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: /uploaded files/i }));
+    await screen.findByText('files-tab-content');
+    expect(screen.queryByRole('button', { name: /archive this period/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: /google cloud/i }));
+    await screen.findByText('report-tab-content for gcp');
+    expect(screen.getByRole('button', { name: /archive this period/i })).toBeInTheDocument();
+  });
+
   it('shows the Notes & Follow-ups tab for a client, but not the Admin tab', async () => {
     const user = userEvent.setup();
     render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);

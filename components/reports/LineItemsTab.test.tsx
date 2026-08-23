@@ -34,6 +34,19 @@ describe('LineItemsTab', () => {
     expect(await screen.findByText('Amazon EC2')).toBeInTheDocument();
     expect(screen.getByText('$12.50')).toBeInTheDocument();
     expect(screen.getByText('Page 1 of 3')).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: 'Amazon Web Services' })).toBeInTheDocument();
+  });
+
+  it('offers all 4 cloud providers in the Provider filter', async () => {
+    fetchPage.mockResolvedValue({ rows: [], totalCount: 0 });
+
+    render(<LineItemsTab companyId="c1" periodId="p1" />);
+    await waitFor(() => expect(fetchPage).toHaveBeenCalled());
+
+    expect(screen.getByRole('option', { name: 'Amazon Web Services' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Microsoft Azure' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Google Cloud' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Snowflake' })).toBeInTheDocument();
   });
 
   it('shows the note/todo indicator for a referenced row', async () => {

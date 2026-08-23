@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireCompanyAccess } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { parseCostFile } from '@/lib/parseCostFile';
+import { CLOUD_PROVIDERS } from '@/lib/cloudProvider';
+import type { CloudProvider } from '@/lib/types';
 
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
@@ -12,8 +14,11 @@ export async function POST(request: NextRequest) {
   if (!(file instanceof File) || typeof cloudProvider !== 'string' || typeof companyId !== 'string') {
     return NextResponse.json({ error: 'Missing file, cloudProvider, or companyId.' }, { status: 400 });
   }
-  if (cloudProvider !== 'aws' && cloudProvider !== 'azure') {
-    return NextResponse.json({ error: 'cloudProvider must be "aws" or "azure".' }, { status: 400 });
+  if (!CLOUD_PROVIDERS.includes(cloudProvider as CloudProvider)) {
+    return NextResponse.json(
+      { error: `cloudProvider must be one of: ${CLOUD_PROVIDERS.join(', ')}.` },
+      { status: 400 }
+    );
   }
 
   const guard = await requireCompanyAccess(companyId);

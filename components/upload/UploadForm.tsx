@@ -2,6 +2,7 @@
 
 import { useState, FormEvent } from 'react';
 import type { CloudProvider } from '@/lib/types';
+import { CLOUD_PROVIDERS, CLOUD_PROVIDER_LABELS } from '@/lib/cloudProvider';
 import styles from './UploadForm.module.css';
 
 interface UploadFormProps {
@@ -67,8 +68,11 @@ export default function UploadForm({ companyId, onUploaded }: UploadFormProps) {
         value={cloudProvider}
         onChange={(e) => setCloudProvider(e.target.value as CloudProvider)}
       >
-        <option value="aws">AWS</option>
-        <option value="azure">Azure</option>
+        {CLOUD_PROVIDERS.map((provider) => (
+          <option key={provider} value={provider}>
+            {CLOUD_PROVIDER_LABELS[provider]}
+          </option>
+        ))}
       </select>
 
       <label htmlFor="upload-file">File</label>

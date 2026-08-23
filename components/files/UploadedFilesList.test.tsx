@@ -45,6 +45,7 @@ describe('UploadedFilesList', () => {
     expect(await screen.findByText('july-aws.xlsx')).toBeInTheDocument();
     expect(screen.getByText('Processed')).toBeInTheDocument();
     expect(screen.getByText('42 rows')).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: 'Amazon Web Services' })).toBeInTheDocument();
   });
 
   it('shows the error message for a failed upload', async () => {

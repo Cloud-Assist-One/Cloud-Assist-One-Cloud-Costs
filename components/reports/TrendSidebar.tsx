@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { createClient } from '@/lib/supabase/client';
 import type { CloudProvider } from '@/lib/types';
+import { CLOUD_PROVIDERS, CLOUD_PROVIDER_LABELS } from '@/lib/cloudProvider';
 import styles from './TrendSidebar.module.css';
 
 interface TrendSidebarProps {
@@ -15,6 +16,15 @@ interface MonthlyTotal {
   cloud_provider: CloudProvider;
   total: number;
 }
+
+type MonthlyEntry = { month: string } & Record<CloudProvider, number>;
+
+const PROVIDER_COLORS: Record<CloudProvider, string> = {
+  aws: 'var(--primary)',
+  azure: 'var(--muted-foreground)',
+  gcp: '#22a06b',
+  snowflake: '#e08a2e',
+};
 
 function formatCurrency(amount: number): string {
   return `$${amount.toFixed(2)}`;
@@ -48,9 +58,11 @@ export default function TrendSidebar({ companyId }: TrendSidebarProps) {
   }, [companyId]);
 
   const chartData = useMemo(() => {
-    const byMonth = new Map<string, { month: string; aws: number; azure: number }>();
+    const byMonth = new Map<string, MonthlyEntry>();
     for (const row of rows) {
-      const entry = byMonth.get(row.month) ?? { month: row.month, aws: 0, azure: 0 };
+      const entry =
+        byMonth.get(row.month) ??
+        ({ month: row.month, aws: 0, azure: 0, gcp: 0, snowflake: 0 } as MonthlyEntry);
       entry[row.cloud_provider] = row.total;
       byMonth.set(row.month, entry);
     }
@@ -74,8 +86,16 @@ export default function TrendSidebar({ companyId }: TrendSidebarProps) {
             <XAxis dataKey="month" hide />
             <YAxis hide />
             <Tooltip />
-            <Line type="monotone" dataKey="aws" stroke="var(--primary)" name="AWS" dot={false} />
-            <Line type="monotone" dataKey="azure" stroke="var(--muted-foreground)" name="Azure" dot={false} />
+            {CLOUD_PROVIDERS.map((provider) => (
+              <Line
+                key={provider}
+                type="monotone"
+                dataKey={provider}
+                stroke={PROVIDER_COLORS[provider]}
+                name={CLOUD_PROVIDER_LABELS[provider]}
+                dot={false}
+              />
+            ))}
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -83,8 +103,11 @@ export default function TrendSidebar({ companyId }: TrendSidebarProps) {
         {chartData.map((entry) => (
           <li key={entry.month}>
             <span>{entry.month}</span>
-            <div>AWS <span>{formatCurrency(entry.aws)}</span></div>
-            <div>Azure <span>{formatCurrency(entry.azure)}</span></div>
+            {CLOUD_PROVIDERS.map((provider) => (
+              <div key={provider}>
+                {CLOUD_PROVIDER_LABELS[provider]} <span>{formatCurrency(entry[provider])}</span>
+              </div>
+            ))}
           </li>
         ))}
       </ul>

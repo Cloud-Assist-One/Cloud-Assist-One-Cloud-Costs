@@ -10,6 +10,7 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import type { CloudProvider, CostRecord } from '@/lib/types';
 import { fetchLineItemsPage, fetchReferencedRecordIds, type LineItemSortColumn } from '@/lib/lineItemQuery';
+import { CLOUD_PROVIDERS, CLOUD_PROVIDER_LABELS } from '@/lib/cloudProvider';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import styles from './LineItemsTab.module.css';
 
@@ -31,7 +32,7 @@ const columns = [
   columnHelper.accessor('usage_date', { header: 'Date', cell: (info) => info.getValue() }),
   columnHelper.accessor('cloud_provider', {
     header: 'Provider',
-    cell: (info) => (info.getValue() === 'aws' ? 'AWS' : 'Azure'),
+    cell: (info) => CLOUD_PROVIDER_LABELS[info.getValue()],
   }),
   columnHelper.accessor('service_name', { header: 'Service', cell: (info) => info.getValue() }),
   columnHelper.accessor('account_id', { header: 'Account', cell: (info) => info.getValue() ?? '—' }),
@@ -132,8 +133,11 @@ export default function LineItemsTab({ companyId, periodId, initialServiceFilter
           }}
         >
           <option value="">All</option>
-          <option value="aws">AWS</option>
-          <option value="azure">Azure</option>
+          {CLOUD_PROVIDERS.map((provider) => (
+            <option key={provider} value={provider}>
+              {CLOUD_PROVIDER_LABELS[provider]}
+            </option>
+          ))}
         </select>
         {serviceFilter.length > 0 && (
           <button

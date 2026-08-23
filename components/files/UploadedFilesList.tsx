@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { UploadedFile } from '@/lib/types';
+import { CLOUD_PROVIDER_LABELS } from '@/lib/cloudProvider';
 import UploadForm from '@/components/upload/UploadForm';
 import styles from './UploadedFilesList.module.css';
 
@@ -82,7 +83,7 @@ export default function UploadedFilesList({ companyId, periodId, isReadOnly }: U
             {files.map((file) => (
               <tr key={file.id}>
                 <td>{file.filename}</td>
-                <td>{file.cloud_provider === 'aws' ? 'AWS' : 'Azure'}</td>
+                <td>{CLOUD_PROVIDER_LABELS[file.cloud_provider]}</td>
                 <td>
                   <span>{STATUS_LABELS[file.status]}</span>
                   {file.status === 'processed' && file.row_count !== null && (

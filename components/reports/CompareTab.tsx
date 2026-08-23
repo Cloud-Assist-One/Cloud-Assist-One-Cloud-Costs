@@ -77,8 +77,14 @@ export default function CompareTab({ companyId, periodId, onCategoryClick }: Com
   const azureRecords = useMemo(() => records.filter((r) => r.cloud_provider === 'azure'), [records]);
   const awsTotal = useMemo(() => totalCost(awsRecords), [awsRecords]);
   const azureTotal = useMemo(() => totalCost(azureRecords), [azureRecords]);
+  // Compare is scoped to AWS vs Azure only — Google Cloud/Snowflake records
+  // (if any) are excluded here rather than silently folded into either column.
   const categoryComparison = useMemo(
-    () => aggregateByCategoryComparison(records, categorizeService),
+    () =>
+      aggregateByCategoryComparison(
+        records.filter((r): r is typeof r & { cloud_provider: 'aws' | 'azure' } => r.cloud_provider === 'aws' || r.cloud_provider === 'azure'),
+        categorizeService
+      ),
     [records]
   );
 

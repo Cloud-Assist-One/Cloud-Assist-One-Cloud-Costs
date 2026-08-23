@@ -1,5 +1,5 @@
 export type ProfileRole = 'client' | 'staff' | 'admin';
-export type CloudProvider = 'aws' | 'azure';
+export type CloudProvider = 'aws' | 'azure' | 'gcp' | 'snowflake';
 export type UploadStatus = 'processing' | 'processed' | 'error';
 
 export interface Company {

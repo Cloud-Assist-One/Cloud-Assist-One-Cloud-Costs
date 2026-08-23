@@ -41,6 +41,19 @@ describe('TrendSidebar', () => {
     expect(screen.getByText('$40.00')).toBeInTheDocument();
   });
 
+  it('shows all 4 providers per month, defaulting to $0.00 when a provider has no data', async () => {
+    loadTrend.mockResolvedValueOnce({
+      data: [{ month: '2026-08-01', cloud_provider: 'aws', total: 50 }],
+    });
+
+    render(<TrendSidebar companyId="company-1" />);
+
+    await screen.findByText('$50.00');
+    expect(screen.getByText(/google cloud/i)).toBeInTheDocument();
+    expect(screen.getByText(/snowflake/i)).toBeInTheDocument();
+    expect(screen.getAllByText('$0.00').length).toBe(3);
+  });
+
   it('shows an empty state when there is no trend data', async () => {
     loadTrend.mockResolvedValueOnce({ data: [] });
 
