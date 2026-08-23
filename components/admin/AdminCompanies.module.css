@@ -35,3 +35,44 @@
   flex-direction: column;
   gap: 0.5rem;
 }
+
+.companyRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.confirmDelete {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.confirmDelete input {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font: inherit;
+}
+
+.deleteButton {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  padding: 0.25rem 0.85rem;
+  cursor: pointer;
+  font: inherit;
+  color: var(--muted-foreground);
+}
+
+.deleteButton:hover:not(:disabled) {
+  border-color: currentColor;
+  color: #b3261e;
+}
+
+.deleteButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

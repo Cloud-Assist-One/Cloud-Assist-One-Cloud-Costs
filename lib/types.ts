@@ -1,4 +1,4 @@
-export type ProfileRole = 'client' | 'staff';
+export type ProfileRole = 'client' | 'staff' | 'admin';
 export type CloudProvider = 'aws' | 'azure';
 export type UploadStatus = 'processing' | 'processed' | 'error';
 

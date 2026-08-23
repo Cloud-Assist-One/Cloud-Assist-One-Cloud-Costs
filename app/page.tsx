@@ -18,11 +18,14 @@ export default async function Home() {
     .eq('id', user.id)
     .single();
 
+  const role = profile?.role === 'admin' ? 'admin' : profile?.role === 'staff' ? 'staff' : 'client';
+
   return (
     <AppShell
       userId={user.id}
-      role={profile?.role === 'staff' ? 'staff' : 'client'}
+      role={role}
       companyId={profile?.company_id ?? null}
+      userEmail={user.email ?? ''}
     />
   );
 }

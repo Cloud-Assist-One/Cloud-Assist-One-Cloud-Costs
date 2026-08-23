@@ -26,6 +26,12 @@
   font: inherit;
 }
 
+.userEmail {
+  font-size: 0.85rem;
+  color: var(--color-fg);
+  opacity: 0.75;
+}
+
 .adminSections {
   display: flex;
   flex-direction: column;

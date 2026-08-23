@@ -84,4 +84,44 @@ describe('AdminUsers', () => {
 
     confirmSpy.mockRestore();
   });
+
+  it('does not offer the Admin role option to a non-admin', async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ users: [] }) });
+    render(<AdminUsers />);
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/api/admin/users'));
+    expect(screen.queryByRole('option', { name: 'Admin' })).not.toBeInTheDocument();
+  });
+
+  it('lets an admin create another admin account', async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ users: [] }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'u3', email: 'newadmin@example.com', role: 'admin' }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          users: [{ id: 'u3', email: 'newadmin@example.com', role: 'admin', company_id: null, created_at: '2026-07-01T00:00:00.000Z' }],
+        }),
+      });
+
+    const user = userEvent.setup();
+    render(<AdminUsers isAdmin />);
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/api/admin/users'));
+
+    await user.type(screen.getByLabelText(/email/i), 'newadmin@example.com');
+    await user.type(screen.getByLabelText(/^password/i), 'correct-horse-battery');
+    await user.selectOptions(screen.getByLabelText(/role/i), 'admin');
+    await user.click(screen.getByRole('button', { name: /create user/i }));
+
+    await waitFor(() =>
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/admin/users',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ email: 'newadmin@example.com', password: 'correct-horse-battery', role: 'admin', companyId: undefined }),
+        })
+      )
+    );
+  });
 });

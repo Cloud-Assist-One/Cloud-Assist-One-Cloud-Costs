@@ -26,9 +26,11 @@ interface AppShellProps {
   userId: string;
   role: ProfileRole;
   companyId: string | null;
+  userEmail: string;
 }
 
-export default function AppShell({ userId, role, companyId }: AppShellProps) {
+export default function AppShell({ userId, role, companyId, userEmail }: AppShellProps) {
+  const canManage = role === 'staff' || role === 'admin';
   const [activeTab, setActiveTab] = useState<TabKey>('aws');
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(companyId);
@@ -39,7 +41,7 @@ export default function AppShell({ userId, role, companyId }: AppShellProps) {
   const router = useRouter();
 
   useEffect(() => {
-    if (role !== 'staff') return;
+    if (role !== 'staff' && role !== 'admin') return;
 
     let cancelled = false;
 
@@ -59,7 +61,7 @@ export default function AppShell({ userId, role, companyId }: AppShellProps) {
     };
   }, [role]);
 
-  const effectiveCompanyId = role === 'staff' ? selectedCompanyId : companyId;
+  const effectiveCompanyId = canManage ? selectedCompanyId : companyId;
 
   // Switching companies always resets back to that company's active period —
   // never carries over "viewing an archived period" from the previous company.
@@ -133,7 +135,7 @@ export default function AppShell({ userId, role, companyId }: AppShellProps) {
     <div className={styles.wrapper}>
       <div className={`${styles.topBar} print-hidden`}>
         <h1>Cloud Cost Review Portal</h1>
-        {role === 'staff' && (
+        {canManage && (
           <div className={styles.companySwitcher}>
             <label htmlFor="company-switcher">Viewing company</label>
             <select
@@ -154,6 +156,7 @@ export default function AppShell({ userId, role, companyId }: AppShellProps) {
             Archive this period
           </Button>
         )}
+        <span className={styles.userEmail}>{userEmail}</span>
         <Button type="button" variant="outline" size="sm" onClick={handleSignOut}>
           Sign out
         </Button>
@@ -169,7 +172,7 @@ export default function AppShell({ userId, role, companyId }: AppShellProps) {
           <TabsTrigger value="files">Uploaded Files</TabsTrigger>
           <TabsTrigger value="notes">Notes & Follow-ups</TabsTrigger>
           <TabsTrigger value="archive">Archive</TabsTrigger>
-          {role === 'staff' && <TabsTrigger value="admin">Admin</TabsTrigger>}
+          {canManage && <TabsTrigger value="admin">Admin</TabsTrigger>}
         </TabsList>
       </Tabs>
 
@@ -196,10 +199,10 @@ export default function AppShell({ userId, role, companyId }: AppShellProps) {
       )}
 
       <div className={styles.panel}>
-        {activeTab === 'admin' && role === 'staff' ? (
+        {activeTab === 'admin' && canManage ? (
           <div className={styles.adminSections}>
-            <AdminCompanies />
-            <AdminUsers />
+            <AdminCompanies isAdmin={role === 'admin'} />
+            <AdminUsers isAdmin={role === 'admin'} />
           </div>
         ) : activeTab === 'archive' ? (
           effectiveCompanyId ? (
@@ -265,7 +268,7 @@ export default function AppShell({ userId, role, companyId }: AppShellProps) {
                 <NotesFeed
                   companyId={effectiveCompanyId}
                   userId={userId}
-                  isStaff={role === 'staff'}
+                  isStaff={canManage}
                   periodId={periodIdForReports}
                   isReadOnly={viewingArchivedPeriod}
                 />

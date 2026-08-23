@@ -5,12 +5,16 @@ import { createClient } from '@/lib/supabase/client';
 import type { Company, Profile } from '@/lib/types';
 import styles from './AdminUsers.module.css';
 
-export default function AdminUsers() {
+interface AdminUsersProps {
+  isAdmin?: boolean;
+}
+
+export default function AdminUsers({ isAdmin = false }: AdminUsersProps) {
   const [users, setUsers] = useState<Profile[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'client' | 'staff'>('client');
+  const [role, setRole] = useState<'client' | 'staff' | 'admin'>('client');
   const [companyId, setCompanyId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -113,9 +117,14 @@ export default function AdminUsers() {
         <input id="new-user-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
 
         <label htmlFor="new-user-role">Role</label>
-        <select id="new-user-role" value={role} onChange={(e) => setRole(e.target.value as 'client' | 'staff')}>
+        <select
+          id="new-user-role"
+          value={role}
+          onChange={(e) => setRole(e.target.value as 'client' | 'staff' | 'admin')}
+        >
           <option value="client">Client</option>
           <option value="staff">Staff</option>
+          {isAdmin && <option value="admin">Admin</option>}
         </select>
 
         {role === 'client' && (

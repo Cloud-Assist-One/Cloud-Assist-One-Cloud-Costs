@@ -76,7 +76,7 @@ describe('AppShell', () => {
   });
 
   it('shows the AWS tab and the Uploaded Files tab for a client', async () => {
-    render(<AppShell userId="client-1" role="client" companyId="c1" />);
+    render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);
 
     expect(await screen.findByText('report-tab-content for aws')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /uploaded files/i })).toBeInTheDocument();
@@ -84,7 +84,7 @@ describe('AppShell', () => {
 
   it('switches to the Uploaded Files tab when clicked', async () => {
     const user = userEvent.setup();
-    render(<AppShell userId="client-1" role="client" companyId="c1" />);
+    render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);
 
     await screen.findByText('report-tab-content for aws');
     await user.click(screen.getByRole('tab', { name: /uploaded files/i }));
@@ -100,7 +100,7 @@ describe('AppShell', () => {
       ],
     });
 
-    render(<AppShell userId="staff-1" role="staff" companyId={null} />);
+    render(<AppShell userId="staff-1" role="staff" companyId={null} userEmail="staff@example.com" />);
 
     expect(await screen.findByLabelText(/viewing company/i)).toBeInTheDocument();
   });
@@ -108,7 +108,7 @@ describe('AppShell', () => {
   it('signs the user out when Sign out is clicked', async () => {
     signOut.mockResolvedValueOnce({ error: null });
     const user = userEvent.setup();
-    render(<AppShell userId="client-1" role="client" companyId="c1" />);
+    render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);
 
     await user.click(screen.getByRole('button', { name: /sign out/i }));
 
@@ -117,7 +117,7 @@ describe('AppShell', () => {
 
   it('shows the Azure tab and the Compare tab, and switches to each', async () => {
     const user = userEvent.setup();
-    render(<AppShell userId="client-1" role="client" companyId="c1" />);
+    render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);
 
     await screen.findByText('report-tab-content for aws');
     await user.click(screen.getByRole('tab', { name: /azure/i }));
@@ -129,7 +129,7 @@ describe('AppShell', () => {
 
   it('shows the Notes & Follow-ups tab for a client, but not the Admin tab', async () => {
     const user = userEvent.setup();
-    render(<AppShell userId="client-1" role="client" companyId="c1" />);
+    render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);
 
     await screen.findByText('report-tab-content for aws');
     await user.click(screen.getByRole('tab', { name: /notes/i }));
@@ -140,7 +140,7 @@ describe('AppShell', () => {
   it('shows the Admin tab for staff, with Notes marked isStaff=true', async () => {
     listCompanies.mockResolvedValueOnce({ data: [{ id: 'c1', name: 'Acme Corp', created_at: '2026-07-01T00:00:00.000Z' }] });
     const user = userEvent.setup();
-    render(<AppShell userId="staff-1" role="staff" companyId={null} />);
+    render(<AppShell userId="staff-1" role="staff" companyId={null} userEmail="staff@example.com" />);
 
     await screen.findByText('report-tab-content for aws');
     await user.click(screen.getByRole('tab', { name: /notes/i }));
@@ -151,9 +151,26 @@ describe('AppShell', () => {
     expect(screen.getByText('admin-users-content')).toBeInTheDocument();
   });
 
+  it("shows the logged-in user's email in the top bar", async () => {
+    render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);
+
+    expect(await screen.findByText('client@example.com')).toBeInTheDocument();
+  });
+
+  it('shows the Admin tab and company switcher for an admin, same as staff', async () => {
+    listCompanies.mockResolvedValueOnce({ data: [{ id: 'c1', name: 'Acme Corp', created_at: '2026-07-01T00:00:00.000Z' }] });
+    const user = userEvent.setup();
+    render(<AppShell userId="admin-1" role="admin" companyId={null} userEmail="admin@example.com" />);
+
+    expect(await screen.findByLabelText(/viewing company/i)).toBeInTheDocument();
+    await screen.findByText('report-tab-content for aws');
+    await user.click(screen.getByRole('tab', { name: /admin/i }));
+    expect(await screen.findByText('admin-companies-content')).toBeInTheDocument();
+  });
+
   it('shows the Archive tab and switches to it', async () => {
     const user = userEvent.setup();
-    render(<AppShell userId="client-1" role="client" companyId="c1" />);
+    render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);
 
     await screen.findByText('report-tab-content for aws');
     await user.click(screen.getByRole('tab', { name: /archive/i }));
@@ -168,7 +185,7 @@ describe('AppShell', () => {
       ],
     });
     const user = userEvent.setup();
-    render(<AppShell userId="staff-1" role="staff" companyId={null} />);
+    render(<AppShell userId="staff-1" role="staff" companyId={null} userEmail="staff@example.com" />);
 
     await screen.findByText('report-tab-content for aws');
     await user.click(screen.getByRole('tab', { name: /archive/i }));
@@ -191,7 +208,7 @@ describe('AppShell', () => {
       json: async () => ({ error: 'No active billing period found for company c1' }),
     });
     const user = userEvent.setup();
-    render(<AppShell userId="client-1" role="client" companyId="c1" />);
+    render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);
 
     await screen.findByText('report-tab-content for aws');
     await user.click(screen.getByRole('button', { name: /archive this period/i }));

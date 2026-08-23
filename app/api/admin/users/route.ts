@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireStaff } from '@/lib/admin-guard';
+import { requireStaff, requireAdmin } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 export async function GET() {
@@ -35,11 +35,17 @@ export async function POST(request: NextRequest) {
     companyId?: string;
   };
 
-  if (!email || !password || (role !== 'client' && role !== 'staff')) {
+  if (!email || !password || (role !== 'client' && role !== 'staff' && role !== 'admin')) {
     return NextResponse.json({ error: 'email, password, and a valid role are required.' }, { status: 400 });
   }
   if (role === 'client' && !companyId) {
     return NextResponse.json({ error: 'companyId is required for client accounts.' }, { status: 400 });
+  }
+  if (role === 'admin') {
+    const adminGuard = await requireAdmin();
+    if (!adminGuard.authorized) {
+      return NextResponse.json({ error: 'Only an admin can create another admin account.' }, { status: 403 });
+    }
   }
 
   const adminClient = createAdminClient();
