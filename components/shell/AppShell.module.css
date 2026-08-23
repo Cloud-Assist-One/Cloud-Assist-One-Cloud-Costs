@@ -33,14 +33,12 @@
 }
 
 .reportLayout {
-  display: flex;
-  gap: 1.5rem;
-  align-items: flex-start;
+  padding-left: 290px;
 }
 
 .reportContent {
-  flex: 1;
-  min-width: 0;
+  max-width: 56rem;
+  margin: 0 auto;
 }
 
 .archiveBanner {
