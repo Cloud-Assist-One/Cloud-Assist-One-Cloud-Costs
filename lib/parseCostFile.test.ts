@@ -39,6 +39,20 @@ describe('parseCostFile', () => {
     ]);
   });
 
+  it('recognizes "Service Description", "Cost (USD)", and "Month" as header aliases', () => {
+    const buffer = buildWorkbookBuffer([
+      ['Service Description', 'Month', 'Cost (USD)'],
+      ['Google Compute Engine', '2026-08-01', 45.2],
+    ]);
+
+    const result = parseCostFile(buffer);
+
+    expect(result.errors).toEqual([]);
+    expect(result.rows).toEqual([
+      { service_name: 'Google Compute Engine', usage_date: '2026-08-01', cost: 45.2, account_id: null },
+    ]);
+  });
+
   it('reports an error and returns no rows when required columns are missing', () => {
     const buffer = buildWorkbookBuffer([
       ['Something', 'Else'],

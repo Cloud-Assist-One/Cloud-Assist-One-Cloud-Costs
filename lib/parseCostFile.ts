@@ -12,9 +12,9 @@ export interface ParseResult {
   errors: string[];
 }
 
-const SERVICE_HEADER_ALIASES = ['service', 'service name'];
-const DATE_HEADER_ALIASES = ['date', 'usage date', 'start date'];
-const COST_HEADER_ALIASES = ['cost', 'amount', 'blended cost', 'unblended cost', 'total cost'];
+const SERVICE_HEADER_ALIASES = ['service', 'service name', 'service description'];
+const DATE_HEADER_ALIASES = ['date', 'usage date', 'start date', 'month'];
+const COST_HEADER_ALIASES = ['cost', 'amount', 'blended cost', 'unblended cost', 'total cost', 'cost (usd)'];
 const ACCOUNT_HEADER_ALIASES = ['account id', 'linked account', 'subscription id', 'subscription name'];
 
 function normalizeHeader(header: string): string {
