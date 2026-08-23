@@ -163,11 +163,11 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
           </Button>
         )}
         <span className={styles.userEmail}>{userEmail}</span>
+        <ThemeToggle />
+        <AccentColorPicker />
         <Button type="button" variant="outline" size="sm" onClick={handleSignOut}>
           Sign out
         </Button>
-        <ThemeToggle />
-        <AccentColorPicker />
       </div>
 
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TabKey)} className={`mb-6 print-hidden`}>
