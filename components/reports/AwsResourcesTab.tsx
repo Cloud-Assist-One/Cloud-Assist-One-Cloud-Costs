@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ResourceGrid, ResourceLegend } from './ResourceGrid';
 import type {
+  AwsCredentialSummary,
   AwsResourcesResponse,
   Ec2InstanceRow,
   LambdaFunctionRow,
@@ -20,19 +21,24 @@ interface AwsResourcesTabProps {
 }
 
 export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
+  const [connections, setConnections] = useState<AwsCredentialSummary[] | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [response, setResponse] = useState<AwsResourcesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadResources = useCallback(async () => {
-    const res = await fetch(`/api/aws/resources?companyId=${companyId}`);
-    const body = await res.json();
-    if (!res.ok) {
-      throw new Error(body.error ?? 'Could not load AWS resources.');
-    }
-    return body as AwsResourcesResponse;
-  }, [companyId]);
+  const loadResources = useCallback(
+    async (credentialId: string) => {
+      const res = await fetch(`/api/aws/resources?companyId=${companyId}&credentialId=${credentialId}`);
+      const body = await res.json();
+      if (!res.ok) {
+        throw new Error(body.error ?? 'Could not load AWS resources.');
+      }
+      return body as AwsResourcesResponse;
+    },
+    [companyId]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -41,7 +47,20 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
       setLoading(true);
       setError(null);
       try {
-        const result = await loadResources();
+        const listRes = await fetch(`/api/settings/aws-credentials?companyId=${companyId}`);
+        const listBody = await listRes.json();
+        const list = (listBody.connections ?? []) as AwsCredentialSummary[];
+        if (cancelled) return;
+        setConnections(list);
+
+        if (list.length === 0) {
+          setLoading(false);
+          return;
+        }
+
+        const firstId = list[0].id;
+        setSelectedId(firstId);
+        const result = await loadResources(firstId);
         if (!cancelled) {
           setResponse(result);
           setLoading(false);
@@ -58,13 +77,27 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
     return () => {
       cancelled = true;
     };
-  }, [loadResources]);
+  }, [companyId, loadResources]);
 
-  async function handleRefresh() {
+  async function handleSelectConnection(id: string) {
+    setSelectedId(id);
     setRefreshing(true);
     setError(null);
     try {
-      const result = await loadResources();
+      const result = await loadResources(id);
+      setResponse(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load AWS resources.');
+    }
+    setRefreshing(false);
+  }
+
+  async function handleRefresh() {
+    if (!selectedId) return;
+    setRefreshing(true);
+    setError(null);
+    try {
+      const result = await loadResources(selectedId);
       setResponse(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load AWS resources.');
@@ -84,13 +117,27 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
     );
   }
 
-  if (!response?.connected) {
+  if (!connections || connections.length === 0 || !response?.connected) {
     return <p>AWS isn&apos;t connected yet. Add your AWS access key in the Settings tab to see live resources.</p>;
   }
 
   return (
     <div className={styles.wrapper}>
       <div className={styles.header}>
+        <div className={styles.accountPicker}>
+          <label htmlFor="aws-account-picker">Account</label>
+          <select
+            id="aws-account-picker"
+            value={selectedId ?? ''}
+            onChange={(e) => handleSelectConnection(e.target.value)}
+          >
+            {connections.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </div>
         <span className={styles.fetchedAt}>
           Region {response.region} — last refreshed {new Date(response.fetchedAt).toLocaleTimeString()}
         </span>
