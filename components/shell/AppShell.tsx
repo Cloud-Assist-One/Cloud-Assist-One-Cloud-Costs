@@ -16,6 +16,7 @@ import AdminUsers from '../admin/AdminUsers';
 import ArchiveTab from './ArchiveTab';
 import SettingsTab from '../settings/SettingsTab';
 import AwsResourcesTab from '../reports/AwsResourcesTab';
+import AwsIamUsersTab from '../reports/AwsIamUsersTab';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import ThemeToggle from './ThemeToggle';
@@ -57,8 +58,8 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
   const [viewingPeriodId, setViewingPeriodId] = useState<string | null>(null);
   const [lineItemsFilter, setLineItemsFilter] = useState<string[] | undefined>(undefined);
   const [archiveError, setArchiveError] = useState<string | null>(null);
-  const [awsSubTab, setAwsSubTab] = useState<'overview' | 'resources'>('overview');
-  const isAwsResourcesView = activeTab === 'aws' && awsSubTab === 'resources';
+  const [awsSubTab, setAwsSubTab] = useState<'overview' | 'resources' | 'iamUsers'>('overview');
+  const isAwsWideView = activeTab === 'aws' && (awsSubTab === 'resources' || awsSubTab === 'iamUsers');
   const router = useRouter();
 
   useEffect(() => {
@@ -252,17 +253,21 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
         ) : !periodIdForReports ? (
           <p>Loading…</p>
         ) : (
-          <div className={REPORT_TABS.includes(activeTab) && !isAwsResourcesView ? styles.reportLayout : undefined}>
-            {REPORT_TABS.includes(activeTab) && !isAwsResourcesView && (
+          <div className={REPORT_TABS.includes(activeTab) && !isAwsWideView ? styles.reportLayout : undefined}>
+            {REPORT_TABS.includes(activeTab) && !isAwsWideView && (
               <TrendSidebar key={effectiveCompanyId} companyId={effectiveCompanyId} />
             )}
-            <div className={isAwsResourcesView ? styles.resourcesContent : styles.reportContent}>
+            <div className={isAwsWideView ? styles.resourcesContent : styles.reportContent}>
               {activeTab === 'aws' && (
                 <div className={styles.awsSubTabs}>
-                  <Tabs value={awsSubTab} onValueChange={(value) => setAwsSubTab(value as 'overview' | 'resources')}>
+                  <Tabs
+                    value={awsSubTab}
+                    onValueChange={(value) => setAwsSubTab(value as 'overview' | 'resources' | 'iamUsers')}
+                  >
                     <TabsList>
                       <TabsTrigger value="overview">Overview</TabsTrigger>
                       <TabsTrigger value="resources">Resources</TabsTrigger>
+                      <TabsTrigger value="iamUsers">IAM Users</TabsTrigger>
                     </TabsList>
                   </Tabs>
                   {awsSubTab === 'overview' ? (
@@ -272,8 +277,10 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
                       periodId={periodIdForReports}
                       onServiceClick={(serviceName) => handleServiceDrillDown([serviceName])}
                     />
-                  ) : (
+                  ) : awsSubTab === 'resources' ? (
                     <AwsResourcesTab companyId={effectiveCompanyId} />
+                  ) : (
+                    <AwsIamUsersTab companyId={effectiveCompanyId} />
                   )}
                 </div>
               )}

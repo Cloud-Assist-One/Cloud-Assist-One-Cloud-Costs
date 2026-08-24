@@ -157,6 +157,15 @@ export interface S3BucketRow {
   creationDate: string | null;
 }
 
+export interface IamUserRow {
+  userName: string;
+  userId: string;
+  arn: string;
+  path: string;
+  createDate: string | null;
+  passwordLastUsed: string | null;
+}
+
 export interface AwsResourceResult<T> {
   data: T[];
   error: string | null;
@@ -175,4 +184,12 @@ export type AwsResourcesResponse =
       dynamodb: AwsResourceResult<DynamoTableRow>;
       apis: AwsResourceResult<ApiRow>;
       s3: AwsResourceResult<S3BucketRow>;
+    };
+
+export type AwsIamUsersResponse =
+  | { connected: false }
+  | {
+      connected: true;
+      fetchedAt: string;
+      users: AwsResourceResult<IamUserRow>;
     };
