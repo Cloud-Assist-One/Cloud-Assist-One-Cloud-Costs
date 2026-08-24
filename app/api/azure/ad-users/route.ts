@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ClientSecretCredential } from '@azure/identity';
-import { Client } from '@microsoft/microsoft-graph-client';
+import { Client, PageIterator } from '@microsoft/microsoft-graph-client';
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials';
 import { requireCompanyAccess } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -69,7 +69,18 @@ export async function GET(request: NextRequest) {
     });
     const client = Client.initWithMiddleware({ authProvider });
     const result = await client.api('/users').select('id,displayName,userPrincipalName,createdDateTime').get();
-    users = ((result.value ?? []) as Record<string, unknown>[]).map((user) => ({
+
+    // Graph paginates at ~100 users per page via @odata.nextLink -- follow
+    // every page with the SDK's own iterator or a tenant with more than one
+    // page's worth of users silently loses everyone past the first page.
+    const rawUsers: Record<string, unknown>[] = [];
+    const pageIterator = new PageIterator(client, result, (user) => {
+      rawUsers.push(user as Record<string, unknown>);
+      return true;
+    });
+    await pageIterator.iterate();
+
+    users = rawUsers.map((user) => ({
       id: (user.id as string) ?? '',
       displayName: (user.displayName as string | null) ?? null,
       userPrincipalName: (user.userPrincipalName as string | null) ?? null,

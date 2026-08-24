@@ -142,6 +142,7 @@ export async function GET(request: NextRequest) {
     try {
       const client = new SqlManagementClient(credential, subscriptionId);
       const rows: AzureSqlDatabaseRow[] = [];
+      const errors: string[] = [];
       for await (const server of client.servers.list()) {
         const resourceGroup = resourceGroupFromId(server.id);
         if (!server.name || !resourceGroup) continue;
@@ -157,13 +158,15 @@ export async function GET(request: NextRequest) {
               creationDate: database.creationDate ? new Date(database.creationDate).toISOString() : null,
             });
           }
-        } catch {
+        } catch (err) {
           // One server's databases failing to list (e.g. a permissions gap
           // scoped to that server) must not blank out every other server's
-          // databases -- skip it and keep going.
+          // databases -- skip it and keep going, but surface the failure
+          // instead of silently reporting fewer rows.
+          errors.push(`${server.name}: ${errorMessage(err)}`);
         }
       }
-      return { data: rows, error: null };
+      return { data: rows, error: errors.length > 0 ? errors.join(' | ') : null };
     } catch (err) {
       return { data: [], error: errorMessage(err) };
     }
