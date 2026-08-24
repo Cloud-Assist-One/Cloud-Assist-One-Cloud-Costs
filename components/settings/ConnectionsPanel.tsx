@@ -1,0 +1,187 @@
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import styles from './ConnectionsPanel.module.css';
+
+export interface ConnectionField {
+  name: string;
+  label: string;
+  type: 'text' | 'password' | 'textarea';
+  defaultValue?: string;
+}
+
+interface ConnectionsPanelProps<TSummary extends { id: string; label: string }> {
+  companyId: string;
+  apiPath: string;
+  fields: ConnectionField[];
+  renderSummary: (connection: TSummary) => string;
+}
+
+export default function ConnectionsPanel<TSummary extends { id: string; label: string }>({
+  companyId,
+  apiPath,
+  fields,
+  renderSummary,
+}: ConnectionsPanelProps<TSummary>) {
+  const [connections, setConnections] = useState<TSummary[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [label, setLabel] = useState('');
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(fields.map((f) => [f.name, f.defaultValue ?? '']))
+  );
+  const [saving, setSaving] = useState(false);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const loadConnections = useCallback(async () => {
+    const response = await fetch(`${apiPath}?companyId=${companyId}`);
+    const body = await response.json();
+    return (body.connections ?? []) as TSummary[];
+  }, [apiPath, companyId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      const result = await loadConnections();
+      if (!cancelled) {
+        setConnections(result);
+        setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadConnections]);
+
+  async function handleAdd() {
+    setError(null);
+    setSaving(true);
+    const response = await fetch(apiPath, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ companyId, label, ...values }),
+    });
+    const body = await response.json();
+    setSaving(false);
+    if (!response.ok) {
+      setError(body.error ?? 'Could not save the connection.');
+      return;
+    }
+    setConnections((prev) => [...(prev ?? []), body.connection as TSummary]);
+    setAdding(false);
+    setLabel('');
+    setValues(Object.fromEntries(fields.map((f) => [f.name, f.defaultValue ?? ''])));
+  }
+
+  async function handleDelete(id: string) {
+    setError(null);
+    setDeletingId(id);
+    const response = await fetch(`${apiPath}?companyId=${companyId}&id=${id}`, { method: 'DELETE' });
+    const body = await response.json();
+    setDeletingId(null);
+    if (!response.ok) {
+      setError(body.error ?? 'Could not disconnect.');
+      return;
+    }
+    setConnections((prev) => (prev ?? []).filter((c) => c.id !== id));
+    setConfirmingDeleteId(null);
+  }
+
+  if (loading) {
+    return <p>Loading…</p>;
+  }
+
+  return (
+    <div className={styles.wrapper}>
+      {error && (
+        <p role="alert" className={styles.error}>
+          {error}
+        </p>
+      )}
+
+      {connections && connections.length > 0 && (
+        <ul className={styles.list}>
+          {connections.map((connection) => (
+            <li key={connection.id} className={styles.connectionCard}>
+              <div>
+                <strong>{connection.label}</strong> — {renderSummary(connection)}
+              </div>
+              {confirmingDeleteId === connection.id ? (
+                <span className={styles.confirmDisconnect}>
+                  <span>Disconnect this connection?</span>
+                  <button
+                    type="button"
+                    className={styles.dangerButton}
+                    disabled={deletingId === connection.id}
+                    onClick={() => handleDelete(connection.id)}
+                  >
+                    {deletingId === connection.id ? 'Disconnecting…' : 'Confirm disconnect'}
+                  </button>
+                  <button type="button" onClick={() => setConfirmingDeleteId(null)}>
+                    Cancel
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className={styles.dangerButton}
+                  onClick={() => setConfirmingDeleteId(connection.id)}
+                >
+                  Disconnect
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {connections && connections.length === 0 && !adding && <p>No connections yet.</p>}
+
+      {adding ? (
+        <div className={styles.form}>
+          <label htmlFor="connection-label">Label</label>
+          <input id="connection-label" value={label} onChange={(e) => setLabel(e.target.value)} />
+
+          {fields.map((field) => (
+            <div key={field.name} className={styles.fieldRow}>
+              <label htmlFor={`connection-field-${field.name}`}>{field.label}</label>
+              {field.type === 'textarea' ? (
+                <textarea
+                  id={`connection-field-${field.name}`}
+                  value={values[field.name]}
+                  onChange={(e) => setValues((prev) => ({ ...prev, [field.name]: e.target.value }))}
+                />
+              ) : (
+                <input
+                  id={`connection-field-${field.name}`}
+                  type={field.type}
+                  value={values[field.name]}
+                  onChange={(e) => setValues((prev) => ({ ...prev, [field.name]: e.target.value }))}
+                />
+              )}
+            </div>
+          ))}
+
+          <div className={styles.actions}>
+            <button type="button" disabled={saving} onClick={handleAdd}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button type="button" onClick={() => setAdding(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" className={styles.addButton} onClick={() => setAdding(true)}>
+          Add connection
+        </button>
+      )}
+    </div>
+  );
+}
