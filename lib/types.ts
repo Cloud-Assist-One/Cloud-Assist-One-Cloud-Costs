@@ -223,3 +223,99 @@ export type AwsIamUsersResponse =
       fetchedAt: string;
       users: AwsResourceResult<IamUserRow>;
     };
+
+export interface AzureVmRow {
+  name: string;
+  vmSize: string | null;
+  provisioningState: string | null;
+  resourceGroup: string;
+  location: string | null;
+  timeCreated: string | null;
+}
+
+export interface AzureFunctionAppRow {
+  name: string;
+  state: string | null;
+  kind: string;
+  resourceGroup: string;
+  location: string | null;
+  createdAt: string | null;
+}
+
+export interface AzureContainerGroupRow {
+  name: string;
+  resourceGroup: string;
+  location: string | null;
+  provisioningState: string | null;
+  containerImages: string;
+  createdAt: string | null;
+}
+
+export interface AzureSqlDatabaseRow {
+  serverName: string;
+  databaseName: string;
+  resourceGroup: string;
+  status: string | null;
+  serviceObjective: string | null;
+  creationDate: string | null;
+}
+
+export interface AzureCosmosDbAccountRow {
+  name: string;
+  resourceGroup: string;
+  location: string | null;
+  kind: string | null;
+  provisioningState: string | null;
+  createdAt: string | null;
+}
+
+export interface AzureApiManagementRow {
+  name: string;
+  resourceGroup: string;
+  location: string | null;
+  skuName: string | null;
+  createdAtUtc: string | null;
+}
+
+export interface AzureStorageAccountRow {
+  name: string;
+  resourceGroup: string;
+  location: string | null;
+  kind: string | null;
+  skuName: string | null;
+  creationTime: string | null;
+}
+
+export interface AzureAdUserRow {
+  id: string;
+  displayName: string | null;
+  userPrincipalName: string | null;
+  createdDateTime: string | null;
+}
+
+export interface AzureResourceResult<T> {
+  data: T[];
+  error: string | null;
+}
+
+export type AzureResourcesResponse =
+  | { connected: false }
+  | {
+      connected: true;
+      fetchedAt: string;
+      virtualMachines: AzureResourceResult<AzureVmRow>;
+      functionApps: AzureResourceResult<AzureFunctionAppRow>;
+      containerGroups: AzureResourceResult<AzureContainerGroupRow>;
+      sqlDatabases: AzureResourceResult<AzureSqlDatabaseRow>;
+      cosmosDbAccounts: AzureResourceResult<AzureCosmosDbAccountRow>;
+      apiManagementServices: AzureResourceResult<AzureApiManagementRow>;
+      storageAccounts: AzureResourceResult<AzureStorageAccountRow>;
+    };
+
+export type AzureAdUsersResponse =
+  | { connected: false }
+  | {
+      connected: true;
+      fetchedAt: string;
+      users: AzureResourceResult<AzureAdUserRow>;
+    };
