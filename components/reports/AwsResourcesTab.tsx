@@ -36,12 +36,15 @@ function Grid<T extends object>({
   title: string;
   emptyLabel: string;
   result: AwsResourceResult<T>;
-  columns: { header: string; render: (row: T) => React.ReactNode }[];
+  columns: { header: string; render: (row: T) => React.ReactNode; align?: 'right' }[];
   getCreatedAt: (row: T) => string | null;
 }) {
   return (
     <section className={styles.section}>
-      <h3>{title}</h3>
+      <div className={styles.sectionHeader}>
+        <h3>{title}</h3>
+        {result.data.length > 0 && <span className={styles.countBadge}>{result.data.length}</span>}
+      </div>
       {result.error && (
         <p role="alert" className={styles.error}>
           {result.error}
@@ -54,7 +57,9 @@ function Grid<T extends object>({
           <thead>
             <tr>
               {columns.map((col) => (
-                <th key={col.header}>{col.header}</th>
+                <th key={col.header} className={col.align === 'right' ? styles.numeric : undefined}>
+                  {col.header}
+                </th>
               ))}
             </tr>
           </thead>
@@ -64,7 +69,9 @@ function Grid<T extends object>({
               return (
                 <tr key={index} className={ageColor ? AGE_ROW_CLASS[ageColor] : undefined}>
                   {columns.map((col) => (
-                    <td key={col.header}>{col.render(row)}</td>
+                    <td key={col.header} className={col.align === 'right' ? styles.numeric : undefined}>
+                      {col.render(row)}
+                    </td>
                   ))}
                 </tr>
               );
@@ -186,8 +193,8 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         columns={[
           { header: 'Function name', render: (r) => r.functionName },
           { header: 'Runtime', render: (r) => r.runtime ?? '—' },
-          { header: 'Memory (MB)', render: (r) => r.memorySize ?? '—' },
-          { header: 'Timeout (s)', render: (r) => r.timeout ?? '—' },
+          { header: 'Memory (MB)', render: (r) => r.memorySize ?? '—', align: 'right' },
+          { header: 'Timeout (s)', render: (r) => r.timeout ?? '—', align: 'right' },
           { header: 'Last modified', render: (r) => r.lastModified ?? '—' },
         ]}
       />
@@ -200,8 +207,8 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         columns={[
           { header: 'Cluster', render: (r) => r.cluster },
           { header: 'Service', render: (r) => r.serviceName },
-          { header: 'Desired count', render: (r) => r.desiredCount },
-          { header: 'Running count', render: (r) => r.runningCount },
+          { header: 'Desired count', render: (r) => r.desiredCount, align: 'right' },
+          { header: 'Running count', render: (r) => r.runningCount, align: 'right' },
           { header: 'Launch type', render: (r) => r.launchType ?? '—' },
         ]}
       />
@@ -217,7 +224,7 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
           { header: 'Instance class', render: (r) => r.dbInstanceClass },
           { header: 'Status', render: (r) => r.status },
           { header: 'Multi-AZ', render: (r) => (r.multiAz ? 'Yes' : 'No') },
-          { header: 'Storage (GB)', render: (r) => r.allocatedStorage },
+          { header: 'Storage (GB)', render: (r) => r.allocatedStorage, align: 'right' },
         ]}
       />
 
