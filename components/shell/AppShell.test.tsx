@@ -43,6 +43,14 @@ jest.mock('./ArchiveTab', () => ({
     </div>
   ),
 }));
+jest.mock('./../settings/SettingsTab', () => ({
+  __esModule: true,
+  default: () => <div>settings-tab-content</div>,
+}));
+jest.mock('./../reports/AwsResourcesTab', () => ({
+  __esModule: true,
+  default: () => <div>aws-resources-tab-content</div>,
+}));
 
 const signOut = jest.fn();
 const listCompanies = jest.fn();
@@ -207,6 +215,27 @@ describe('AppShell', () => {
     await screen.findByText('report-tab-content for aws');
     await user.click(screen.getByRole('tab', { name: /archive/i }));
     expect(await screen.findByText('archive-tab-content')).toBeInTheDocument();
+  });
+
+  it('shows the Settings tab for a client (available to everyone with company access)', async () => {
+    const user = userEvent.setup();
+    render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);
+
+    await screen.findByText('report-tab-content for aws');
+    await user.click(screen.getByRole('tab', { name: /settings/i }));
+    expect(await screen.findByText('settings-tab-content')).toBeInTheDocument();
+  });
+
+  it('shows an Overview/Resources sub-tab strip on the AWS tab, defaulting to Overview', async () => {
+    const user = userEvent.setup();
+    render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);
+
+    expect(await screen.findByText('report-tab-content for aws')).toBeInTheDocument();
+    expect(screen.queryByText('aws-resources-tab-content')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: /resources/i }));
+    expect(await screen.findByText('aws-resources-tab-content')).toBeInTheDocument();
+    expect(screen.queryByText('report-tab-content for aws')).not.toBeInTheDocument();
   });
 
   it('resets the archived-period view and line-items filter when switching companies', async () => {

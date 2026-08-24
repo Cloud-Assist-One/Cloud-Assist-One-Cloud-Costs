@@ -14,13 +14,26 @@ import NotesFeed from '../notes/NotesFeed';
 import AdminCompanies from '../admin/AdminCompanies';
 import AdminUsers from '../admin/AdminUsers';
 import ArchiveTab from './ArchiveTab';
+import SettingsTab from '../settings/SettingsTab';
+import AwsResourcesTab from '../reports/AwsResourcesTab';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import ThemeToggle from './ThemeToggle';
 import AccentColorPicker from './AccentColorPicker';
 import styles from './AppShell.module.css';
 
-type TabKey = 'aws' | 'azure' | 'gcp' | 'snowflake' | 'compare' | 'lineItems' | 'files' | 'notes' | 'archive' | 'admin';
+type TabKey =
+  | 'aws'
+  | 'azure'
+  | 'gcp'
+  | 'snowflake'
+  | 'compare'
+  | 'lineItems'
+  | 'files'
+  | 'notes'
+  | 'archive'
+  | 'settings'
+  | 'admin';
 
 const REPORT_TABS: TabKey[] = ['aws', 'azure', 'gcp', 'snowflake', 'compare', 'lineItems'];
 
@@ -44,6 +57,7 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
   const [viewingPeriodId, setViewingPeriodId] = useState<string | null>(null);
   const [lineItemsFilter, setLineItemsFilter] = useState<string[] | undefined>(undefined);
   const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [awsSubTab, setAwsSubTab] = useState<'overview' | 'resources'>('overview');
   const router = useRouter();
 
   useEffect(() => {
@@ -181,6 +195,7 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
           <TabsTrigger value="files">Uploaded Files</TabsTrigger>
           <TabsTrigger value="notes">Notes & Follow-ups</TabsTrigger>
           <TabsTrigger value="archive">Archive</TabsTrigger>
+          <TabsTrigger value="settings">Settings</TabsTrigger>
           {canManage && <TabsTrigger value="admin">Admin</TabsTrigger>}
         </TabsList>
       </Tabs>
@@ -225,6 +240,12 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
           ) : (
             <p>Select a company to view its data.</p>
           )
+        ) : activeTab === 'settings' ? (
+          effectiveCompanyId ? (
+            <SettingsTab companyId={effectiveCompanyId} />
+          ) : (
+            <p>Select a company to view its data.</p>
+          )
         ) : !effectiveCompanyId ? (
           <p>Select a company to view its data.</p>
         ) : !periodIdForReports ? (
@@ -236,12 +257,24 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
             )}
             <div className={styles.reportContent}>
               {activeTab === 'aws' && (
-                <CostReportTab
-                  companyId={effectiveCompanyId}
-                  cloudProvider="aws"
-                  periodId={periodIdForReports}
-                  onServiceClick={(serviceName) => handleServiceDrillDown([serviceName])}
-                />
+                <div className={styles.awsSubTabs}>
+                  <Tabs value={awsSubTab} onValueChange={(value) => setAwsSubTab(value as 'overview' | 'resources')}>
+                    <TabsList>
+                      <TabsTrigger value="overview">Overview</TabsTrigger>
+                      <TabsTrigger value="resources">Resources</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                  {awsSubTab === 'overview' ? (
+                    <CostReportTab
+                      companyId={effectiveCompanyId}
+                      cloudProvider="aws"
+                      periodId={periodIdForReports}
+                      onServiceClick={(serviceName) => handleServiceDrillDown([serviceName])}
+                    />
+                  ) : (
+                    <AwsResourcesTab companyId={effectiveCompanyId} />
+                  )}
+                </div>
               )}
               {activeTab === 'azure' && (
                 <CostReportTab

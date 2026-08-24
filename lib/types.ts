@@ -89,3 +89,86 @@ export interface TimeEntry {
   description: string;
   created_at: string;
 }
+
+export interface CloudProviderCredentials {
+  id: string;
+  company_id: string;
+  provider: CloudProvider;
+  region: string | null;
+  metadata: { accessKeyIdMasked?: string };
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Ec2InstanceRow {
+  instanceId: string;
+  name: string | null;
+  instanceType: string;
+  state: string;
+  availabilityZone: string | null;
+  privateIp: string | null;
+  publicIp: string | null;
+}
+
+export interface LambdaFunctionRow {
+  functionName: string;
+  runtime: string | null;
+  memorySize: number | null;
+  timeout: number | null;
+  lastModified: string | null;
+}
+
+export interface EcsServiceRow {
+  cluster: string;
+  serviceName: string;
+  desiredCount: number;
+  runningCount: number;
+  launchType: string | null;
+}
+
+export interface RdsInstanceRow {
+  dbInstanceIdentifier: string;
+  engine: string;
+  dbInstanceClass: string;
+  status: string;
+  multiAz: boolean;
+  allocatedStorage: number;
+}
+
+export interface DynamoTableRow {
+  tableName: string;
+}
+
+export interface ApiRow {
+  id: string;
+  name: string;
+  type: 'REST' | 'HTTP';
+  createdDate: string | null;
+  endpoint: string | null;
+}
+
+export interface S3BucketRow {
+  name: string;
+  creationDate: string | null;
+}
+
+export interface AwsResourceResult<T> {
+  data: T[];
+  error: string | null;
+}
+
+export type AwsResourcesResponse =
+  | { connected: false }
+  | {
+      connected: true;
+      region: string;
+      fetchedAt: string;
+      ec2: AwsResourceResult<Ec2InstanceRow>;
+      lambda: AwsResourceResult<LambdaFunctionRow>;
+      ecs: AwsResourceResult<EcsServiceRow>;
+      rds: AwsResourceResult<RdsInstanceRow>;
+      dynamodb: AwsResourceResult<DynamoTableRow>;
+      apis: AwsResourceResult<ApiRow>;
+      s3: AwsResourceResult<S3BucketRow>;
+    };
