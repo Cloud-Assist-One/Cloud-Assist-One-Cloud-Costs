@@ -1,0 +1,38 @@
+.wrapper {
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.accountPicker {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.accountPicker select {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font: inherit;
+}
+
+.fetchedAt {
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+  font-family: var(--font-mono);
+}
+
+.error {
+  color: #d1274b;
+  font-size: 0.875rem;
+}
