@@ -73,7 +73,7 @@
 .table th,
 .table td {
   text-align: left;
-  padding: 0.9375rem 1.40625rem;
+  padding: 0.5rem 0.85rem;
   border-bottom: 1px solid var(--color-border);
   white-space: nowrap;
 }

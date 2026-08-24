@@ -58,6 +58,7 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
   const [lineItemsFilter, setLineItemsFilter] = useState<string[] | undefined>(undefined);
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [awsSubTab, setAwsSubTab] = useState<'overview' | 'resources'>('overview');
+  const isAwsResourcesView = activeTab === 'aws' && awsSubTab === 'resources';
   const router = useRouter();
 
   useEffect(() => {
@@ -251,11 +252,11 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
         ) : !periodIdForReports ? (
           <p>Loading…</p>
         ) : (
-          <div className={REPORT_TABS.includes(activeTab) ? styles.reportLayout : undefined}>
-            {REPORT_TABS.includes(activeTab) && (
+          <div className={REPORT_TABS.includes(activeTab) && !isAwsResourcesView ? styles.reportLayout : undefined}>
+            {REPORT_TABS.includes(activeTab) && !isAwsResourcesView && (
               <TrendSidebar key={effectiveCompanyId} companyId={effectiveCompanyId} />
             )}
-            <div className={styles.reportContent}>
+            <div className={isAwsResourcesView ? styles.resourcesContent : styles.reportContent}>
               {activeTab === 'aws' && (
                 <div className={styles.awsSubTabs}>
                   <Tabs value={awsSubTab} onValueChange={(value) => setAwsSubTab(value as 'overview' | 'resources')}>

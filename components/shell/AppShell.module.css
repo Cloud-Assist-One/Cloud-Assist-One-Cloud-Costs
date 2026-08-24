@@ -47,6 +47,15 @@
   margin: 0 auto;
 }
 
+/* The Resources sub-tab shows live AWS inventory, not a billing trend, so
+   it skips the TrendSidebar and its 290px reservation (see reportLayout
+   below) and gets a 25% wider column (56rem * 1.25) to avoid a horizontal
+   scrollbar on the grids. */
+.resourcesContent {
+  max-width: 70rem;
+  margin: 0 auto;
+}
+
 .archiveBanner {
   display: flex;
   align-items: center;
