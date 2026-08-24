@@ -109,6 +109,7 @@ export interface Ec2InstanceRow {
   availabilityZone: string | null;
   privateIp: string | null;
   publicIp: string | null;
+  launchTime: string | null;
 }
 
 export interface LambdaFunctionRow {
@@ -125,6 +126,7 @@ export interface EcsServiceRow {
   desiredCount: number;
   runningCount: number;
   launchType: string | null;
+  createdAt: string | null;
 }
 
 export interface RdsInstanceRow {
@@ -134,10 +136,12 @@ export interface RdsInstanceRow {
   status: string;
   multiAz: boolean;
   allocatedStorage: number;
+  instanceCreateTime: string | null;
 }
 
 export interface DynamoTableRow {
   tableName: string;
+  creationDateTime: string | null;
 }
 
 export interface ApiRow {

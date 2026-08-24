@@ -40,3 +40,44 @@
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--color-border);
 }
+
+.legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.25rem;
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+}
+
+.legendSwatch {
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 2px;
+  margin-right: 0.35rem;
+}
+
+.rowOrange {
+  background: rgba(234, 88, 12, 0.14);
+}
+
+.rowBlue {
+  background: rgba(34, 88, 211, 0.14);
+}
+
+.rowGreen {
+  background: rgba(22, 163, 74, 0.14);
+}
+
+.rowOrange td:first-child {
+  border-left: 3px solid #ea580c;
+}
+
+.rowBlue td:first-child {
+  border-left: 3px solid #2258d3;
+}
+
+.rowGreen td:first-child {
+  border-left: 3px solid #16a34a;
+}

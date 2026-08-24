@@ -48,6 +48,7 @@ describe('AwsResourcesTab', () => {
                 availabilityZone: 'us-east-1a',
                 privateIp: '10.0.0.1',
                 publicIp: null,
+                launchTime: '2026-01-01T00:00:00.000Z',
               },
             ],
             error: null,
@@ -78,6 +79,60 @@ describe('AwsResourcesTab', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/accessdenied/i);
     expect(screen.getByText('my-bucket')).toBeInTheDocument();
+  });
+
+  it('shows the age color-code legend', async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => makeResponse() });
+
+    render(<AwsResourcesTab companyId="company-1" />);
+
+    expect(await screen.findByText(/new in the last 24 hours/i)).toBeInTheDocument();
+    expect(screen.getByText(/new in the last week/i)).toBeInTheDocument();
+    expect(screen.getByText(/new in the last month/i)).toBeInTheDocument();
+  });
+
+  it('flags a recently-launched EC2 instance with the "orange" recent-age row class', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-24T12:00:00.000Z'));
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () =>
+        makeResponse({
+          ec2: {
+            data: [
+              {
+                instanceId: 'i-new',
+                name: null,
+                instanceType: 't3.micro',
+                state: 'running',
+                availabilityZone: null,
+                privateIp: null,
+                publicIp: null,
+                launchTime: '2026-08-24T06:00:00.000Z', // 6 hours ago
+              },
+              {
+                instanceId: 'i-old',
+                name: null,
+                instanceType: 't3.micro',
+                state: 'running',
+                availabilityZone: null,
+                privateIp: null,
+                publicIp: null,
+                launchTime: '2026-01-01T00:00:00.000Z', // months ago
+              },
+            ],
+            error: null,
+          },
+        }),
+    });
+
+    render(<AwsResourcesTab companyId="company-1" />);
+
+    const newRow = await screen.findByText('i-new');
+    const oldRow = await screen.findByText('i-old');
+    expect(newRow.closest('tr')?.className).toMatch(/rowOrange/);
+    expect(oldRow.closest('tr')?.className).toBeFalsy();
+
+    jest.useRealTimers();
   });
 
   it('refetches when Refresh is clicked', async () => {

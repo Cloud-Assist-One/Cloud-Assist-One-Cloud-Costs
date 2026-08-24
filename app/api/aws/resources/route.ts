@@ -3,7 +3,7 @@ import { EC2Client, DescribeInstancesCommand } from '@aws-sdk/client-ec2';
 import { LambdaClient, ListFunctionsCommand } from '@aws-sdk/client-lambda';
 import { ECSClient, ListClustersCommand, ListServicesCommand, DescribeServicesCommand } from '@aws-sdk/client-ecs';
 import { RDSClient, DescribeDBInstancesCommand } from '@aws-sdk/client-rds';
-import { DynamoDBClient, ListTablesCommand } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, ListTablesCommand, DescribeTableCommand } from '@aws-sdk/client-dynamodb';
 import { APIGatewayClient, GetRestApisCommand } from '@aws-sdk/client-api-gateway';
 import { ApiGatewayV2Client, GetApisCommand } from '@aws-sdk/client-apigatewayv2';
 import { S3Client, ListBucketsCommand } from '@aws-sdk/client-s3';
@@ -91,6 +91,7 @@ export async function GET(request: NextRequest) {
             availabilityZone: instance.Placement?.AvailabilityZone ?? null,
             privateIp: instance.PrivateIpAddress ?? null,
             publicIp: instance.PublicIpAddress ?? null,
+            launchTime: instance.LaunchTime ? new Date(instance.LaunchTime).toISOString() : null,
           });
         }
       }
@@ -137,6 +138,7 @@ export async function GET(request: NextRequest) {
               desiredCount: service.desiredCount ?? 0,
               runningCount: service.runningCount ?? 0,
               launchType: service.launchType ?? null,
+              createdAt: service.createdAt ? new Date(service.createdAt).toISOString() : null,
             });
           }
         }
@@ -158,6 +160,7 @@ export async function GET(request: NextRequest) {
         status: db.DBInstanceStatus ?? '',
         multiAz: db.MultiAZ ?? false,
         allocatedStorage: db.AllocatedStorage ?? 0,
+        instanceCreateTime: db.InstanceCreateTime ? new Date(db.InstanceCreateTime).toISOString() : null,
       }));
       return { data: rows, error: null };
     } catch (err) {
@@ -169,7 +172,21 @@ export async function GET(request: NextRequest) {
     try {
       const client = new DynamoDBClient(clientConfig);
       const result = await client.send(new ListTablesCommand({}));
-      const rows = (result.TableNames ?? []).map((tableName) => ({ tableName }));
+      const tableNames = result.TableNames ?? [];
+      // A per-table Describe call is needed to get each table's creation
+      // date (ListTables returns only names) — run in parallel since this
+      // is specifically what the age-based color flag needs.
+      const rows = await Promise.all(
+        tableNames.map(async (tableName): Promise<DynamoTableRow> => {
+          try {
+            const describeResult = await client.send(new DescribeTableCommand({ TableName: tableName }));
+            const creationDateTime = describeResult.Table?.CreationDateTime;
+            return { tableName, creationDateTime: creationDateTime ? new Date(creationDateTime).toISOString() : null };
+          } catch {
+            return { tableName, creationDateTime: null };
+          }
+        })
+      );
       return { data: rows, error: null };
     } catch (err) {
       return { data: [], error: errorMessage(err) };

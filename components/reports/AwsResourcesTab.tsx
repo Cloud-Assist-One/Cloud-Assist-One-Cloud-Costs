@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { getResourceAgeColor } from '@/lib/resourceAge';
 import type {
   AwsResourceResult,
   AwsResourcesResponse,
@@ -19,16 +20,24 @@ interface AwsResourcesTabProps {
   companyId: string;
 }
 
+const AGE_ROW_CLASS = {
+  orange: styles.rowOrange,
+  blue: styles.rowBlue,
+  green: styles.rowGreen,
+} as const;
+
 function Grid<T extends object>({
   title,
   emptyLabel,
   result,
   columns,
+  getCreatedAt,
 }: {
   title: string;
   emptyLabel: string;
   result: AwsResourceResult<T>;
   columns: { header: string; render: (row: T) => React.ReactNode }[];
+  getCreatedAt: (row: T) => string | null;
 }) {
   return (
     <section className={styles.section}>
@@ -50,13 +59,16 @@ function Grid<T extends object>({
             </tr>
           </thead>
           <tbody>
-            {result.data.map((row, index) => (
-              <tr key={index}>
-                {columns.map((col) => (
-                  <td key={col.header}>{col.render(row)}</td>
-                ))}
-              </tr>
-            ))}
+            {result.data.map((row, index) => {
+              const ageColor = getResourceAgeColor(getCreatedAt(row));
+              return (
+                <tr key={index} className={ageColor ? AGE_ROW_CLASS[ageColor] : undefined}>
+                  {columns.map((col) => (
+                    <td key={col.header}>{col.render(row)}</td>
+                  ))}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}
@@ -144,10 +156,17 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         </Button>
       </div>
 
+      <div className={styles.legend}>
+        <span className={`${styles.legendSwatch} ${styles.rowOrange}`} /> New in the last 24 hours
+        <span className={`${styles.legendSwatch} ${styles.rowBlue}`} /> New in the last week
+        <span className={`${styles.legendSwatch} ${styles.rowGreen}`} /> New in the last month
+      </div>
+
       <Grid<Ec2InstanceRow>
         title="EC2 Instances"
         emptyLabel="No EC2 instances found."
         result={response.ec2}
+        getCreatedAt={(r) => r.launchTime}
         columns={[
           { header: 'Instance ID', render: (r) => r.instanceId },
           { header: 'Name', render: (r) => r.name ?? '—' },
@@ -163,6 +182,7 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         title="Lambda Functions"
         emptyLabel="No Lambda functions found."
         result={response.lambda}
+        getCreatedAt={(r) => r.lastModified}
         columns={[
           { header: 'Function name', render: (r) => r.functionName },
           { header: 'Runtime', render: (r) => r.runtime ?? '—' },
@@ -176,6 +196,7 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         title="ECS Containers"
         emptyLabel="No ECS services found."
         result={response.ecs}
+        getCreatedAt={(r) => r.createdAt}
         columns={[
           { header: 'Cluster', render: (r) => r.cluster },
           { header: 'Service', render: (r) => r.serviceName },
@@ -189,6 +210,7 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         title="RDS Instances"
         emptyLabel="No RDS instances found."
         result={response.rds}
+        getCreatedAt={(r) => r.instanceCreateTime}
         columns={[
           { header: 'DB identifier', render: (r) => r.dbInstanceIdentifier },
           { header: 'Engine', render: (r) => r.engine },
@@ -203,6 +225,7 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         title="DynamoDB Tables"
         emptyLabel="No DynamoDB tables found."
         result={response.dynamodb}
+        getCreatedAt={(r) => r.creationDateTime}
         columns={[{ header: 'Table name', render: (r) => r.tableName }]}
       />
 
@@ -210,6 +233,7 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         title="APIs"
         emptyLabel="No APIs found."
         result={response.apis}
+        getCreatedAt={(r) => r.createdDate}
         columns={[
           { header: 'Name', render: (r) => r.name },
           { header: 'ID', render: (r) => r.id },
@@ -223,6 +247,7 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         title="S3 Buckets"
         emptyLabel="No S3 buckets found."
         result={response.s3}
+        getCreatedAt={(r) => r.creationDate}
         columns={[
           { header: 'Bucket name', render: (r) => r.name },
           { header: 'Created', render: (r) => r.creationDate ?? '—' },
