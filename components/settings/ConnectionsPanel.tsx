@@ -46,10 +46,20 @@ export default function ConnectionsPanel<TSummary extends { id: string; label: s
 
     async function load() {
       setLoading(true);
-      const result = await loadConnections();
-      if (!cancelled) {
-        setConnections(result);
-        setLoading(false);
+      setError(null);
+      try {
+        const result = await loadConnections();
+        if (!cancelled) {
+          setConnections(result);
+        }
+      } catch {
+        if (!cancelled) {
+          setError('Could not load connections.');
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     }
 
@@ -62,35 +72,45 @@ export default function ConnectionsPanel<TSummary extends { id: string; label: s
   async function handleAdd() {
     setError(null);
     setSaving(true);
-    const response = await fetch(apiPath, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ companyId, label, ...values }),
-    });
-    const body = await response.json();
-    setSaving(false);
-    if (!response.ok) {
-      setError(body.error ?? 'Could not save the connection.');
-      return;
+    try {
+      const response = await fetch(apiPath, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId, label, ...values }),
+      });
+      const body = await response.json();
+      if (!response.ok) {
+        setError(body.error ?? 'Could not save the connection.');
+        return;
+      }
+      setConnections((prev) => [...(prev ?? []), body.connection as TSummary]);
+      setAdding(false);
+      setLabel('');
+      setValues(Object.fromEntries(fields.map((f) => [f.name, f.defaultValue ?? ''])));
+    } catch {
+      setError('Could not save the connection.');
+    } finally {
+      setSaving(false);
     }
-    setConnections((prev) => [...(prev ?? []), body.connection as TSummary]);
-    setAdding(false);
-    setLabel('');
-    setValues(Object.fromEntries(fields.map((f) => [f.name, f.defaultValue ?? ''])));
   }
 
   async function handleDelete(id: string) {
     setError(null);
     setDeletingId(id);
-    const response = await fetch(`${apiPath}?companyId=${companyId}&id=${id}`, { method: 'DELETE' });
-    const body = await response.json();
-    setDeletingId(null);
-    if (!response.ok) {
-      setError(body.error ?? 'Could not disconnect.');
-      return;
+    try {
+      const response = await fetch(`${apiPath}?companyId=${companyId}&id=${id}`, { method: 'DELETE' });
+      const body = await response.json();
+      if (!response.ok) {
+        setError(body.error ?? 'Could not disconnect.');
+        return;
+      }
+      setConnections((prev) => (prev ?? []).filter((c) => c.id !== id));
+      setConfirmingDeleteId(null);
+    } catch {
+      setError('Could not disconnect.');
+    } finally {
+      setDeletingId(null);
     }
-    setConnections((prev) => (prev ?? []).filter((c) => c.id !== id));
-    setConfirmingDeleteId(null);
   }
 
   if (loading) {

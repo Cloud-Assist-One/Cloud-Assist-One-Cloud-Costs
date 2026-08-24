@@ -119,6 +119,7 @@ export default function AwsIamUsersTab({ companyId }: AwsIamUsersTabProps) {
           <select
             id="iam-account-picker"
             value={selectedId ?? ''}
+            disabled={refreshing}
             onChange={(e) => handleSelectConnection(e.target.value)}
           >
             {connections.map((c) => (

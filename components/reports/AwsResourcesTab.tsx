@@ -129,6 +129,7 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
           <select
             id="aws-account-picker"
             value={selectedId ?? ''}
+            disabled={refreshing}
             onChange={(e) => handleSelectConnection(e.target.value)}
           >
             {connections.map((c) => (

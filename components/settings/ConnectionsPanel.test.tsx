@@ -133,4 +133,70 @@ describe('ConnectionsPanel', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/label is required/i);
   });
+
+  it('shows an error instead of staying stuck loading when the initial fetch fails', async () => {
+    (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('network error'));
+
+    render(
+      <ConnectionsPanel<TestSummary>
+        companyId="company-1"
+        apiPath="/api/settings/test-credentials"
+        fields={[{ name: 'value', label: 'Value', type: 'text' }]}
+        renderSummary={(c) => `value ${c.value}`}
+      />
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not load connections/i);
+    expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
+  });
+
+  it('surfaces an error and stops saving when the add request rejects', async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ connections: [] }) })
+      .mockRejectedValueOnce(new Error('network error'));
+
+    const user = userEvent.setup();
+    render(
+      <ConnectionsPanel<TestSummary>
+        companyId="company-1"
+        apiPath="/api/settings/test-credentials"
+        fields={[{ name: 'value', label: 'Value', type: 'text' }]}
+        renderSummary={(c) => `value ${c.value}`}
+      />
+    );
+
+    await screen.findByText(/no connections yet/i);
+    await user.click(screen.getByRole('button', { name: /add connection/i }));
+    await user.type(screen.getByLabelText(/^value$/i), 'abc');
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not save the connection/i);
+    expect(screen.queryByText(/saving/i)).not.toBeInTheDocument();
+  });
+
+  it('surfaces an error and stops disconnecting when the delete request rejects', async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ connections: [{ id: 'c1', label: 'Production', value: 'abc' }] }),
+      })
+      .mockRejectedValueOnce(new Error('network error'));
+
+    const user = userEvent.setup();
+    render(
+      <ConnectionsPanel<TestSummary>
+        companyId="company-1"
+        apiPath="/api/settings/test-credentials"
+        fields={[{ name: 'value', label: 'Value', type: 'text' }]}
+        renderSummary={(c) => `value ${c.value}`}
+      />
+    );
+
+    await screen.findByText('Production');
+    await user.click(screen.getByRole('button', { name: /^disconnect$/i }));
+    await user.click(screen.getByRole('button', { name: /confirm disconnect/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not disconnect/i);
+    expect(screen.queryByText(/disconnecting/i)).not.toBeInTheDocument();
+  });
 });
