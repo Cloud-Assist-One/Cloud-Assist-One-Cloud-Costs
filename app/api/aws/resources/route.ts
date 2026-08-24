@@ -35,8 +35,9 @@ function errorMessage(err: unknown): string {
 
 export async function GET(request: NextRequest) {
   const companyId = request.nextUrl.searchParams.get('companyId');
-  if (!companyId) {
-    return NextResponse.json({ error: 'companyId is required.' }, { status: 400 });
+  const credentialId = request.nextUrl.searchParams.get('credentialId');
+  if (!companyId || !credentialId) {
+    return NextResponse.json({ error: 'companyId and credentialId are required.' }, { status: 400 });
   }
 
   const guard = await requireCompanyAccess(companyId);
@@ -50,6 +51,7 @@ export async function GET(request: NextRequest) {
     .select('encrypted_payload, region')
     .eq('company_id', companyId)
     .eq('provider', 'aws')
+    .eq('id', credentialId)
     .maybeSingle();
 
   if (credError) {
