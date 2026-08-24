@@ -55,6 +55,14 @@ jest.mock('./../reports/AwsIamUsersTab', () => ({
   __esModule: true,
   default: () => <div>aws-iam-users-tab-content</div>,
 }));
+jest.mock('./../reports/AzureResourcesTab', () => ({
+  __esModule: true,
+  default: () => <div>azure-resources-tab-content</div>,
+}));
+jest.mock('./../reports/AzureUsersTab', () => ({
+  __esModule: true,
+  default: () => <div>azure-users-tab-content</div>,
+}));
 
 const signOut = jest.fn();
 const listCompanies = jest.fn();
@@ -244,6 +252,23 @@ describe('AppShell', () => {
     await user.click(screen.getByRole('tab', { name: /iam users/i }));
     expect(await screen.findByText('aws-iam-users-tab-content')).toBeInTheDocument();
     expect(screen.queryByText('aws-resources-tab-content')).not.toBeInTheDocument();
+  });
+
+  it('shows an Overview/Resources/Users sub-tab strip on the Azure tab, defaulting to Overview', async () => {
+    const user = userEvent.setup();
+    render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);
+
+    await user.click(screen.getByRole('tab', { name: /microsoft azure/i }));
+    expect(await screen.findByText('report-tab-content for azure')).toBeInTheDocument();
+    expect(screen.queryByText('azure-resources-tab-content')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: /^resources$/i }));
+    expect(await screen.findByText('azure-resources-tab-content')).toBeInTheDocument();
+    expect(screen.queryByText('report-tab-content for azure')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: /^users$/i }));
+    expect(await screen.findByText('azure-users-tab-content')).toBeInTheDocument();
+    expect(screen.queryByText('azure-resources-tab-content')).not.toBeInTheDocument();
   });
 
   it('resets the archived-period view and line-items filter when switching companies', async () => {

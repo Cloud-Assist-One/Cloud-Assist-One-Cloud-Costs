@@ -17,6 +17,8 @@ import ArchiveTab from './ArchiveTab';
 import SettingsTab from '../settings/SettingsTab';
 import AwsResourcesTab from '../reports/AwsResourcesTab';
 import AwsIamUsersTab from '../reports/AwsIamUsersTab';
+import AzureResourcesTab from '../reports/AzureResourcesTab';
+import AzureUsersTab from '../reports/AzureUsersTab';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import ThemeToggle from './ThemeToggle';
@@ -59,7 +61,10 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
   const [lineItemsFilter, setLineItemsFilter] = useState<string[] | undefined>(undefined);
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [awsSubTab, setAwsSubTab] = useState<'overview' | 'resources' | 'iamUsers'>('overview');
-  const isAwsWideView = activeTab === 'aws' && (awsSubTab === 'resources' || awsSubTab === 'iamUsers');
+  const [azureSubTab, setAzureSubTab] = useState<'overview' | 'resources' | 'users'>('overview');
+  const isWideCloudView =
+    (activeTab === 'aws' && (awsSubTab === 'resources' || awsSubTab === 'iamUsers')) ||
+    (activeTab === 'azure' && (azureSubTab === 'resources' || azureSubTab === 'users'));
   const router = useRouter();
 
   useEffect(() => {
@@ -253,13 +258,13 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
         ) : !periodIdForReports ? (
           <p>Loading…</p>
         ) : (
-          <div className={REPORT_TABS.includes(activeTab) && !isAwsWideView ? styles.reportLayout : undefined}>
-            {REPORT_TABS.includes(activeTab) && !isAwsWideView && (
+          <div className={REPORT_TABS.includes(activeTab) && !isWideCloudView ? styles.reportLayout : undefined}>
+            {REPORT_TABS.includes(activeTab) && !isWideCloudView && (
               <TrendSidebar key={effectiveCompanyId} companyId={effectiveCompanyId} />
             )}
-            <div className={isAwsWideView ? styles.resourcesContent : styles.reportContent}>
+            <div className={isWideCloudView ? styles.resourcesContent : styles.reportContent}>
               {activeTab === 'aws' && (
-                <div className={styles.awsSubTabs}>
+                <div className={styles.cloudSubTabs}>
                   <Tabs
                     value={awsSubTab}
                     onValueChange={(value) => setAwsSubTab(value as 'overview' | 'resources' | 'iamUsers')}
@@ -285,12 +290,30 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
                 </div>
               )}
               {activeTab === 'azure' && (
-                <CostReportTab
-                  companyId={effectiveCompanyId}
-                  cloudProvider="azure"
-                  periodId={periodIdForReports}
-                  onServiceClick={(serviceName) => handleServiceDrillDown([serviceName])}
-                />
+                <div className={styles.cloudSubTabs}>
+                  <Tabs
+                    value={azureSubTab}
+                    onValueChange={(value) => setAzureSubTab(value as 'overview' | 'resources' | 'users')}
+                  >
+                    <TabsList>
+                      <TabsTrigger value="overview">Overview</TabsTrigger>
+                      <TabsTrigger value="resources">Resources</TabsTrigger>
+                      <TabsTrigger value="users">Users</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                  {azureSubTab === 'overview' ? (
+                    <CostReportTab
+                      companyId={effectiveCompanyId}
+                      cloudProvider="azure"
+                      periodId={periodIdForReports}
+                      onServiceClick={(serviceName) => handleServiceDrillDown([serviceName])}
+                    />
+                  ) : azureSubTab === 'resources' ? (
+                    <AzureResourcesTab companyId={effectiveCompanyId} />
+                  ) : (
+                    <AzureUsersTab companyId={effectiveCompanyId} />
+                  )}
+                </div>
               )}
               {activeTab === 'gcp' && (
                 <CostReportTab

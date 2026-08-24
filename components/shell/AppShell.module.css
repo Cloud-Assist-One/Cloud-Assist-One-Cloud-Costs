@@ -47,10 +47,10 @@
   margin: 0 auto;
 }
 
-/* The Resources and IAM Users sub-tabs show live AWS inventory, not a
-   billing trend, so they skip the TrendSidebar and its 290px reservation
-   (see reportLayout below) and get a 25% wider column (56rem * 1.25) to
-   avoid a horizontal scrollbar on the grids. */
+/* The Resources/IAM-Users (AWS) and Resources/Users (Azure) sub-tabs show
+   live cloud inventory, not a billing trend, so they skip the TrendSidebar
+   and its 290px reservation (see reportLayout below) and get a 25% wider
+   column (56rem * 1.25) to avoid a horizontal scrollbar on the grids. */
 .resourcesContent {
   max-width: 70rem;
   margin: 0 auto;
@@ -71,7 +71,7 @@
   margin: 0 0 1rem;
 }
 
-.awsSubTabs {
+.cloudSubTabs {
   display: flex;
   flex-direction: column;
   gap: 1rem;
