@@ -26,18 +26,38 @@ const AGE_ROW_CLASS = {
   green: styles.rowGreen,
 } as const;
 
+function InfoIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.3" />
+      <line x1="8" y1="7.25" x2="8" y2="11.25" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <circle cx="8" cy="4.75" r="0.9" fill="currentColor" />
+    </svg>
+  );
+}
+
+function verifyMailtoHref(resourceType: string, name: string): string {
+  const subject = `Verify AWS resource: ${resourceType} ${name}`;
+  const body = `Please verify this ${resourceType} "${name}" is valid and let me know what it is being used for.`;
+  return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
 function Grid<T extends object>({
   title,
   emptyLabel,
   result,
   columns,
   getCreatedAt,
+  getName,
+  resourceType,
 }: {
   title: string;
   emptyLabel: string;
   result: AwsResourceResult<T>;
   columns: { header: string; render: (row: T) => React.ReactNode; align?: 'right' }[];
   getCreatedAt: (row: T) => string | null;
+  getName: (row: T) => string;
+  resourceType: string;
 }) {
   return (
     <section className={styles.section}>
@@ -53,31 +73,45 @@ function Grid<T extends object>({
       {result.data.length === 0 ? (
         <p>{emptyLabel}</p>
       ) : (
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              {columns.map((col) => (
-                <th key={col.header} className={col.align === 'right' ? styles.numeric : undefined}>
-                  {col.header}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {result.data.map((row, index) => {
-              const ageColor = getResourceAgeColor(getCreatedAt(row));
-              return (
-                <tr key={index} className={ageColor ? AGE_ROW_CLASS[ageColor] : undefined}>
-                  {columns.map((col) => (
-                    <td key={col.header} className={col.align === 'right' ? styles.numeric : undefined}>
-                      {col.render(row)}
+        <div className={styles.tableScroll}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                {columns.map((col) => (
+                  <th key={col.header} className={col.align === 'right' ? styles.numeric : undefined}>
+                    {col.header}
+                  </th>
+                ))}
+                <th className={styles.verifyCell}>Verify</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result.data.map((row, index) => {
+                const ageColor = getResourceAgeColor(getCreatedAt(row));
+                const name = getName(row);
+                return (
+                  <tr key={index} className={ageColor ? AGE_ROW_CLASS[ageColor] : undefined}>
+                    {columns.map((col) => (
+                      <td key={col.header} className={col.align === 'right' ? styles.numeric : undefined}>
+                        {col.render(row)}
+                      </td>
+                    ))}
+                    <td className={styles.verifyCell}>
+                      <a
+                        href={verifyMailtoHref(resourceType, name)}
+                        className={styles.verifyButton}
+                        aria-label={`Email to verify this ${resourceType}, ${name}`}
+                        title="Email to verify this resource"
+                      >
+                        <InfoIcon />
+                      </a>
                     </td>
-                  ))}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   );
@@ -174,6 +208,8 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         emptyLabel="No EC2 instances found."
         result={response.ec2}
         getCreatedAt={(r) => r.launchTime}
+        getName={(r) => r.name ?? r.instanceId}
+        resourceType="EC2 instance"
         columns={[
           { header: 'Instance ID', render: (r) => r.instanceId },
           { header: 'Name', render: (r) => r.name ?? '—' },
@@ -190,6 +226,8 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         emptyLabel="No Lambda functions found."
         result={response.lambda}
         getCreatedAt={(r) => r.lastModified}
+        getName={(r) => r.functionName}
+        resourceType="Lambda function"
         columns={[
           { header: 'Function name', render: (r) => r.functionName },
           { header: 'Runtime', render: (r) => r.runtime ?? '—' },
@@ -204,6 +242,8 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         emptyLabel="No ECS services found."
         result={response.ecs}
         getCreatedAt={(r) => r.createdAt}
+        getName={(r) => r.serviceName}
+        resourceType="ECS service"
         columns={[
           { header: 'Cluster', render: (r) => r.cluster },
           { header: 'Service', render: (r) => r.serviceName },
@@ -218,6 +258,8 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         emptyLabel="No RDS instances found."
         result={response.rds}
         getCreatedAt={(r) => r.instanceCreateTime}
+        getName={(r) => r.dbInstanceIdentifier}
+        resourceType="RDS instance"
         columns={[
           { header: 'DB identifier', render: (r) => r.dbInstanceIdentifier },
           { header: 'Engine', render: (r) => r.engine },
@@ -233,6 +275,8 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         emptyLabel="No DynamoDB tables found."
         result={response.dynamodb}
         getCreatedAt={(r) => r.creationDateTime}
+        getName={(r) => r.tableName}
+        resourceType="DynamoDB table"
         columns={[{ header: 'Table name', render: (r) => r.tableName }]}
       />
 
@@ -241,6 +285,8 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         emptyLabel="No APIs found."
         result={response.apis}
         getCreatedAt={(r) => r.createdDate}
+        getName={(r) => r.name}
+        resourceType="API"
         columns={[
           { header: 'Name', render: (r) => r.name },
           { header: 'ID', render: (r) => r.id },
@@ -255,6 +301,8 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         emptyLabel="No S3 buckets found."
         result={response.s3}
         getCreatedAt={(r) => r.creationDate}
+        getName={(r) => r.name}
+        resourceType="S3 bucket"
         columns={[
           { header: 'Bucket name', render: (r) => r.name },
           { header: 'Created', render: (r) => r.creationDate ?? '—' },

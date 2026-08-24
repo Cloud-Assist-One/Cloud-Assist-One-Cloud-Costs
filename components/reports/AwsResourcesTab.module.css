@@ -59,6 +59,10 @@
   font-size: 0.875rem;
 }
 
+.tableScroll {
+  overflow-x: auto;
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -69,8 +73,9 @@
 .table th,
 .table td {
   text-align: left;
-  padding: 0.75rem 1.125rem;
+  padding: 0.9375rem 1.40625rem;
   border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
 }
 
 .table th {
@@ -82,7 +87,6 @@
   color: var(--muted-foreground);
   background: var(--color-bg);
   border-bottom: 2px solid var(--color-border);
-  white-space: nowrap;
 }
 
 .table tbody tr:nth-child(even):not(.rowOrange):not(.rowBlue):not(.rowGreen) {
@@ -96,6 +100,30 @@
 .numeric {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.verifyCell {
+  width: 1%;
+  text-align: center;
+}
+
+.verifyButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  border: 1px solid transparent;
+  text-decoration: none;
+}
+
+.verifyButton:hover,
+.verifyButton:focus-visible {
+  color: var(--primary);
+  border-color: var(--color-border);
+  background: var(--color-bg);
 }
 
 .legend {

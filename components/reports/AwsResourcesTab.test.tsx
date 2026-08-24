@@ -65,6 +65,38 @@ describe('AwsResourcesTab', () => {
     expect(screen.getByText('No Lambda functions found.')).toBeInTheDocument();
   });
 
+  it('links the verify icon to a pre-filled mailto for that resource', async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () =>
+        makeResponse({
+          ec2: {
+            data: [
+              {
+                instanceId: 'i-123',
+                name: 'web-1',
+                instanceType: 't3.micro',
+                state: 'running',
+                availabilityZone: 'us-east-1a',
+                privateIp: '10.0.0.1',
+                publicIp: null,
+                launchTime: '2026-01-01T00:00:00.000Z',
+              },
+            ],
+            error: null,
+          },
+        }),
+    });
+
+    render(<AwsResourcesTab companyId="company-1" />);
+
+    await screen.findByText('i-123');
+    const verifyLink = screen.getByRole('link', { name: /email to verify this ec2 instance, web-1/i });
+    const href = decodeURIComponent(verifyLink.getAttribute('href') ?? '');
+    expect(href).toContain('mailto:?subject=Verify AWS resource: EC2 instance web-1');
+    expect(href).toContain('Please verify this EC2 instance "web-1" is valid and let me know what it is being used for.');
+  });
+
   it('shows a per-grid error without hiding other grids', async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
