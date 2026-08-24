@@ -48,7 +48,7 @@ describe('AwsIamUsersTab', () => {
     render(<AwsIamUsersTab companyId="company-1" />);
 
     expect(await screen.findByText('jdoe')).toBeInTheDocument();
-    expect(screen.getByText('arn:aws:iam::123456789012:user/jdoe')).toBeInTheDocument();
+    expect(screen.getByText('AIDAEXAMPLE')).toBeInTheDocument();
   });
 
   it('shows the age color-code legend', async () => {

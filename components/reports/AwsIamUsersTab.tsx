@@ -102,10 +102,8 @@ export default function AwsIamUsersTab({ companyId }: AwsIamUsersTabProps) {
         columns={[
           { header: 'User name', render: (r) => r.userName },
           { header: 'User ID', render: (r) => r.userId },
-          { header: 'Path', render: (r) => r.path },
           { header: 'Created', render: (r) => r.createDate ?? '—' },
           { header: 'Password last used', render: (r) => r.passwordLastUsed ?? '—' },
-          { header: 'ARN', render: (r) => r.arn },
         ]}
       />
     </div>
