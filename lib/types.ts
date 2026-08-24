@@ -94,11 +94,41 @@ export interface CloudProviderCredentials {
   id: string;
   company_id: string;
   provider: CloudProvider;
+  label: string;
+  auth_type: 'keys' | 'role';
   region: string | null;
-  metadata: { accessKeyIdMasked?: string };
+  metadata: Record<string, unknown>;
   created_by: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface AwsCredentialSummary {
+  id: string;
+  label: string;
+  accessKeyIdMasked: string;
+  region: string;
+}
+
+export interface AzureCredentialSummary {
+  id: string;
+  label: string;
+  tenantId: string;
+  clientId: string;
+  subscriptionId: string;
+}
+
+export interface GcpCredentialSummary {
+  id: string;
+  label: string;
+  projectId: string;
+}
+
+export interface SnowflakeCredentialSummary {
+  id: string;
+  label: string;
+  account: string;
+  username: string;
 }
 
 export interface Ec2InstanceRow {
