@@ -2,16 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireCompanyAccess } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { parseCostFile } from '@/lib/parseCostFile';
-import { CLOUD_PROVIDERS, CLOUD_PROVIDER_LABELS } from '@/lib/cloudProvider';
+import { checkBillingMonthMatches } from '@/lib/billingMonthCheck';
+import { CLOUD_PROVIDERS } from '@/lib/cloudProvider';
 import type { CloudProvider } from '@/lib/types';
-
-function formatMonth(isoDate: string): string {
-  return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString('en-US', {
-    month: 'long',
-    year: 'numeric',
-    timeZone: 'UTC',
-  });
-}
 
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
@@ -56,33 +49,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No active billing period found for this company.' }, { status: 500 });
   }
 
-  // Every cloud provider's data in a period must be for the same billing
-  // month — otherwise the charts/Compare/trend view would silently mix
-  // different months together. Check before touching Storage or the DB.
-  const { data: otherProviderFiles, error: otherFilesError } = await adminClient
-    .from('uploaded_files')
-    .select('cloud_provider, billing_month')
-    .eq('period_id', activePeriod.id)
-    .eq('status', 'processed')
-    .neq('cloud_provider', cloudProvider)
-    .not('billing_month', 'is', null);
-
-  if (otherFilesError) {
-    return NextResponse.json({ error: 'Could not verify this period\'s billing month.' }, { status: 500 });
-  }
-
-  const mismatch = (otherProviderFiles ?? []).find((f) => f.billing_month !== billingMonth);
-  if (mismatch) {
-    return NextResponse.json(
-      {
-        error:
-          `${CLOUD_PROVIDER_LABELS[cloudProvider as CloudProvider]} is billed for ${formatMonth(billingMonth)}, but ` +
-          `${CLOUD_PROVIDER_LABELS[mismatch.cloud_provider as CloudProvider]} in this period is for ` +
-          `${formatMonth(mismatch.billing_month as string)}. Every provider in a period must be for the same ` +
-          `billing month — archive this period and start a new one, then re-upload every provider for the same month.`,
-      },
-      { status: 409 }
-    );
+  const monthCheck = await checkBillingMonthMatches(adminClient, activePeriod.id, cloudProvider as CloudProvider, billingMonth);
+  if (!monthCheck.ok) {
+    return NextResponse.json({ error: monthCheck.errorMessage }, { status: 409 });
   }
 
   const storagePath = `${companyId}/${Date.now()}-${file.name}`;
