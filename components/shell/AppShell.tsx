@@ -14,6 +14,8 @@ import NotesFeed from '../notes/NotesFeed';
 import AdminCompanies from '../admin/AdminCompanies';
 import AdminUsers from '../admin/AdminUsers';
 import ArchiveTab from './ArchiveTab';
+import SupportTab from '../support/SupportTab';
+import SupportRequestsTab from '../support/SupportRequestsTab';
 import SettingsTab from '../settings/SettingsTab';
 import AwsResourcesTab from '../reports/AwsResourcesTab';
 import AwsIamUsersTab from '../reports/AwsIamUsersTab';
@@ -34,8 +36,10 @@ type TabKey =
   | 'lineItems'
   | 'files'
   | 'notes'
+  | 'support'
   | 'archive'
   | 'settings'
+  | 'supportRequests'
   | 'admin';
 
 // The "Archive this period" action only makes sense while looking at one of
@@ -65,6 +69,9 @@ interface AppShellProps {
 
 export default function AppShell({ userId, role, companyId, userEmail }: AppShellProps) {
   const canManage = role === 'staff' || role === 'admin';
+  // The cross-client support queue is admin-only, unlike the staff-visible
+  // Admin tab.
+  const isAdmin = role === 'admin';
   const [activeTab, setActiveTab] = useState<TabKey>('aws');
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(companyId);
@@ -261,8 +268,10 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
           <TabsTrigger value="lineItems">Line Items</TabsTrigger>
           <TabsTrigger value="files">Uploaded Files</TabsTrigger>
           <TabsTrigger value="notes">Notes & Follow-ups</TabsTrigger>
+          <TabsTrigger value="support">Support</TabsTrigger>
           <TabsTrigger value="archive">Archive</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
+          {isAdmin && <TabsTrigger value="supportRequests">Support Requests</TabsTrigger>}
           {canManage && <TabsTrigger value="admin">Admin</TabsTrigger>}
         </TabsList>
       </Tabs>
@@ -295,6 +304,14 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
             <AdminCompanies isAdmin={role === 'admin'} />
             <AdminUsers isAdmin={role === 'admin'} />
           </div>
+        ) : activeTab === 'supportRequests' && isAdmin ? (
+          <SupportRequestsTab />
+        ) : activeTab === 'support' ? (
+          effectiveCompanyId ? (
+            <SupportTab companyId={effectiveCompanyId} userEmail={userEmail} />
+          ) : (
+            <p>Select a company to view its data.</p>
+          )
         ) : activeTab === 'archive' ? (
           effectiveCompanyId ? (
             <ArchiveTab

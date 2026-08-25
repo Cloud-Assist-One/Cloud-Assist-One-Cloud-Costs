@@ -346,3 +346,22 @@ export type AzureAdUsersResponse =
       fetchedAt: string;
       users: AzureResourceResult<AzureAdUserRow>;
     };
+
+export interface SupportRequest {
+  id: string;
+  company_id: string;
+  submitted_by: string;
+  first_name: string;
+  email: string;
+  phone: string | null;
+  phone_ext: string | null;
+  topics: string[];
+  details: string | null;
+  created_at: string;
+}
+
+// The admin grid spans every client, so it carries the company name alongside
+// each request to keep them distinguishable.
+export interface SupportRequestWithCompany extends SupportRequest {
+  company_name: string;
+}
