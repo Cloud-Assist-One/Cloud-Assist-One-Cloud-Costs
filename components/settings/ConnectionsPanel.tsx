@@ -10,14 +10,14 @@ export interface ConnectionField {
   defaultValue?: string;
 }
 
-interface ConnectionsPanelProps<TSummary extends { id: string; label: string }> {
+interface ConnectionsPanelProps<TSummary extends { id: string; label: string; tagKey?: string }> {
   companyId: string;
   apiPath: string;
   fields: ConnectionField[];
   renderSummary: (connection: TSummary) => string;
 }
 
-export default function ConnectionsPanel<TSummary extends { id: string; label: string }>({
+export default function ConnectionsPanel<TSummary extends { id: string; label: string; tagKey?: string }>({
   companyId,
   apiPath,
   fields,
@@ -34,6 +34,11 @@ export default function ConnectionsPanel<TSummary extends { id: string; label: s
   const [saving, setSaving] = useState(false);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Local edits to a connection's tag key, keyed by connection id. Absent
+  // means "show the connection's current tagKey" — cleared again once a
+  // save succeeds, so the input reflects the freshly saved value.
+  const [tagKeyDrafts, setTagKeyDrafts] = useState<Record<string, string>>({});
+  const [savingTagKeyId, setSavingTagKeyId] = useState<string | null>(null);
 
   const loadConnections = useCallback(async () => {
     const response = await fetch(`${apiPath}?companyId=${companyId}`);
@@ -113,6 +118,36 @@ export default function ConnectionsPanel<TSummary extends { id: string; label: s
     }
   }
 
+  // Changing which tag is reported must not mean disconnecting and
+  // re-entering the secret, so this PATCHes just the tag key rather than
+  // going through the add/disconnect flow.
+  async function handleSaveTagKey(id: string, tagKey: string) {
+    setError(null);
+    setSavingTagKeyId(id);
+    try {
+      const response = await fetch(apiPath, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId, id, tagKey }),
+      });
+      const body = await response.json();
+      if (!response.ok) {
+        setError(body.error ?? 'Could not update the tag key.');
+        return;
+      }
+      setConnections((prev) => (prev ?? []).map((c) => (c.id === id ? (body.connection as TSummary) : c)));
+      setTagKeyDrafts((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    } catch {
+      setError('Could not update the tag key.');
+    } finally {
+      setSavingTagKeyId(null);
+    }
+  }
+
   if (loading) {
     return <p>Loading…</p>;
   }
@@ -132,6 +167,27 @@ export default function ConnectionsPanel<TSummary extends { id: string; label: s
               <div>
                 <strong>{connection.label}</strong> — {renderSummary(connection)}
               </div>
+              {typeof connection.tagKey === 'string' && (
+                <div className={styles.tagKeyRow}>
+                  <label htmlFor={`tag-key-${connection.id}`}>Tag key</label>
+                  <input
+                    id={`tag-key-${connection.id}`}
+                    value={tagKeyDrafts[connection.id] ?? connection.tagKey}
+                    onChange={(e) =>
+                      setTagKeyDrafts((prev) => ({ ...prev, [connection.id]: e.target.value }))
+                    }
+                  />
+                  <button
+                    type="button"
+                    disabled={savingTagKeyId === connection.id}
+                    onClick={() =>
+                      handleSaveTagKey(connection.id, tagKeyDrafts[connection.id] ?? connection.tagKey ?? '')
+                    }
+                  >
+                    {savingTagKeyId === connection.id ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              )}
               {confirmingDeleteId === connection.id ? (
                 <span className={styles.confirmDisconnect}>
                   <span>Disconnect this connection?</span>

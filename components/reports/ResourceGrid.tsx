@@ -81,8 +81,8 @@ export function ResourceGrid<T extends object>({
           <table className={styles.table}>
             <thead>
               <tr>
-                {columns.map((col) => (
-                  <th key={col.header} className={col.align === 'right' ? styles.numeric : undefined}>
+                {columns.map((col, index) => (
+                  <th key={index} className={col.align === 'right' ? styles.numeric : undefined}>
                     {col.header}
                   </th>
                 ))}
@@ -95,8 +95,8 @@ export function ResourceGrid<T extends object>({
                 const name = getName(row);
                 return (
                   <tr key={index} className={ageColor ? AGE_ROW_CLASS[ageColor] : undefined}>
-                    {columns.map((col) => (
-                      <td key={col.header} className={col.align === 'right' ? styles.numeric : undefined}>
+                    {columns.map((col, colIndex) => (
+                      <td key={colIndex} className={col.align === 'right' ? styles.numeric : undefined}>
                         {col.render(row)}
                       </td>
                     ))}

@@ -8,6 +8,10 @@ interface TestSummary {
   value: string;
 }
 
+interface TestSummaryWithTagKey extends TestSummary {
+  tagKey: string;
+}
+
 describe('ConnectionsPanel', () => {
   beforeEach(() => {
     global.fetch = jest.fn();
@@ -198,5 +202,116 @@ describe('ConnectionsPanel', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/could not disconnect/i);
     expect(screen.queryByText(/disconnecting/i)).not.toBeInTheDocument();
+  });
+
+  describe('editing the tag key', () => {
+    it('shows the connection\'s current tag key', async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          connections: [{ id: 'c1', label: 'Production', value: 'abc', tagKey: 'CostCenter' }],
+        }),
+      });
+
+      render(
+        <ConnectionsPanel<TestSummaryWithTagKey>
+          companyId="company-1"
+          apiPath="/api/settings/test-credentials"
+          fields={[{ name: 'value', label: 'Value', type: 'text' }]}
+          renderSummary={(c) => `value ${c.value}`}
+        />
+      );
+
+      await screen.findByText('Production');
+      expect(screen.getByLabelText(/tag key/i)).toHaveValue('CostCenter');
+    });
+
+    it('does not show a tag key control when the summary has no tagKey field', async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ connections: [{ id: 'c1', label: 'Production', value: 'abc' }] }),
+      });
+
+      render(
+        <ConnectionsPanel<TestSummary>
+          companyId="company-1"
+          apiPath="/api/settings/test-credentials"
+          fields={[{ name: 'value', label: 'Value', type: 'text' }]}
+          renderSummary={(c) => `value ${c.value}`}
+        />
+      );
+
+      await screen.findByText('Production');
+      expect(screen.queryByLabelText(/tag key/i)).not.toBeInTheDocument();
+    });
+
+    it('PATCHes the new tag key to the configured endpoint and refreshes the row', async () => {
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            connections: [{ id: 'c1', label: 'Production', value: 'abc', tagKey: 'CostCenter' }],
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            connection: { id: 'c1', label: 'Production', value: 'abc', tagKey: 'Owner' },
+          }),
+        });
+
+      const user = userEvent.setup();
+      render(
+        <ConnectionsPanel<TestSummaryWithTagKey>
+          companyId="company-1"
+          apiPath="/api/settings/test-credentials"
+          fields={[{ name: 'value', label: 'Value', type: 'text' }]}
+          renderSummary={(c) => `value ${c.value}`}
+        />
+      );
+
+      await screen.findByText('Production');
+      const input = screen.getByLabelText(/tag key/i);
+      await user.clear(input);
+      await user.type(input, 'Owner');
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+      await waitFor(() =>
+        expect(global.fetch).toHaveBeenCalledWith(
+          '/api/settings/test-credentials',
+          expect.objectContaining({
+            method: 'PATCH',
+            body: JSON.stringify({ companyId: 'company-1', id: 'c1', tagKey: 'Owner' }),
+          })
+        )
+      );
+      expect(await screen.findByLabelText(/tag key/i)).toHaveValue('Owner');
+    });
+
+    it('surfaces an error when saving the tag key fails', async () => {
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            connections: [{ id: 'c1', label: 'Production', value: 'abc', tagKey: 'CostCenter' }],
+          }),
+        })
+        .mockResolvedValueOnce({ ok: false, json: async () => ({ error: 'tagKey must be valid.' }) });
+
+      const user = userEvent.setup();
+      render(
+        <ConnectionsPanel<TestSummaryWithTagKey>
+          companyId="company-1"
+          apiPath="/api/settings/test-credentials"
+          fields={[{ name: 'value', label: 'Value', type: 'text' }]}
+          renderSummary={(c) => `value ${c.value}`}
+        />
+      );
+
+      await screen.findByText('Production');
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/tagkey must be valid/i);
+    });
   });
 });

@@ -16,7 +16,8 @@ import { requireCompanyAccess } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { decryptCredentials } from '@/lib/cloudCredentialsCrypto';
 import { collectPages } from '@/lib/awsPagination';
-import { tagValue } from '@/lib/resourceTags';
+import { tagValue, lookupTag, tagFailureWarning } from '@/lib/resourceTags';
+import { mapWithConcurrency } from '@/lib/concurrency';
 import type {
   AwsResourceResult,
   AwsResourcesResponse,
@@ -35,6 +36,12 @@ function chunk<T>(items: T[], size: number): T[][] {
   for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
   return chunks;
 }
+
+// Per-resource tag lookups (Lambda, DynamoDB, S3) run one AWS API call per
+// resource. An account with thousands of resources firing all of them at
+// once gets throttled; capping how many run concurrently keeps well clear
+// of that without making a 2,000-bucket account painfully slow.
+const TAG_LOOKUP_CONCURRENCY = 8;
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : 'Unknown error.';
@@ -90,17 +97,6 @@ export async function GET(request: NextRequest) {
   // unconfigured connection needs no extra IAM permissions.
   const tagKey = ((credRow.metadata as Record<string, unknown> | null)?.tagKey as string | undefined) ?? '';
 
-  // A missing tag permission on one resource must not blank that resource's
-  // whole row, so every per-resource tag lookup degrades to null.
-  async function lookupTag(fetchTags: () => Promise<string | null>): Promise<string | null> {
-    if (!tagKey) return null;
-    try {
-      return await fetchTags();
-    } catch {
-      return null;
-    }
-  }
-
   async function fetchEc2(): Promise<AwsResourceResult<Ec2InstanceRow>> {
     try {
       const client = new EC2Client(clientConfig);
@@ -142,21 +138,26 @@ export async function GET(request: NextRequest) {
         (page) => page.NextMarker
       );
       // ListFunctions omits tags, so each function needs its own ListTags.
-      const rows = await Promise.all(
-        functions.map(async (fn): Promise<LambdaFunctionRow> => ({
+      // That's one AWS call per function, so it's bounded and its failures
+      // are counted rather than being silently swallowed into blank cells.
+      let tagFailures = 0;
+      const rows = await mapWithConcurrency(functions, TAG_LOOKUP_CONCURRENCY, async (fn): Promise<LambdaFunctionRow> => {
+        const tagResult = await lookupTag(tagKey, async () => {
+          if (!fn.FunctionArn) return null;
+          const tags = await client.send(new ListTagsCommand({ Resource: fn.FunctionArn }));
+          return tagValue(tags.Tags, tagKey);
+        });
+        if (!tagResult.ok) tagFailures++;
+        return {
           functionName: fn.FunctionName ?? '',
           runtime: fn.Runtime ?? null,
           memorySize: fn.MemorySize ?? null,
           timeout: fn.Timeout ?? null,
           lastModified: fn.LastModified ?? null,
-          tagValue: await lookupTag(async () => {
-            if (!fn.FunctionArn) return null;
-            const tags = await client.send(new ListTagsCommand({ Resource: fn.FunctionArn }));
-            return tagValue(tags.Tags, tagKey);
-          }),
-        }))
-      );
-      return { data: rows, error: null };
+          tagValue: tagResult.ok ? tagResult.value : null,
+        };
+      });
+      return { data: rows, error: tagFailureWarning(tagFailures, functions.length) };
     } catch (err) {
       return { data: [], error: errorMessage(err) };
     }
@@ -173,7 +174,8 @@ export async function GET(request: NextRequest) {
       const rows: EcsServiceRow[] = [];
       for (const clusterArn of clusterArns) {
         const serviceArns = await collectPages(
-          (nextToken) => client.send(new ListServicesCommand({ cluster: clusterArn, nextToken })),
+          (nextToken) =>
+            client.send(new ListServicesCommand({ cluster: clusterArn, nextToken, maxResults: 100 })),
           (page) => page.serviceArns,
           (page) => page.nextToken
         );
@@ -181,8 +183,14 @@ export async function GET(request: NextRequest) {
           if (batch.length === 0) continue;
           const describeResult = await client.send(
             // 'TAGS' makes DescribeServices return tags inline, avoiding a
-            // separate tag call per service.
-            new DescribeServicesCommand({ cluster: clusterArn, services: batch, include: ['TAGS'] })
+            // separate tag call per service — but only ask for it when a tag
+            // key is actually configured, so an unconfigured connection
+            // fires no new API behavior at all.
+            new DescribeServicesCommand({
+              cluster: clusterArn,
+              services: batch,
+              include: tagKey ? ['TAGS'] : undefined,
+            })
           );
           for (const service of describeResult.services ?? []) {
             rows.push({
@@ -237,30 +245,37 @@ export async function GET(request: NextRequest) {
         (page) => page.LastEvaluatedTableName
       );
       // A per-table Describe call is needed to get each table's creation
-      // date (ListTables returns only names) — run in parallel since this
-      // is specifically what the age-based color flag needs. The same call
-      // yields the ARN that the tag lookup needs.
-      const rows = await Promise.all(
-        tableNames.map(async (tableName): Promise<DynamoTableRow> => {
-          try {
-            const describeResult = await client.send(new DescribeTableCommand({ TableName: tableName }));
-            const creationDateTime = describeResult.Table?.CreationDateTime;
-            return {
-              tableName,
-              creationDateTime: creationDateTime ? new Date(creationDateTime).toISOString() : null,
-              tagValue: await lookupTag(async () => {
-                const tableArn = describeResult.Table?.TableArn;
-                if (!tableArn) return null;
-                const tags = await client.send(new ListTagsOfResourceCommand({ ResourceArn: tableArn }));
-                return tagValue(tags.Tags, tagKey);
-              }),
-            };
-          } catch {
-            return { tableName, creationDateTime: null, tagValue: null };
-          }
-        })
-      );
-      return { data: rows, error: null };
+      // date (ListTables returns only names) — bounded concurrency, since
+      // this is specifically what the age-based color flag needs. The same
+      // call yields the ARN that the tag lookup needs.
+      let tagFailures = 0;
+      const rows = await mapWithConcurrency(tableNames, TAG_LOOKUP_CONCURRENCY, async (tableName): Promise<DynamoTableRow> => {
+        try {
+          const describeResult = await client.send(new DescribeTableCommand({ TableName: tableName }));
+          const creationDateTime = describeResult.Table?.CreationDateTime;
+          const tagResult = await lookupTag(tagKey, async () => {
+            const tableArn = describeResult.Table?.TableArn;
+            if (!tableArn) return null;
+            // ListTagsOfResource paginates (NextToken) — a table whose
+            // wanted tag sits on a later page would otherwise show blank.
+            const tags = await collectPages(
+              (NextToken) => client.send(new ListTagsOfResourceCommand({ ResourceArn: tableArn, NextToken })),
+              (page) => page.Tags,
+              (page) => page.NextToken
+            );
+            return tagValue(tags, tagKey);
+          });
+          if (!tagResult.ok) tagFailures++;
+          return {
+            tableName,
+            creationDateTime: creationDateTime ? new Date(creationDateTime).toISOString() : null,
+            tagValue: tagResult.ok ? tagResult.value : null,
+          };
+        } catch {
+          return { tableName, creationDateTime: null, tagValue: null };
+        }
+      });
+      return { data: rows, error: tagFailureWarning(tagFailures, tableNames.length) };
     } catch (err) {
       return { data: [], error: errorMessage(err) };
     }
@@ -273,7 +288,7 @@ export async function GET(request: NextRequest) {
     try {
       const client = new APIGatewayClient(clientConfig);
       const items = await collectPages(
-        (position) => client.send(new GetRestApisCommand({ position })),
+        (position) => client.send(new GetRestApisCommand({ position, limit: 500 })),
         (page) => page.items,
         (page) => page.position
       );
@@ -318,26 +333,40 @@ export async function GET(request: NextRequest) {
 
   async function fetchS3(): Promise<AwsResourceResult<S3BucketRow>> {
     try {
-      const client = new S3Client(clientConfig);
+      // ListBuckets returns buckets from every region, but this client is
+      // pinned to the connection's one configured region. Without
+      // followRegionRedirects, GetBucketTagging against an out-of-region
+      // bucket throws PermanentRedirect instead of transparently retrying
+      // against the bucket's real region.
+      const client = new S3Client({ ...clientConfig, followRegionRedirects: true });
       const buckets = await collectPages(
         (ContinuationToken) => client.send(new ListBucketsCommand({ ContinuationToken })),
         (page) => page.Buckets,
         (page) => page.ContinuationToken
       );
-      // GetBucketTagging throws NoSuchTagSet for an untagged bucket, which
-      // lookupTag turns into a plain null rather than an error.
-      const rows = await Promise.all(
-        buckets.map(async (bucket): Promise<S3BucketRow> => ({
-          name: bucket.Name ?? '',
-          creationDate: bucket.CreationDate ? new Date(bucket.CreationDate).toISOString() : null,
-          tagValue: await lookupTag(async () => {
-            if (!bucket.Name) return null;
+      let tagFailures = 0;
+      const rows = await mapWithConcurrency(buckets, TAG_LOOKUP_CONCURRENCY, async (bucket): Promise<S3BucketRow> => {
+        const tagResult = await lookupTag(tagKey, async () => {
+          if (!bucket.Name) return null;
+          try {
             const tags = await client.send(new GetBucketTaggingCommand({ Bucket: bucket.Name }));
             return tagValue(tags.TagSet, tagKey);
-          }),
-        }))
-      );
-      return { data: rows, error: null };
+          } catch (err) {
+            // An untagged bucket returns NoSuchTagSet rather than an empty
+            // TagSet — that's "no tag", not a failed lookup, so it must not
+            // count toward the failure warning below.
+            if (err instanceof Error && err.name === 'NoSuchTagSet') return null;
+            throw err;
+          }
+        });
+        if (!tagResult.ok) tagFailures++;
+        return {
+          name: bucket.Name ?? '',
+          creationDate: bucket.CreationDate ? new Date(bucket.CreationDate).toISOString() : null,
+          tagValue: tagResult.ok ? tagResult.value : null,
+        };
+      });
+      return { data: rows, error: tagFailureWarning(tagFailures, buckets.length) };
     } catch (err) {
       return { data: [], error: errorMessage(err) };
     }

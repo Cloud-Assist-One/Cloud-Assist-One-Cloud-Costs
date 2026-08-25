@@ -2,24 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireCompanyAccess } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { encryptCredentials } from '@/lib/cloudCredentialsCrypto';
+import { readTagKey } from '@/lib/resourceTags';
 import type { AwsCredentialSummary } from '@/lib/types';
 
 const REGION_PATTERN = /^[a-z]{2}-[a-z]+-\d$/;
-
-// AWS allows letters, numbers, spaces and + - = . _ : / @ in a tag key, up
-// to 128 characters. Rejecting anything else here means a typo surfaces on
-// the settings form rather than as a silently empty column later.
-const TAG_KEY_PATTERN = /^[\w\s+\-=._:/@]{1,128}$/;
-
-function readTagKey(value: unknown): { ok: true; tagKey: string } | { ok: false } {
-  // An absent or blank tag key is valid — it just switches the column off.
-  if (value === undefined || value === null || value === '') return { ok: true, tagKey: '' };
-  if (typeof value !== 'string') return { ok: false };
-  const trimmed = value.trim();
-  if (!trimmed) return { ok: true, tagKey: '' };
-  if (!TAG_KEY_PATTERN.test(trimmed)) return { ok: false };
-  return { ok: true, tagKey: trimmed };
-}
 
 function maskAccessKeyId(accessKeyId: string): string {
   if (accessKeyId.length <= 8) return accessKeyId;
