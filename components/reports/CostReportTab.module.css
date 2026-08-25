@@ -9,8 +9,10 @@
   font-size: 0.875rem;
 }
 
-.printButton {
-  align-self: flex-end;
+.actionsBar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 .billingMonth {

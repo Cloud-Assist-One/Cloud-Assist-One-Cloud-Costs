@@ -273,7 +273,9 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
                       companyId={effectiveCompanyId}
                       cloudProvider="aws"
                       periodId={periodIdForReports}
+                      isReadOnly={viewingArchivedPeriod}
                       onServiceClick={(serviceName) => handleServiceDrillDown([serviceName])}
+                      onPeriodArchived={(newPeriodId) => setActivePeriodId(newPeriodId)}
                     />
                   ) : awsSubTab === 'resources' ? (
                     <AwsResourcesTab companyId={effectiveCompanyId} />
@@ -299,6 +301,7 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
                       companyId={effectiveCompanyId}
                       cloudProvider="azure"
                       periodId={periodIdForReports}
+                      isReadOnly={viewingArchivedPeriod}
                       onServiceClick={(serviceName) => handleServiceDrillDown([serviceName])}
                     />
                   ) : azureSubTab === 'resources' ? (
@@ -313,6 +316,7 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
                   companyId={effectiveCompanyId}
                   cloudProvider="gcp"
                   periodId={periodIdForReports}
+                  isReadOnly={viewingArchivedPeriod}
                   onServiceClick={(serviceName) => handleServiceDrillDown([serviceName])}
                 />
               )}
@@ -321,6 +325,7 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
                   companyId={effectiveCompanyId}
                   cloudProvider="snowflake"
                   periodId={periodIdForReports}
+                  isReadOnly={viewingArchivedPeriod}
                   onServiceClick={(serviceName) => handleServiceDrillDown([serviceName])}
                 />
               )}

@@ -1,29 +1,41 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CartesianGrid, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { createClient } from '@/lib/supabase/client';
 import type { CloudProvider, CostRecord } from '@/lib/types';
 import { aggregateByDate, aggregateByService, totalCost } from '@/lib/reportAggregation';
 import { formatBillingMonth } from '@/lib/cloudProvider';
+import PullBillingModal from './PullBillingModal';
 import styles from './CostReportTab.module.css';
 
 interface CostReportTabProps {
   companyId: string;
   cloudProvider: CloudProvider;
   periodId: string;
+  isReadOnly?: boolean;
   onServiceClick?: (serviceName: string) => void;
+  onPeriodArchived?: (newPeriodId: string) => void;
 }
 
 function formatCurrency(amount: number): string {
   return `$${amount.toFixed(2)}`;
 }
 
-export default function CostReportTab({ companyId, cloudProvider, periodId, onServiceClick }: CostReportTabProps) {
+export default function CostReportTab({
+  companyId,
+  cloudProvider,
+  periodId,
+  isReadOnly,
+  onServiceClick,
+  onPeriodArchived,
+}: CostReportTabProps) {
   const [records, setRecords] = useState<CostRecord[]>([]);
   const [billingMonth, setBillingMonth] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showPullBillingModal, setShowPullBillingModal] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,7 +61,7 @@ export default function CostReportTab({ companyId, cloudProvider, periodId, onSe
     return () => {
       cancelled = true;
     };
-  }, [companyId, cloudProvider, periodId]);
+  }, [companyId, cloudProvider, periodId, refreshKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,7 +112,17 @@ export default function CostReportTab({ companyId, cloudProvider, periodId, onSe
     return () => {
       cancelled = true;
     };
-  }, [companyId, cloudProvider, periodId]);
+  }, [companyId, cloudProvider, periodId, refreshKey]);
+
+  const handlePulled = useCallback(
+    (result: { rowCount: number; newPeriodId?: string }) => {
+      setRefreshKey((k) => k + 1);
+      if (result.newPeriodId) {
+        onPeriodArchived?.(result.newPeriodId);
+      }
+    },
+    [onPeriodArchived]
+  );
 
   const byDate = useMemo(() => aggregateByDate(records), [records]);
   const byService = useMemo(() => aggregateByService(records), [records]);
@@ -108,9 +130,27 @@ export default function CostReportTab({ companyId, cloudProvider, periodId, onSe
 
   return (
     <div className={styles.wrapper}>
-      <button type="button" className={`${styles.printButton} print-hidden`} onClick={() => window.print()}>
-        Print
-      </button>
+      <div className={`${styles.actionsBar} print-hidden`}>
+        {cloudProvider === 'aws' && !isReadOnly && (
+          <button type="button" onClick={() => setShowPullBillingModal(true)}>
+            Pull Billing
+          </button>
+        )}
+        <button type="button" className={styles.printButton} onClick={() => window.print()}>
+          Print
+        </button>
+      </div>
+
+      {showPullBillingModal && (
+        <PullBillingModal
+          companyId={companyId}
+          onClose={() => setShowPullBillingModal(false)}
+          onPulled={(result) => {
+            handlePulled(result);
+            setShowPullBillingModal(false);
+          }}
+        />
+      )}
 
       {billingMonth && <p className={styles.billingMonth}>Billing month: {formatBillingMonth(billingMonth)}</p>}
 
