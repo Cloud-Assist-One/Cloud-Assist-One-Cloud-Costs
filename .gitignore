@@ -43,3 +43,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# billing exports — these are uploaded through the app (or pulled from a
+# provider's API) and can contain real customer cost data, so they must
+# never end up in the repo, even as local test fixtures.
+*.xlsx
+*.csv
