@@ -145,10 +145,7 @@ export default function CostReportTab({
         <PullBillingModal
           companyId={companyId}
           onClose={() => setShowPullBillingModal(false)}
-          onPulled={(result) => {
-            handlePulled(result);
-            setShowPullBillingModal(false);
-          }}
+          onPulled={handlePulled}
         />
       )}
 

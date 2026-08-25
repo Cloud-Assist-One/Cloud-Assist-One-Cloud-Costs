@@ -178,6 +178,25 @@ describe('CostReportTab', () => {
     expect(loadRecords).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps the modal open after a successful pull so the result is visible', async () => {
+    loadRecords.mockResolvedValue({ data: [] });
+
+    render(<CostReportTab companyId="company-1" cloudProvider="aws" periodId="period-1" />);
+    await screen.findByText(/no cost data for this period/i);
+
+    await userEvent.click(screen.getByRole('button', { name: /pull billing/i }));
+    expect(screen.getByText('pull-billing-modal-content')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'simulate-pulled' }));
+
+    // Modal should still be visible after pull succeeds
+    expect(screen.getByText('pull-billing-modal-content')).toBeInTheDocument();
+
+    // Modal should only unmount after close-modal is clicked
+    await userEvent.click(screen.getByRole('button', { name: 'close-modal' }));
+    expect(screen.queryByText('pull-billing-modal-content')).not.toBeInTheDocument();
+  });
+
   it('calls onPeriodArchived when the pull result includes a newPeriodId', async () => {
     const onPeriodArchived = jest.fn();
     loadRecords.mockResolvedValue({ data: [] });
