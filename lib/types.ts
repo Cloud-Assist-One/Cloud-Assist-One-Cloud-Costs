@@ -224,6 +224,13 @@ export type AwsIamUsersResponse =
       users: AwsResourceResult<IamUserRow>;
     };
 
+export interface PullBillingSuccessResponse {
+  uploadedFileId: string;
+  status: 'processed';
+  rowCount: number;
+  newPeriodId?: string;
+}
+
 export interface AzureVmRow {
   name: string;
   vmSize: string | null;

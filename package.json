@@ -12,6 +12,7 @@
   "dependencies": {
     "@aws-sdk/client-api-gateway": "^3.1116.0",
     "@aws-sdk/client-apigatewayv2": "^3.1116.0",
+    "@aws-sdk/client-cost-explorer": "^3.1116.0",
     "@aws-sdk/client-dynamodb": "^3.1116.0",
     "@aws-sdk/client-ec2": "^3.1116.0",
     "@aws-sdk/client-ecs": "^3.1116.0",
