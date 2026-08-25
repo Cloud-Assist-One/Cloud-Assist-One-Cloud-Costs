@@ -1,9 +1,36 @@
-.wrapper {
+.page {
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.wrapper {
+  /* The header takes its own height off the viewport, so the form centres in
+     what is left rather than pushing the page into a scroll. */
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 3rem 1.5rem;
+}
+
+/* Replaces the old "Cloud Cost Assistant" heading. Sized by height with
+   width:auto so the mark keeps its aspect ratio; the source is 925x875, so
+   it renders downscaled and stays sharp on high-density screens. */
+.logo {
+  height: 290px;
+  width: auto;
+  max-width: 100%;
+  align-self: center;
+  margin-bottom: 0.5rem;
+}
+
+/* next-themes applies the dark class site-wide, so a returning user can land
+   on this page in dark mode, where the mark's navy would disappear. */
+:global(.dark) .logo {
+  background: #fff;
+  border-radius: 12px;
+  padding: 8px;
 }
 
 .form {

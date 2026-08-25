@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, FormEvent } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import MarketingHeader from './MarketingHeader';
 import styles from './LoginForm.module.css';
 
 export default function LoginForm() {
@@ -53,46 +55,59 @@ export default function LoginForm() {
   }
 
   return (
-    <div className={styles.wrapper}>
-      <form className={styles.form} onSubmit={handleSubmit} noValidate>
-        <h1>Cloud Cost Assistant</h1>
+    <div className={styles.page}>
+      <MarketingHeader />
+      <div className={styles.wrapper}>
+        <form className={styles.form} onSubmit={handleSubmit} noValidate>
+          {/* The logo carries the product name, so it replaces the heading —
+              but the accessible name still has to exist for screen readers
+              and for the form's own labelling. */}
+          <Image
+            src="/cao-logo.png"
+            alt="Cloud Assist One — Cloud Cost Assistant"
+            width={925}
+            height={875}
+            className={styles.logo}
+            priority
+          />
 
-        <label htmlFor="login-email">Email</label>
-        <input
-          id="login-email"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
+          <label htmlFor="login-email">Email</label>
+          <input
+            id="login-email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
 
-        <label htmlFor="login-password">Password</label>
-        <input
-          id="login-password"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
+          <label htmlFor="login-password">Password</label>
+          <input
+            id="login-password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
 
-        {error && (
-          <p role="alert" className={styles.error}>
-            {error}
-          </p>
-        )}
-        {resetSent && (
-          <p role="status" className={styles.status}>
-            Password reset email sent — check your inbox.
-          </p>
-        )}
+          {error && (
+            <p role="alert" className={styles.error}>
+              {error}
+            </p>
+          )}
+          {resetSent && (
+            <p role="status" className={styles.status}>
+              Password reset email sent — check your inbox.
+            </p>
+          )}
 
-        <button type="submit" className={styles.submit} disabled={submitting}>
-          {submitting ? 'Signing in…' : 'Sign in'}
-        </button>
-        <button type="button" className={styles.linkButton} onClick={handleResetPassword}>
-          Forgot password?
-        </button>
-      </form>
+          <button type="submit" className={styles.submit} disabled={submitting}>
+            {submitting ? 'Signing in…' : 'Sign in'}
+          </button>
+          <button type="button" className={styles.linkButton} onClick={handleResetPassword}>
+            Forgot password?
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
