@@ -47,6 +47,62 @@ const MAX_PAGES = 100;
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
+// Cost Management throttles on Query Processing Units, and its quotas are
+// tight enough that even a couple of pulls a few minutes apart can trip it.
+// A short, server-directed wait turns most of those into a success instead
+// of an error the user has to act on.
+const THROTTLE_STATUSES = new Set([429, 503]);
+const MAX_THROTTLE_RETRIES = 3;
+// Anything longer than this would eat the request timeout, so it's reported
+// back to the user instead of waited out.
+const MAX_THROTTLE_WAIT_MS = 20_000;
+const DEFAULT_THROTTLE_WAIT_MS = 3_000;
+
+// Microsoft documents the retry hint under several names across pages, and
+// which one appears varies — check all of them.
+const RETRY_AFTER_HEADERS = [
+  'retry-after',
+  'x-ms-ratelimit-microsoft.costmanagement-qpu-retry-after',
+  'x-ms-ratelimit-microsoft.consumption-retry-after',
+];
+
+interface HeaderReader {
+  get(name: string): string | null;
+}
+
+function retryAfterMsFrom(headers: HeaderReader | undefined): number | null {
+  if (!headers?.get) return null;
+  for (const header of RETRY_AFTER_HEADERS) {
+    const raw = headers.get(header);
+    if (!raw) continue;
+    const seconds = Number(raw);
+    if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  }
+  return null;
+}
+
+function humanizeMs(ms: number): string {
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds} second${seconds === 1 ? '' : 's'}`;
+  const minutes = Math.round(seconds / 60);
+  return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+}
+
+function throttleError(waitMs: number | null): Error {
+  const waited = waitMs === null ? '' : ` It asked us to wait ${humanizeMs(waitMs)} before trying again.`;
+  return new Error(
+    `Azure is rate-limiting Cost Management queries.${waited} Azure applies a tight quota to cost queries and ` +
+      `recommends pulling billing at most once per day, so please wait a few minutes and try again.`
+  );
+}
+
+const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+export interface FetchAzureCostRowsOptions {
+  /** Injected in tests so throttle handling doesn't actually wait. */
+  sleep?: (ms: number) => Promise<void>;
+}
+
 // Deliberately strict on both halves: the column name has to appear as a
 // whole word (so prose like "reports costs in more than one currency" doesn't
 // match "Cost"), and the message has to read like a schema rejection rather
@@ -194,14 +250,31 @@ function buildQueryBody(from: string, to: string, costColumnName: string) {
 async function runQuery(
   token: string,
   url: string,
-  queryBody: ReturnType<typeof buildQueryBody>
+  queryBody: ReturnType<typeof buildQueryBody>,
+  sleep: (ms: number) => Promise<void>
 ): Promise<AzureQueryResult> {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(queryBody),
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
+  let response!: Response;
+
+  for (let attempt = 0; ; attempt += 1) {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(queryBody),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+
+    if (!THROTTLE_STATUSES.has(response.status)) break;
+
+    const requestedWaitMs = retryAfterMsFrom(response.headers);
+    const waitMs = requestedWaitMs ?? DEFAULT_THROTTLE_WAIT_MS * 2 ** attempt;
+
+    // Give up rather than wait when Azure wants longer than the request can
+    // afford, or when backing off clearly isn't clearing the throttle.
+    if (waitMs > MAX_THROTTLE_WAIT_MS || attempt >= MAX_THROTTLE_RETRIES - 1) {
+      throw throttleError(requestedWaitMs);
+    }
+    await sleep(waitMs);
+  }
 
   const body = await response.json().catch(() => null);
   if (!response.ok) {
@@ -227,8 +300,10 @@ async function runQuery(
 export async function fetchAzureCostRows(
   credentials: AzureCredentials,
   rangeStart: string,
-  rangeEndExclusive: string
+  rangeEndExclusive: string,
+  options: FetchAzureCostRowsOptions = {}
 ): Promise<{ rows: AzureCostRow[]; rawPages: AzureQueryResult[] }> {
+  const sleep = options.sleep ?? realSleep;
   const token = await getAccessToken(credentials);
   const queryUrl = `https://management.azure.com/subscriptions/${credentials.subscriptionId}/providers/Microsoft.CostManagement/query?api-version=${API_VERSION}`;
 
@@ -245,7 +320,7 @@ export async function fetchAzureCostRows(
       const seenUrls = new Set<string>();
 
       for (;;) {
-        const result = await runQuery(token, url, queryBody);
+        const result = await runQuery(token, url, queryBody, sleep);
         rawPages.push(result);
         assertSingleCurrency(result);
         rows.push(...mapQueryResultToRows(result, costColumnName, GROUPING_DIMENSION));
