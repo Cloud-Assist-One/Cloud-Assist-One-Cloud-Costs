@@ -4,6 +4,7 @@ import type { CloudProvider } from '@/lib/types';
 
 export interface BillingMonthCheckResult {
   ok: boolean;
+  status?: number;
   errorMessage: string | null;
 }
 
@@ -26,13 +27,14 @@ export async function checkBillingMonthMatches(
     .not('billing_month', 'is', null);
 
   if (error) {
-    return { ok: false, errorMessage: "Could not verify this period's billing month." };
+    return { ok: false, status: 500, errorMessage: "Could not verify this period's billing month." };
   }
 
   const mismatch = (otherProviderFiles ?? []).find((f) => f.billing_month !== billingMonth);
   if (mismatch) {
     return {
       ok: false,
+      status: 409,
       errorMessage:
         `${CLOUD_PROVIDER_LABELS[cloudProvider]} is billed for ${formatBillingMonth(billingMonth)}, but ` +
         `${CLOUD_PROVIDER_LABELS[mismatch.cloud_provider as CloudProvider]} in this period is for ` +

@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
 
   const monthCheck = await checkBillingMonthMatches(adminClient, activePeriod.id, cloudProvider as CloudProvider, billingMonth);
   if (!monthCheck.ok) {
-    return NextResponse.json({ error: monthCheck.errorMessage }, { status: 409 });
+    return NextResponse.json({ error: monthCheck.errorMessage }, { status: monthCheck.status ?? 500 });
   }
 
   const storagePath = `${companyId}/${Date.now()}-${file.name}`;
