@@ -29,7 +29,7 @@
 - Modify: `app/api/upload/route.ts:1-14` (imports + remove local `formatMonth`), `app/api/upload/route.ts:59-86` (replace inline check with the helper call)
 
 **Interfaces:**
-- Produces: `checkBillingMonthMatches(adminClient: ReturnType<typeof createAdminClient>, periodId: string, cloudProvider: CloudProvider, billingMonth: string): Promise<{ ok: boolean; errorMessage: string | null }>` — the new Pull Billing route (Task 3) calls this exact function with the same signature.
+- Produces: `checkBillingMonthMatches(adminClient: ReturnType<typeof createAdminClient>, periodId: string, cloudProvider: CloudProvider, billingMonth: string): Promise<{ ok: boolean; status?: number; errorMessage: string | null }>` — the new Pull Billing route (Task 3) calls this exact function with the same signature. `status` is only meaningful when `ok` is false: 500 for a database lookup failure, 409 for an actual cross-provider month mismatch — callers must use `monthCheck.status ?? 500`, never hardcode 409, so a DB error and a genuine conflict aren't reported identically.
 
 - [ ] **Step 1: Create the shared helper**
 
@@ -42,6 +42,7 @@ import type { CloudProvider } from '@/lib/types';
 
 export interface BillingMonthCheckResult {
   ok: boolean;
+  status?: number;
   errorMessage: string | null;
 }
 
@@ -64,13 +65,14 @@ export async function checkBillingMonthMatches(
     .not('billing_month', 'is', null);
 
   if (error) {
-    return { ok: false, errorMessage: "Could not verify this period's billing month." };
+    return { ok: false, status: 500, errorMessage: "Could not verify this period's billing month." };
   }
 
   const mismatch = (otherProviderFiles ?? []).find((f) => f.billing_month !== billingMonth);
   if (mismatch) {
     return {
       ok: false,
+      status: 409,
       errorMessage:
         `${CLOUD_PROVIDER_LABELS[cloudProvider]} is billed for ${formatBillingMonth(billingMonth)}, but ` +
         `${CLOUD_PROVIDER_LABELS[mismatch.cloud_provider as CloudProvider]} in this period is for ` +
@@ -154,7 +156,7 @@ with:
 ```ts
   const monthCheck = await checkBillingMonthMatches(adminClient, activePeriod.id, cloudProvider as CloudProvider, billingMonth);
   if (!monthCheck.ok) {
-    return NextResponse.json({ error: monthCheck.errorMessage }, { status: 409 });
+    return NextResponse.json({ error: monthCheck.errorMessage }, { status: monthCheck.status ?? 500 });
   }
 ```
 
@@ -387,7 +389,7 @@ export async function POST(request: NextRequest) {
 
   const monthCheck = await checkBillingMonthMatches(adminClient, periodId, 'aws', billingMonth);
   if (!monthCheck.ok) {
-    return NextResponse.json({ error: monthCheck.errorMessage }, { status: 409 });
+    return NextResponse.json({ error: monthCheck.errorMessage }, { status: monthCheck.status ?? 500 });
   }
 
   const { data: credRow, error: credError } = await adminClient
