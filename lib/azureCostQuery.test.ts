@@ -137,9 +137,36 @@ describe('fetchAzureCostRows', () => {
     return { ok: true, json: async () => ({ access_token: 'token-abc' }) };
   }
 
-  function queryResponse(body: unknown, ok = true, status = 200) {
-    return { ok, status, json: async () => body, text: async () => JSON.stringify(body) };
+  function queryResponse(body: unknown, ok = true, status = 200, headers: Record<string, string> = {}) {
+    return {
+      ok,
+      status,
+      headers: { get: (name: string) => headers[name.toLowerCase()] ?? null },
+      json: async () => body,
+    };
   }
+
+  function throttledResponse(retryAfterHeader?: Record<string, string>) {
+    return queryResponse(
+      { error: { message: 'Too many requests. Please retry.' } },
+      false,
+      429,
+      retryAfterHeader ?? {}
+    );
+  }
+
+  const okPage = () =>
+    queryResponse({
+      properties: {
+        columns: [
+          { name: 'Cost', type: 'Number' },
+          { name: 'MeterCategory', type: 'String' },
+          { name: 'UsageDate', type: 'Number' },
+        ],
+        rows: [[3, 'Storage', 20260801]],
+        nextLink: null,
+      },
+    });
 
   beforeEach(() => {
     global.fetch = jest.fn();
@@ -237,15 +264,83 @@ describe('fetchAzureCostRows', () => {
     await expect(fetchAzureCostRows(credentials, '2026-08-01', '2026-08-03')).rejects.toThrow(/Invalid client secret/);
   });
 
+  it('waits for the period Azure asks for and then succeeds', async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(throttledResponse({ 'retry-after': '1' }))
+      .mockResolvedValueOnce(okPage());
+
+    const sleeps: number[] = [];
+    const { rows } = await fetchAzureCostRows(credentials, '2026-08-01', '2026-08-03', {
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(sleeps).toEqual([1000]);
+  });
+
+  it('reads the Azure-specific QPU retry header when the standard one is absent', async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(throttledResponse({ 'x-ms-ratelimit-microsoft.costmanagement-qpu-retry-after': '2' }))
+      .mockResolvedValueOnce(okPage());
+
+    const sleeps: number[] = [];
+    await fetchAzureCostRows(credentials, '2026-08-01', '2026-08-03', {
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+    });
+
+    expect(sleeps).toEqual([2000]);
+  });
+
+  it('gives up with an actionable message when the wait Azure asks for is too long', async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(throttledResponse({ 'retry-after': '600' }));
+
+    const sleeps: number[] = [];
+    await expect(
+      fetchAzureCostRows(credentials, '2026-08-01', '2026-08-03', {
+        sleep: async (ms) => {
+          sleeps.push(ms);
+        },
+      })
+    ).rejects.toThrow(/rate-limiting.*10 minutes/is);
+
+    // Waiting out a ten-minute throttle would just burn the request timeout.
+    expect(sleeps).toEqual([]);
+  });
+
+  it('stops retrying a persistent throttle instead of hammering the API', async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValue(throttledResponse({ 'retry-after': '1' }));
+
+    await expect(
+      fetchAzureCostRows(credentials, '2026-08-01', '2026-08-03', { sleep: async () => {} })
+    ).rejects.toThrow(/rate-limiting/i);
+
+    // Token call plus the initial attempt and a bounded number of retries.
+    expect((global.fetch as jest.Mock).mock.calls.length).toBeLessThanOrEqual(5);
+  });
+
   it('does not retry — and does not mangle the error — when the failure is not about the cost column', async () => {
-    // A 429 from the QPU limit previously triggered a retry with the other
+    // A permissions failure previously triggered a retry with the other
     // column name, which then failed as "invalid column" and told the user
     // the wrong thing entirely.
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce(tokenResponse())
-      .mockResolvedValueOnce(queryResponse({ error: { message: 'Too many requests. Please retry later.' } }, false, 429));
+      .mockResolvedValueOnce(
+        queryResponse({ error: { message: 'The client does not have authorization to perform action.' } }, false, 403)
+      );
 
-    await expect(fetchAzureCostRows(credentials, '2026-08-01', '2026-08-03')).rejects.toThrow(/Too many requests/);
+    await expect(fetchAzureCostRows(credentials, '2026-08-01', '2026-08-03')).rejects.toThrow(
+      /does not have authorization/
+    );
     // Token call + exactly one query call: no pointless second attempt.
     expect((global.fetch as jest.Mock).mock.calls).toHaveLength(2);
   });
