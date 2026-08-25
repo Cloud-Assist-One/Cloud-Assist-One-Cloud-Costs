@@ -9,7 +9,6 @@ import UploadedFilesList from '../files/UploadedFilesList';
 import CostReportTab from '../reports/CostReportTab';
 import CompareTab from '../reports/CompareTab';
 import LineItemsTab from '../reports/LineItemsTab';
-import TrendSidebar from '../reports/TrendSidebar';
 import NotesFeed from '../notes/NotesFeed';
 import AdminCompanies from '../admin/AdminCompanies';
 import AdminUsers from '../admin/AdminUsers';
@@ -37,8 +36,6 @@ type TabKey =
   | 'archive'
   | 'settings'
   | 'admin';
-
-const REPORT_TABS: TabKey[] = ['aws', 'azure', 'gcp', 'snowflake', 'compare', 'lineItems'];
 
 // The "Archive this period" action only makes sense while looking at one of
 // the single-cloud-provider report tabs, not Compare/Line Items/Files/etc.
@@ -258,11 +255,7 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
         ) : !periodIdForReports ? (
           <p>Loading…</p>
         ) : (
-          <div className={REPORT_TABS.includes(activeTab) && !isWideCloudView ? styles.reportLayout : undefined}>
-            {REPORT_TABS.includes(activeTab) && !isWideCloudView && (
-              <TrendSidebar key={effectiveCompanyId} companyId={effectiveCompanyId} />
-            )}
-            <div className={isWideCloudView ? styles.resourcesContent : styles.reportContent}>
+          <div className={isWideCloudView ? styles.resourcesContent : styles.reportContent}>
               {activeTab === 'aws' && (
                 <div className={styles.cloudSubTabs}>
                   <Tabs
@@ -362,7 +355,6 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
                   isReadOnly={viewingArchivedPeriod}
                 />
               )}
-            </div>
           </div>
         )}
       </div>

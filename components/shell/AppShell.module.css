@@ -38,19 +38,15 @@
   gap: 2.5rem;
 }
 
-.reportLayout {
-  padding-left: 290px;
-}
-
 .reportContent {
   max-width: 56rem;
   margin: 0 auto;
 }
 
 /* The Resources/IAM-Users (AWS) and Resources/Users (Azure) sub-tabs show
-   live cloud inventory, not a billing trend, so they skip the TrendSidebar
-   and its 290px reservation (see reportLayout below) and get a 25% wider
-   column (56rem * 1.25) to avoid a horizontal scrollbar on the grids. */
+   live cloud inventory grids, which need more horizontal room than the
+   billing report tabs -- a 25% wider column (56rem * 1.25) avoids a
+   horizontal scrollbar on the grids. */
 .resourcesContent {
   max-width: 70rem;
   margin: 0 auto;

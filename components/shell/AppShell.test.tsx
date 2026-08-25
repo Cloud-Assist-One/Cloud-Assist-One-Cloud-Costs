@@ -18,10 +18,6 @@ jest.mock('./../reports/LineItemsTab', () => ({
   __esModule: true,
   default: () => <div>line-items-tab-content</div>,
 }));
-jest.mock('./../reports/TrendSidebar', () => ({
-  __esModule: true,
-  default: () => <div>trend-sidebar-content</div>,
-}));
 jest.mock('./../notes/NotesFeed', () => ({
   __esModule: true,
   default: ({ isStaff }: { isStaff: boolean }) => <div>notes-feed-content isStaff={String(isStaff)}</div>,
