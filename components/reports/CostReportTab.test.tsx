@@ -141,14 +141,25 @@ describe('CostReportTab', () => {
     expect(screen.queryByText('pull-billing-modal-content')).not.toBeInTheDocument();
   });
 
-  it('does not show a Pull Billing button for non-AWS providers', async () => {
+  it('shows a Pull Billing button for Azure, which also has a billing API', async () => {
     loadRecords.mockResolvedValueOnce({ data: [] });
 
     render(<CostReportTab companyId="company-1" cloudProvider="azure" periodId="period-1" />);
 
-    await screen.findByText(/no cost data for this period/i);
-    expect(screen.queryByRole('button', { name: /pull billing/i })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /pull billing/i })).toBeInTheDocument();
   });
+
+  it.each(['gcp', 'snowflake'] as const)(
+    'does not show a Pull Billing button for %s, which is upload-only',
+    async (provider) => {
+      loadRecords.mockResolvedValueOnce({ data: [] });
+
+      render(<CostReportTab companyId="company-1" cloudProvider={provider} periodId="period-1" />);
+
+      await screen.findByText(/no cost data for this period/i);
+      expect(screen.queryByRole('button', { name: /pull billing/i })).not.toBeInTheDocument();
+    }
+  );
 
   it('does not show a Pull Billing button when the period is read-only', async () => {
     loadRecords.mockResolvedValueOnce({ data: [] });

@@ -4,9 +4,8 @@ import type { GetCostAndUsageCommandOutput } from '@aws-sdk/client-cost-explorer
 import { requireCompanyAccess } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { decryptCredentials } from '@/lib/cloudCredentialsCrypto';
-import { checkBillingMonthMatches } from '@/lib/billingMonthCheck';
 import { resolvePullDateRange } from '@/lib/billingPullDateRange';
-import type { PullBillingSuccessResponse } from '@/lib/types';
+import { persistPulledBilling } from '@/lib/pullBillingPersist';
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : 'Unknown error.';
@@ -112,113 +111,31 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'AWS Cost Explorer returned no cost data for this month.' }, { status: 502 });
   }
 
-  // Archiving is deferred until after every fallible step above (credential
+  // Persisting is deferred until after every fallible step above (credential
   // lookup/decrypt, date-range resolution, the Cost Explorer call itself) has
-  // succeeded. Archiving before that risked burning the user's active period
-  // on a call that was always going to fail — e.g. a missing
-  // ce:GetCostAndUsage permission, a bad key, or an empty month — and
-  // "Try Again" would then archive again, chaining period churn.
-  let periodId: string;
-  let newPeriodId: string | undefined;
+  // succeeded — in particular archiving, which happens inside the helper.
+  // Archiving before that risked burning the user's active period on a call
+  // that was always going to fail — e.g. a missing ce:GetCostAndUsage
+  // permission, a bad key, or an empty month — and "Try Again" would then
+  // archive again, chaining period churn.
+  const persisted = await persistPulledBilling({
+    adminClient,
+    companyId,
+    provider: 'aws',
+    billingMonth,
+    archiveFirst,
+    rows,
+    rawResponse: resultsByTime,
+    artifactSuffix: 'aws-cost-explorer-pull.json',
+    filename: `AWS Cost Explorer — ${credRow.label}`,
+    uploadedBy: guard.userId,
+    rangeStart,
+    rangeEndExclusive: rangeEnd,
+  });
 
-  if (archiveFirst) {
-    const { data: archivedId, error: archiveError } = await adminClient.rpc('archive_billing_period', {
-      p_company_id: companyId,
-    });
-    if (archiveError || !archivedId) {
-      return NextResponse.json({ error: archiveError?.message ?? 'Could not archive the current period.' }, { status: 500 });
-    }
-    periodId = archivedId;
-    newPeriodId = archivedId;
-  } else {
-    const { data: activePeriod, error: activePeriodError } = await adminClient
-      .from('billing_periods')
-      .select('id')
-      .eq('company_id', companyId)
-      .eq('status', 'active')
-      .single();
-    if (activePeriodError || !activePeriod) {
-      return NextResponse.json({ error: 'No active billing period found for this company.' }, { status: 500 });
-    }
-    periodId = activePeriod.id;
+  if (!persisted.ok) {
+    return NextResponse.json({ error: persisted.error }, { status: persisted.status });
   }
 
-  const monthCheck = await checkBillingMonthMatches(adminClient, periodId, 'aws', billingMonth);
-  if (!monthCheck.ok) {
-    return NextResponse.json({ error: monthCheck.errorMessage }, { status: monthCheck.status ?? 500 });
-  }
-
-  const storagePath = `${companyId}/${Date.now()}-aws-cost-explorer-pull.json`;
-  const { error: uploadError } = await adminClient.storage
-    .from('billing-files')
-    .upload(storagePath, JSON.stringify(resultsByTime), { contentType: 'application/json' });
-
-  if (uploadError) {
-    return NextResponse.json({ error: uploadError.message }, { status: 500 });
-  }
-
-  const { data: uploadedFile, error: insertFileError } = await adminClient
-    .from('uploaded_files')
-    .insert({
-      company_id: companyId,
-      cloud_provider: 'aws',
-      filename: `AWS Cost Explorer — ${credRow.label}`,
-      storage_path: storagePath,
-      status: 'processing',
-      uploaded_by: guard.userId,
-      billing_month: billingMonth,
-    })
-    .select()
-    .single();
-
-  if (insertFileError || !uploadedFile) {
-    return NextResponse.json({ error: insertFileError?.message ?? 'Could not record the pull.' }, { status: 500 });
-  }
-
-  const { error: deleteRecordsError } = await adminClient
-    .from('cost_records')
-    .delete()
-    .eq('company_id', companyId)
-    .eq('cloud_provider', 'aws')
-    .eq('period_id', periodId)
-    .gte('usage_date', rangeStart)
-    .lt('usage_date', rangeEnd);
-
-  if (deleteRecordsError) {
-    await adminClient
-      .from('uploaded_files')
-      .update({ status: 'error', error_message: deleteRecordsError.message })
-      .eq('id', uploadedFile.id);
-    return NextResponse.json({ error: deleteRecordsError.message }, { status: 500 });
-  }
-
-  const { error: insertRecordsError } = await adminClient.from('cost_records').insert(
-    rows.map((row) => ({
-      company_id: companyId,
-      cloud_provider: 'aws' as const,
-      service_name: row.service_name,
-      usage_date: row.usage_date,
-      cost: row.cost,
-      account_id: null,
-      source_file_id: uploadedFile.id,
-    }))
-  );
-
-  if (insertRecordsError) {
-    await adminClient
-      .from('uploaded_files')
-      .update({ status: 'error', error_message: insertRecordsError.message })
-      .eq('id', uploadedFile.id);
-    return NextResponse.json({ error: insertRecordsError.message }, { status: 500 });
-  }
-
-  await adminClient.from('uploaded_files').update({ status: 'processed', row_count: rows.length }).eq('id', uploadedFile.id);
-
-  const response: PullBillingSuccessResponse = {
-    uploadedFileId: uploadedFile.id,
-    status: 'processed',
-    rowCount: rows.length,
-    ...(newPeriodId ? { newPeriodId } : {}),
-  };
-  return NextResponse.json(response);
+  return NextResponse.json(persisted.response);
 }

@@ -303,6 +303,7 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
                       periodId={periodIdForReports}
                       isReadOnly={viewingArchivedPeriod}
                       onServiceClick={(serviceName) => handleServiceDrillDown([serviceName])}
+                      onPeriodArchived={(newPeriodId) => setActivePeriodId(newPeriodId)}
                     />
                   ) : azureSubTab === 'resources' ? (
                     <AzureResourcesTab companyId={effectiveCompanyId} />

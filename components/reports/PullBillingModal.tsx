@@ -1,12 +1,21 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { AwsCredentialSummary } from '@/lib/types';
-import { formatBillingMonth, buildMonthOptions } from '@/lib/cloudProvider';
+import { formatBillingMonth, buildMonthOptions, CLOUD_PROVIDER_LABELS } from '@/lib/cloudProvider';
 import styles from './PullBillingModal.module.css';
+
+// Only the fields this modal actually needs — the provider-specific credential
+// summary types (AwsCredentialSummary, AzureCredentialSummary) both satisfy it.
+interface ConnectionOption {
+  id: string;
+  label: string;
+}
+
+type PullableProvider = 'aws' | 'azure';
 
 interface PullBillingModalProps {
   companyId: string;
+  provider: PullableProvider;
   onClose: () => void;
   onPulled: (result: { rowCount: number; newPeriodId?: string }) => void;
 }
@@ -20,10 +29,11 @@ function buildPullableMonthOptions(now: Date): { label: string; value: string }[
   return buildMonthOptions(now).slice(0, currentMonthIndex0 + 1);
 }
 
-export default function PullBillingModal({ companyId, onClose, onPulled }: PullBillingModalProps) {
+export default function PullBillingModal({ companyId, provider, onClose, onPulled }: PullBillingModalProps) {
   const monthOptions = buildPullableMonthOptions(new Date());
+  const providerLabel = CLOUD_PROVIDER_LABELS[provider];
 
-  const [connections, setConnections] = useState<AwsCredentialSummary[] | null>(null);
+  const [connections, setConnections] = useState<ConnectionOption[] | null>(null);
   const [connectionsError, setConnectionsError] = useState<string | null>(null);
   const [selectedCredentialId, setSelectedCredentialId] = useState('');
   const [billingMonth, setBillingMonth] = useState(monthOptions[monthOptions.length - 1].value);
@@ -37,18 +47,18 @@ export default function PullBillingModal({ companyId, onClose, onPulled }: PullB
 
     async function loadConnections() {
       try {
-        const res = await fetch(`/api/settings/aws-credentials?companyId=${companyId}`);
+        const res = await fetch(`/api/settings/${provider}-credentials?companyId=${companyId}`);
         const body = await res.json();
         if (cancelled) return;
         if (!res.ok) {
-          setConnectionsError(body.error ?? 'Could not load your AWS connections.');
+          setConnectionsError(body.error ?? `Could not load your ${providerLabel} connections.`);
           return;
         }
-        const list = (body.connections ?? []) as AwsCredentialSummary[];
+        const list = (body.connections ?? []) as ConnectionOption[];
         setConnections(list);
         if (list.length > 0) setSelectedCredentialId(list[0].id);
       } catch {
-        if (!cancelled) setConnectionsError('Could not load your AWS connections.');
+        if (!cancelled) setConnectionsError(`Could not load your ${providerLabel} connections.`);
       }
     }
 
@@ -56,14 +66,14 @@ export default function PullBillingModal({ companyId, onClose, onPulled }: PullB
     return () => {
       cancelled = true;
     };
-  }, [companyId]);
+  }, [companyId, provider, providerLabel]);
 
   async function submitPull(archiveFirst: boolean) {
     setStep('result');
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const res = await fetch('/api/aws/pull-billing', {
+      const res = await fetch(`/api/${provider}/pull-billing`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ companyId, credentialId: selectedCredentialId, billingMonth, archiveFirst }),
@@ -90,13 +100,13 @@ export default function PullBillingModal({ companyId, onClose, onPulled }: PullB
   }
 
   return (
-    <div className={styles.overlay} role="dialog" aria-modal="true" aria-label="Pull AWS Billing">
+    <div className={styles.overlay} role="dialog" aria-modal="true" aria-label={`Pull ${providerLabel} Billing`}>
       <div className={styles.dialog}>
         <button type="button" className={styles.closeButton} onClick={onClose} aria-label="Close">
           ×
         </button>
 
-        {connections === null && !connectionsError && <p>Loading your AWS connections…</p>}
+        {connections === null && !connectionsError && <p>Loading your {providerLabel} connections…</p>}
 
         {connectionsError && (
           <p role="alert" className={styles.error}>
@@ -105,12 +115,12 @@ export default function PullBillingModal({ companyId, onClose, onPulled }: PullB
         )}
 
         {connections !== null && connections.length === 0 && (
-          <p>No AWS connection found. Add one in the Settings tab first.</p>
+          <p>No {providerLabel} connection found. Add one in the Settings tab first.</p>
         )}
 
         {connections !== null && connections.length > 0 && step === 'form' && (
           <div className={styles.form}>
-            <h3>Pull Billing from AWS</h3>
+            <h3>Pull Billing from {providerLabel}</h3>
 
             <label htmlFor="pull-billing-month">Billing month</label>
             <select id="pull-billing-month" value={billingMonth} onChange={(e) => setBillingMonth(e.target.value)}>
@@ -138,7 +148,10 @@ export default function PullBillingModal({ companyId, onClose, onPulled }: PullB
               </>
             )}
 
-            <p>This will overwrite the current AWS Billing Overview data for the selected month (through today).</p>
+            <p>
+              This will overwrite the current {providerLabel} Billing Overview data for the selected month (through
+              today).
+            </p>
 
             <div className={styles.actions}>
               <button type="button" onClick={onClose}>
@@ -154,8 +167,8 @@ export default function PullBillingModal({ companyId, onClose, onPulled }: PullB
         {connections !== null && connections.length > 0 && step === 'confirm' && (
           <div className={styles.confirm}>
             <p>
-              This will overwrite the current AWS Billing Overview data for {formatBillingMonth(billingMonth)} (through
-              today).
+              This will overwrite the current {providerLabel} Billing Overview data for{' '}
+              {formatBillingMonth(billingMonth)} (through today).
             </p>
             <div className={styles.actions}>
               <button type="button" onClick={() => setStep('form')}>

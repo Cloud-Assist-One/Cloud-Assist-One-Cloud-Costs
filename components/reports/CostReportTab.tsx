@@ -128,10 +128,15 @@ export default function CostReportTab({
   const byService = useMemo(() => aggregateByService(records), [records]);
   const total = useMemo(() => totalCost(records), [records]);
 
+  // Only these two providers have a billing API integration behind them; GCP
+  // and Snowflake are still upload-only. Declared as a const so TypeScript
+  // narrows cloudProvider to the modal's accepted union where it's used.
+  const canPullBilling = cloudProvider === 'aws' || cloudProvider === 'azure';
+
   return (
     <div className={styles.wrapper}>
       <div className={`${styles.actionsBar} print-hidden`}>
-        {cloudProvider === 'aws' && !isReadOnly && (
+        {canPullBilling && !isReadOnly && (
           <button type="button" onClick={() => setShowPullBillingModal(true)}>
             Pull Billing
           </button>
@@ -141,9 +146,10 @@ export default function CostReportTab({
         </button>
       </div>
 
-      {showPullBillingModal && (
+      {showPullBillingModal && canPullBilling && (
         <PullBillingModal
           companyId={companyId}
+          provider={cloudProvider}
           onClose={() => setShowPullBillingModal(false)}
           onPulled={handlePulled}
         />
