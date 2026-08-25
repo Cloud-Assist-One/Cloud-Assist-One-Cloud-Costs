@@ -1,4 +1,4 @@
-import { tagValue } from './awsTags';
+import { tagValue } from './resourceTags';
 
 describe('tagValue', () => {
   // AWS is not self-consistent about tag shapes, so each of these three

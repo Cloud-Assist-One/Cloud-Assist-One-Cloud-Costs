@@ -117,6 +117,7 @@ export interface AzureCredentialSummary {
   tenantId: string;
   clientId: string;
   subscriptionId: string;
+  tagKey: string;
 }
 
 export interface GcpCredentialSummary {
@@ -249,6 +250,7 @@ export interface AzureVmRow {
   resourceGroup: string;
   location: string | null;
   timeCreated: string | null;
+  tagValue: string | null;
 }
 
 export interface AzureFunctionAppRow {
@@ -258,6 +260,7 @@ export interface AzureFunctionAppRow {
   resourceGroup: string;
   location: string | null;
   createdAt: string | null;
+  tagValue: string | null;
 }
 
 export interface AzureContainerGroupRow {
@@ -267,6 +270,7 @@ export interface AzureContainerGroupRow {
   provisioningState: string | null;
   containerImages: string;
   createdAt: string | null;
+  tagValue: string | null;
 }
 
 export interface AzureSqlDatabaseRow {
@@ -276,6 +280,7 @@ export interface AzureSqlDatabaseRow {
   status: string | null;
   serviceObjective: string | null;
   creationDate: string | null;
+  tagValue: string | null;
 }
 
 export interface AzureCosmosDbAccountRow {
@@ -285,6 +290,7 @@ export interface AzureCosmosDbAccountRow {
   kind: string | null;
   provisioningState: string | null;
   createdAt: string | null;
+  tagValue: string | null;
 }
 
 export interface AzureApiManagementRow {
@@ -293,6 +299,7 @@ export interface AzureApiManagementRow {
   location: string | null;
   skuName: string | null;
   createdAtUtc: string | null;
+  tagValue: string | null;
 }
 
 export interface AzureStorageAccountRow {
@@ -302,6 +309,7 @@ export interface AzureStorageAccountRow {
   kind: string | null;
   skuName: string | null;
   creationTime: string | null;
+  tagValue: string | null;
 }
 
 export interface AzureAdUserRow {
@@ -321,6 +329,7 @@ export type AzureResourcesResponse =
   | {
       connected: true;
       fetchedAt: string;
+      tagKey: string;
       virtualMachines: AzureResourceResult<AzureVmRow>;
       functionApps: AzureResourceResult<AzureFunctionAppRow>;
       containerGroups: AzureResourceResult<AzureContainerGroupRow>;

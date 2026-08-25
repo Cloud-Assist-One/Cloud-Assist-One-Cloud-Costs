@@ -10,6 +10,7 @@ import { StorageManagementClient } from '@azure/arm-storage';
 import { requireCompanyAccess } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { decryptCredentials } from '@/lib/cloudCredentialsCrypto';
+import { tagValue } from '@/lib/resourceTags';
 import type {
   AzureResourcesResponse,
   AzureVmRow,
@@ -49,7 +50,7 @@ export async function GET(request: NextRequest) {
   const adminClient = createAdminClient();
   const { data: credRow, error: credError } = await adminClient
     .from('cloud_provider_credentials')
-    .select('encrypted_payload')
+    .select('encrypted_payload, metadata')
     .eq('company_id', companyId)
     .eq('provider', 'azure')
     .eq('id', credentialId)
@@ -75,6 +76,12 @@ export async function GET(request: NextRequest) {
   const credential = new ClientSecretCredential(secrets.tenantId, secrets.clientId, secrets.clientSecret);
   const subscriptionId = secrets.subscriptionId;
 
+  // The tag to surface as an extra column is configured per connection. Every
+  // ARM resource returned by these list calls already carries a .tags record
+  // inline, so a blank tagKey (or one that isn't set on a given resource)
+  // needs no extra API calls and no extra Azure permissions.
+  const tagKey = ((credRow.metadata as Record<string, unknown> | null)?.tagKey as string | undefined) ?? '';
+
   async function fetchVms(): Promise<{ data: AzureVmRow[]; error: string | null }> {
     try {
       const client = new ComputeManagementClient(credential, subscriptionId);
@@ -87,6 +94,7 @@ export async function GET(request: NextRequest) {
           resourceGroup: resourceGroupFromId(vm.id),
           location: vm.location ?? null,
           timeCreated: vm.timeCreated ? new Date(vm.timeCreated).toISOString() : null,
+          tagValue: tagValue(vm.tags, tagKey),
         });
       }
       return { data: rows, error: null };
@@ -108,6 +116,7 @@ export async function GET(request: NextRequest) {
           resourceGroup: resourceGroupFromId(site.id),
           location: site.location ?? null,
           createdAt: site.systemData?.createdAt ? new Date(site.systemData.createdAt).toISOString() : null,
+          tagValue: tagValue(site.tags, tagKey),
         });
       }
       return { data: rows, error: null };
@@ -130,6 +139,7 @@ export async function GET(request: NextRequest) {
           // ContainerGroup has no creation-timestamp field on this SDK version
           // (no systemData, no direct field) -- always null, by design.
           createdAt: null,
+          tagValue: tagValue(group.tags, tagKey),
         });
       }
       return { data: rows, error: null };
@@ -156,6 +166,9 @@ export async function GET(request: NextRequest) {
               status: database.status ?? null,
               serviceObjective: database.currentServiceObjectiveName ?? null,
               creationDate: database.creationDate ? new Date(database.creationDate).toISOString() : null,
+              // The database's own tags, not the server's -- a database can
+              // be tagged independently of the server that hosts it.
+              tagValue: tagValue(database.tags, tagKey),
             });
           }
         } catch (err) {
@@ -184,6 +197,7 @@ export async function GET(request: NextRequest) {
           kind: account.kind ?? null,
           provisioningState: account.provisioningState ?? null,
           createdAt: account.systemData?.createdAt ? new Date(account.systemData.createdAt).toISOString() : null,
+          tagValue: tagValue(account.tags, tagKey),
         });
       }
       return { data: rows, error: null };
@@ -203,6 +217,7 @@ export async function GET(request: NextRequest) {
           location: service.location ?? null,
           skuName: service.sku?.name ?? null,
           createdAtUtc: service.createdAtUtc ? new Date(service.createdAtUtc).toISOString() : null,
+          tagValue: tagValue(service.tags, tagKey),
         });
       }
       return { data: rows, error: null };
@@ -223,6 +238,7 @@ export async function GET(request: NextRequest) {
           kind: account.kind ?? null,
           skuName: account.sku?.name ?? null,
           creationTime: account.creationTime ? new Date(account.creationTime).toISOString() : null,
+          tagValue: tagValue(account.tags, tagKey),
         });
       }
       return { data: rows, error: null };
@@ -255,6 +271,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     connected: true,
     fetchedAt: new Date().toISOString(),
+    tagKey,
     virtualMachines,
     functionApps,
     containerGroups,

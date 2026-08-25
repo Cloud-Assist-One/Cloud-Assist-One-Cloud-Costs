@@ -54,6 +54,32 @@ describe('provider credentials panels', () => {
     expect(screen.getByLabelText(/^client id$/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/client secret/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/subscription id/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/tag to display/i)).toBeInTheDocument();
+  });
+
+  it('Azure panel sends the configured tag key when saving a new connection', async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        return {
+          ok: true,
+          json: async () => ({
+            connection: { id: 'c1', label: 'Prod', tenantId: 't1', clientId: 'c1', subscriptionId: 's1', tagKey: 'CostCenter' },
+          }),
+        };
+      }
+      return { ok: true, json: async () => ({ connections: [] }) };
+    });
+
+    const user = userEvent.setup();
+    render(<AzureCredentialsPanel companyId="company-1" />);
+
+    await screen.findByText(/no connections yet/i);
+    await user.click(screen.getByRole('button', { name: /add connection/i }));
+    await user.type(screen.getByLabelText(/tag to display/i), 'CostCenter');
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    const post = (global.fetch as jest.Mock).mock.calls.find(([, init]) => init?.method === 'POST');
+    expect(JSON.parse(post[1].body)).toMatchObject({ tagKey: 'CostCenter' });
   });
 
   it('GCP panel fetches from the GCP endpoint and shows GCP fields', async () => {

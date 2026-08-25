@@ -1,14 +1,15 @@
-// AWS returns tags in three different shapes depending on which service you
-// ask, so every AWS route funnels its raw tag payload through here rather
-// than each fetcher re-deriving the difference:
-//   [{ Key, Value }]  EC2, RDS, DynamoDB, S3, IAM
-//   [{ key, value }]  ECS
-//   { key: value }    Lambda, API Gateway
+// Cloud providers return tags in different shapes depending on which
+// service (or provider) you ask, so every resource route funnels its raw
+// tag payload through here rather than each fetcher re-deriving the
+// difference:
+//   [{ Key, Value }]  AWS EC2, RDS, DynamoDB, S3, IAM
+//   [{ key, value }]  AWS ECS
+//   { key: value }    AWS Lambda, API Gateway; Azure ARM resources (.tags)
 type TagEntry = { Key?: unknown; Value?: unknown; key?: unknown; value?: unknown };
 
-export type AwsTags = readonly TagEntry[] | Record<string, unknown> | null | undefined;
+export type ResourceTags = readonly TagEntry[] | Record<string, unknown> | null | undefined;
 
-export function tagValue(tags: AwsTags, tagKey: string): string | null {
+export function tagValue(tags: ResourceTags, tagKey: string): string | null {
   // A blank tagKey means the connection has no tag configured. Bailing here
   // also stops '' from matching a tag whose key is literally empty.
   if (!tagKey || !tags) return null;

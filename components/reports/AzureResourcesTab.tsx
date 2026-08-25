@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { ResourceGrid, ResourceLegend } from './ResourceGrid';
+import { ResourceGrid, ResourceLegend, tagColumn } from './ResourceGrid';
 import type {
   AzureCredentialSummary,
   AzureResourcesResponse,
@@ -160,6 +160,7 @@ export default function AzureResourcesTab({ companyId }: AzureResourcesTabProps)
           { header: 'State', render: (r) => r.provisioningState ?? '—' },
           { header: 'Resource group', render: (r) => r.resourceGroup || '—' },
           { header: 'Location', render: (r) => r.location ?? '—' },
+          ...tagColumn<AzureVmRow>(response.tagKey),
         ]}
       />
 
@@ -176,6 +177,7 @@ export default function AzureResourcesTab({ companyId }: AzureResourcesTabProps)
           { header: 'Kind', render: (r) => r.kind },
           { header: 'Resource group', render: (r) => r.resourceGroup || '—' },
           { header: 'Location', render: (r) => r.location ?? '—' },
+          ...tagColumn<AzureFunctionAppRow>(response.tagKey),
         ]}
       />
 
@@ -192,6 +194,7 @@ export default function AzureResourcesTab({ companyId }: AzureResourcesTabProps)
           { header: 'State', render: (r) => r.provisioningState ?? '—' },
           { header: 'Resource group', render: (r) => r.resourceGroup || '—' },
           { header: 'Location', render: (r) => r.location ?? '—' },
+          ...tagColumn<AzureContainerGroupRow>(response.tagKey),
         ]}
       />
 
@@ -208,6 +211,7 @@ export default function AzureResourcesTab({ companyId }: AzureResourcesTabProps)
           { header: 'Status', render: (r) => r.status ?? '—' },
           { header: 'Service objective', render: (r) => r.serviceObjective ?? '—' },
           { header: 'Resource group', render: (r) => r.resourceGroup || '—' },
+          ...tagColumn<AzureSqlDatabaseRow>(response.tagKey),
         ]}
       />
 
@@ -224,6 +228,7 @@ export default function AzureResourcesTab({ companyId }: AzureResourcesTabProps)
           { header: 'State', render: (r) => r.provisioningState ?? '—' },
           { header: 'Resource group', render: (r) => r.resourceGroup || '—' },
           { header: 'Location', render: (r) => r.location ?? '—' },
+          ...tagColumn<AzureCosmosDbAccountRow>(response.tagKey),
         ]}
       />
 
@@ -239,6 +244,7 @@ export default function AzureResourcesTab({ companyId }: AzureResourcesTabProps)
           { header: 'SKU', render: (r) => r.skuName ?? '—' },
           { header: 'Resource group', render: (r) => r.resourceGroup || '—' },
           { header: 'Location', render: (r) => r.location ?? '—' },
+          ...tagColumn<AzureApiManagementRow>(response.tagKey),
         ]}
       />
 
@@ -255,6 +261,7 @@ export default function AzureResourcesTab({ companyId }: AzureResourcesTabProps)
           { header: 'SKU', render: (r) => r.skuName ?? '—' },
           { header: 'Resource group', render: (r) => r.resourceGroup || '—' },
           { header: 'Location', render: (r) => r.location ?? '—' },
+          ...tagColumn<AzureStorageAccountRow>(response.tagKey),
         ]}
       />
     </div>

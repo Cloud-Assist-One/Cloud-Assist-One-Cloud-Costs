@@ -35,6 +35,77 @@ describe('AzureResourcesTab', () => {
     expect(await screen.findByText(/azure isn't connected yet/i)).toBeInTheDocument();
   });
 
+  describe('configurable tag column', () => {
+    // One VM (tags inline) so the column is covered on the ARM tags path.
+    const taggedResponse = (tagKey: string) =>
+      makeResponse({
+        tagKey,
+        virtualMachines: {
+          data: [
+            {
+              name: 'web-vm-1',
+              vmSize: 'Standard_B2s',
+              provisioningState: 'Succeeded',
+              resourceGroup: 'rg-prod',
+              location: 'eastus',
+              timeCreated: '2026-01-01T00:00:00.000Z',
+              tagValue: 'CC-1234',
+            },
+          ],
+          error: null,
+        },
+        storageAccounts: {
+          data: [
+            {
+              name: 'mystorageacct',
+              resourceGroup: 'rg-prod',
+              location: 'eastus',
+              kind: 'StorageV2',
+              skuName: 'Standard_LRS',
+              creationTime: '2026-01-01T00:00:00.000Z',
+              tagValue: null,
+            },
+          ],
+          error: null,
+        },
+      });
+
+    it('heads the column with the configured tag key and shows the value', async () => {
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({ ok: true, json: async () => connectionsResponse })
+        .mockResolvedValueOnce({ ok: true, json: async () => taggedResponse('CostCenter') });
+
+      render(<AzureResourcesTab companyId="company-1" />);
+
+      await screen.findByText('web-vm-1');
+      expect(screen.getAllByRole('columnheader', { name: 'CostCenter' }).length).toBeGreaterThan(0);
+      expect(screen.getByText('CC-1234')).toBeInTheDocument();
+    });
+
+    it('shows a dash for a resource missing the configured tag', async () => {
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({ ok: true, json: async () => connectionsResponse })
+        .mockResolvedValueOnce({ ok: true, json: async () => taggedResponse('CostCenter') });
+
+      render(<AzureResourcesTab companyId="company-1" />);
+
+      const storageRow = (await screen.findByText('mystorageacct')).closest('tr');
+      expect(storageRow).toHaveTextContent('—');
+    });
+
+    it('omits the column everywhere when no tag key is configured', async () => {
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({ ok: true, json: async () => connectionsResponse })
+        .mockResolvedValueOnce({ ok: true, json: async () => taggedResponse('') });
+
+      render(<AzureResourcesTab companyId="company-1" />);
+
+      await screen.findByText('web-vm-1');
+      expect(screen.queryByRole('columnheader', { name: 'CostCenter' })).not.toBeInTheDocument();
+      expect(screen.queryByText('CC-1234')).not.toBeInTheDocument();
+    });
+  });
+
   it('renders rows for each grid when data is present', async () => {
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce({ ok: true, json: async () => connectionsResponse })

@@ -4,7 +4,7 @@ import { requireCompanyAccess } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { decryptCredentials } from '@/lib/cloudCredentialsCrypto';
 import { collectPages } from '@/lib/awsPagination';
-import { tagValue } from '@/lib/awsTags';
+import { tagValue } from '@/lib/resourceTags';
 import type { AwsIamUsersResponse, IamUserRow } from '@/lib/types';
 
 function errorMessage(err: unknown): string {
