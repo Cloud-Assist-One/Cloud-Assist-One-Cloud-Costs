@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import type { Company, ProfileRole } from '@/lib/types';
@@ -41,6 +42,20 @@ type TabKey =
 // the single-cloud-provider report tabs, not Compare/Line Items/Files/etc.
 const SINGLE_PROVIDER_TABS: TabKey[] = ['aws', 'azure', 'gcp', 'snowflake'];
 
+function greetingFor(hour: number): string {
+  if (hour < 12) return 'Good morning';
+  if (hour < 18) return 'Good afternoon';
+  return 'Good evening';
+}
+
+// The greeting depends on the viewer's own clock, which the server can't
+// know. useSyncExternalStore is how React models exactly that: the server
+// snapshot is null (rendering no greeting), and the client swaps in the real
+// one on hydration without a cascading extra render.
+const subscribeToClock = () => () => {};
+const readLocalGreeting = () => greetingFor(new Date().getHours());
+const readServerGreeting = () => null;
+
 interface AppShellProps {
   userId: string;
   role: ProfileRole;
@@ -57,6 +72,8 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
   const [viewingPeriodId, setViewingPeriodId] = useState<string | null>(null);
   const [lineItemsFilter, setLineItemsFilter] = useState<string[] | undefined>(undefined);
   const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [companyName, setCompanyName] = useState<string | null>(null);
+  const greeting = useSyncExternalStore(subscribeToClock, readLocalGreeting, readServerGreeting);
   const [awsSubTab, setAwsSubTab] = useState<'overview' | 'resources' | 'iamUsers'>('overview');
   const [azureSubTab, setAzureSubTab] = useState<'overview' | 'resources' | 'users'>('overview');
   const isWideCloudView =
@@ -116,6 +133,33 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
     };
   }, [effectiveCompanyId]);
 
+  // Staff/admin already have the company list loaded for the switcher, but a
+  // client user doesn't, so look the name up either way (RLS lets a client
+  // read their own company).
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCompanyName() {
+      if (!effectiveCompanyId) {
+        setCompanyName(null);
+        return;
+      }
+      const known = companies.find((company) => company.id === effectiveCompanyId);
+      if (known) {
+        setCompanyName(known.name);
+        return;
+      }
+      const supabase = createClient();
+      const { data } = await supabase.from('companies').select('name').eq('id', effectiveCompanyId).maybeSingle();
+      if (!cancelled) setCompanyName(data?.name ?? null);
+    }
+
+    loadCompanyName();
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveCompanyId, companies]);
+
   async function handleSignOut() {
     const supabase = createClient();
     await supabase.auth.signOut();
@@ -158,7 +202,17 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
   return (
     <div className={styles.wrapper}>
       <div className={`${styles.topBar} print-hidden`}>
-        <h1>Cloud Cost Assistant</h1>
+        <div className={styles.brand}>
+          <Image
+            src="/cao-logo.png"
+            alt="Cloud Assist One"
+            width={925}
+            height={875}
+            className={styles.logo}
+            priority
+          />
+          <h1>Cloud Cost Assistant</h1>
+        </div>
         {canManage && (
           <div className={styles.companySwitcher}>
             <label htmlFor="company-switcher">Viewing company</label>
@@ -180,12 +234,21 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
             Archive this period
           </Button>
         )}
-        <span className={styles.userEmail}>{userEmail}</span>
-        <ThemeToggle />
-        <AccentColorPicker />
-        <Button type="button" variant="outline" size="sm" onClick={handleSignOut}>
-          Sign out
-        </Button>
+        <div className={styles.identity}>
+          <span className={styles.greeting}>
+            {greeting ? `${greeting},` : ''} {companyName ?? ''}
+          </span>
+          <span className={styles.userEmail}>{userEmail}</span>
+        </div>
+        {/* Grouped so the bar wraps as whole blocks rather than stranding a
+            single control on its own line. */}
+        <div className={styles.controls}>
+          <ThemeToggle />
+          <AccentColorPicker />
+          <Button type="button" variant="outline" size="sm" onClick={handleSignOut}>
+            Sign out
+          </Button>
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TabKey)} className={`mb-6 print-hidden`}>

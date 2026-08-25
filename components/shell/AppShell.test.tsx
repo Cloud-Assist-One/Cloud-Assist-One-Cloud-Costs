@@ -63,6 +63,7 @@ jest.mock('./../reports/AzureUsersTab', () => ({
 const signOut = jest.fn();
 const listCompanies = jest.fn();
 const listActivePeriod = jest.fn();
+const lookupCompanyName = jest.fn();
 
 jest.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
@@ -75,7 +76,14 @@ jest.mock('@/lib/supabase/client', () => ({
           }),
         };
       }
-      return { select: () => ({ order: (...args: unknown[]) => listCompanies(...args) }) };
+      // The companies table is read two ways: ordered list for the staff
+      // switcher, and a single-row name lookup for the top-bar greeting.
+      return {
+        select: () => ({
+          order: (...args: unknown[]) => listCompanies(...args),
+          eq: () => ({ maybeSingle: (...args: unknown[]) => lookupCompanyName(...args) }),
+        }),
+      };
     },
   }),
 }));
@@ -89,6 +97,36 @@ describe('AppShell', () => {
     signOut.mockReset();
     listCompanies.mockReset();
     listActivePeriod.mockReset().mockResolvedValue({ data: { id: 'period-1' } });
+    lookupCompanyName.mockReset().mockResolvedValue({ data: { name: 'Acme Corp' } });
+  });
+
+  it('greets the user by time of day alongside their company and email', async () => {
+    // Fixed to an afternoon hour so the assertion doesn't depend on when the
+    // suite happens to run.
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-25T14:30:00'));
+    try {
+      render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);
+
+      expect(await screen.findByText(/good afternoon, acme corp/i)).toBeInTheDocument();
+      expect(screen.getByText('client@example.com')).toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['2026-08-25T08:00:00', /good morning/i],
+    ['2026-08-25T13:00:00', /good afternoon/i],
+    ['2026-08-25T20:00:00', /good evening/i],
+  ])('greets appropriately at %s', async (localTime, expected) => {
+    jest.useFakeTimers().setSystemTime(new Date(localTime));
+    try {
+      render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);
+
+      expect(await screen.findByText(expected)).toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('shows the AWS tab and the Uploaded Files tab for a client', async () => {
