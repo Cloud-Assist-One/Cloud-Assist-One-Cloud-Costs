@@ -11,6 +11,21 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : 'Unknown error.';
 }
 
+// Cost Management is gated by its own RBAC role: a service principal with
+// plain "Reader" (enough for the Resources and Users tabs) still gets a 403
+// here. Raw ARM text doesn't mention that, so name the missing grant — the
+// same treatment the Azure AD users route gives Graph permission errors.
+function annotateAuthorizationError(message: string): string {
+  const looksLikeAuthorizationFailure = /authorization|forbidden|403|does not have access|AuthorizationFailed/i.test(
+    message
+  );
+  if (!looksLikeAuthorizationFailure) return message;
+  return (
+    `${message} — Azure Cost Management needs its own role: assign "Cost Management Reader" to this app ` +
+    `registration on the subscription. The "Reader" role used by the Resources tab is not sufficient.`
+  );
+}
+
 export async function POST(request: NextRequest) {
   const body = await request.json();
   const { companyId, credentialId, billingMonth, archiveFirst } = body as {
@@ -70,12 +85,20 @@ export async function POST(request: NextRequest) {
 
   const { rangeStart, rangeEnd } = resolvePullDateRange(billingMonth, now);
 
-  let rows, rawPages;
+  let pulled: Awaited<ReturnType<typeof fetchAzureCostRows>>;
   try {
-    ({ rows, rawPages } = await fetchAzureCostRows(secrets, rangeStart, rangeEnd));
+    pulled = await fetchAzureCostRows(secrets, rangeStart, rangeEnd);
   } catch (err) {
-    return NextResponse.json({ error: `Azure Cost Management: ${errorMessage(err)}` }, { status: 502 });
+    // Logged so a 403-vs-429 distinction is diagnosable in production; the
+    // message carries no credentials (it is built from the response body).
+    console.error('Azure Cost Management pull failed:', err);
+    return NextResponse.json(
+      { error: `Azure Cost Management: ${annotateAuthorizationError(errorMessage(err))}` },
+      { status: 502 }
+    );
   }
+
+  const { rows, rawPages } = pulled;
 
   if (rows.length === 0) {
     return NextResponse.json({ error: 'Azure Cost Management returned no cost data for this month.' }, { status: 502 });

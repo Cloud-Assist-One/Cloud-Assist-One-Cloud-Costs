@@ -66,6 +66,51 @@ describe('mapQueryResultToRows', () => {
     expect(mapQueryResultToRows(result, 'Cost', 'MeterCategory')).toHaveLength(1);
   });
 
+  it('keeps unattributed spend rather than dropping it from the month total', () => {
+    const result = {
+      columns: [
+        { name: 'Cost', type: 'Number' },
+        { name: 'MeterCategory', type: 'String' },
+        { name: 'UsageDate', type: 'Number' },
+      ],
+      rows: [
+        [4.2, '', 20260801],
+        [1.1, 'Storage', 20260801],
+      ],
+    };
+
+    const rows = mapQueryResultToRows(result, 'Cost', 'MeterCategory');
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toEqual({ service_name: 'Unattributed', usage_date: '2026-08-01', cost: 4.2 });
+  });
+
+  it('skips rows with no usable cost instead of recording them as zero', () => {
+    const result = {
+      columns: [
+        { name: 'Cost', type: 'Number' },
+        { name: 'MeterCategory', type: 'String' },
+        { name: 'UsageDate', type: 'Number' },
+      ],
+      rows: [[null, 'Storage', 20260801]],
+    };
+
+    expect(mapQueryResultToRows(result, 'Cost', 'MeterCategory')).toHaveLength(0);
+  });
+
+  it('accepts an ISO usage date as well as the documented integer form', () => {
+    const result = {
+      columns: [
+        { name: 'Cost', type: 'Number' },
+        { name: 'MeterCategory', type: 'String' },
+        { name: 'UsageDate', type: 'String' },
+      ],
+      rows: [[2, 'Storage', '2026-08-01']],
+    };
+
+    expect(mapQueryResultToRows(result, 'Cost', 'MeterCategory')[0].usage_date).toBe('2026-08-01');
+  });
+
   it('throws a clear error when the expected cost column is absent', () => {
     const result = {
       columns: [
@@ -190,6 +235,78 @@ describe('fetchAzureCostRows', () => {
     });
 
     await expect(fetchAzureCostRows(credentials, '2026-08-01', '2026-08-03')).rejects.toThrow(/Invalid client secret/);
+  });
+
+  it('does not retry — and does not mangle the error — when the failure is not about the cost column', async () => {
+    // A 429 from the QPU limit previously triggered a retry with the other
+    // column name, which then failed as "invalid column" and told the user
+    // the wrong thing entirely.
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(queryResponse({ error: { message: 'Too many requests. Please retry later.' } }, false, 429));
+
+    await expect(fetchAzureCostRows(credentials, '2026-08-01', '2026-08-03')).rejects.toThrow(/Too many requests/);
+    // Token call + exactly one query call: no pointless second attempt.
+    expect((global.fetch as jest.Mock).mock.calls).toHaveLength(2);
+  });
+
+  it('re-posts the original query body to the opaque nextLink URL', async () => {
+    const columns = [
+      { name: 'Cost', type: 'Number' },
+      { name: 'MeterCategory', type: 'String' },
+      { name: 'UsageDate', type: 'Number' },
+    ];
+
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(
+        queryResponse({ properties: { columns, rows: [[1, 'Storage', 20260801]], nextLink: 'https://next-page-1' } })
+      )
+      .mockResolvedValueOnce(queryResponse({ properties: { columns, rows: [], nextLink: null } }));
+
+    await fetchAzureCostRows(credentials, '2026-08-01', '2026-08-03');
+
+    const secondQueryCall = (global.fetch as jest.Mock).mock.calls[2];
+    expect(secondQueryCall[0]).toBe('https://next-page-1');
+    expect(secondQueryCall[1].method).toBe('POST');
+    expect(JSON.parse(secondQueryCall[1].body).dataset.granularity).toBe('Daily');
+  });
+
+  it('stops instead of looping forever when nextLink keeps pointing at the same page', async () => {
+    const columns = [
+      { name: 'Cost', type: 'Number' },
+      { name: 'MeterCategory', type: 'String' },
+      { name: 'UsageDate', type: 'Number' },
+    ];
+    const repeatingPage = queryResponse({
+      properties: { columns, rows: [[1, 'Storage', 20260801]], nextLink: 'https://same-page' },
+    });
+
+    (global.fetch as jest.Mock).mockResolvedValueOnce(tokenResponse()).mockResolvedValue(repeatingPage);
+
+    await expect(fetchAzureCostRows(credentials, '2026-08-01', '2026-08-03')).rejects.toThrow(/did not advance/);
+  });
+
+  it('refuses to combine a result set that mixes currencies', async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(
+      queryResponse({
+        properties: {
+          columns: [
+            { name: 'Cost', type: 'Number' },
+            { name: 'MeterCategory', type: 'String' },
+            { name: 'UsageDate', type: 'Number' },
+            { name: 'Currency', type: 'String' },
+          ],
+          rows: [
+            [1, 'Storage', 20260801, 'USD'],
+            [2, 'Storage', 20260801, 'EUR'],
+          ],
+          nextLink: null,
+        },
+      })
+    );
+
+    await expect(fetchAzureCostRows(credentials, '2026-08-01', '2026-08-03')).rejects.toThrow(/more than one currency/);
   });
 
   it('surfaces the Azure error message when both cost-column attempts fail', async () => {

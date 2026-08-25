@@ -1,4 +1,4 @@
-import { createAdminClient } from '@/lib/supabase/admin';
+import type { createAdminClient } from '@/lib/supabase/admin';
 import { checkBillingMonthMatches } from '@/lib/billingMonthCheck';
 import type { CloudProvider, PullBillingSuccessResponse } from '@/lib/types';
 
