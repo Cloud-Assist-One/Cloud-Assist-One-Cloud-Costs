@@ -69,9 +69,6 @@ interface AppShellProps {
 
 export default function AppShell({ userId, role, companyId, userEmail }: AppShellProps) {
   const canManage = role === 'staff' || role === 'admin';
-  // The cross-client support queue is admin-only, unlike the staff-visible
-  // Admin tab.
-  const isAdmin = role === 'admin';
   const [activeTab, setActiveTab] = useState<TabKey>('aws');
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(companyId);
@@ -271,7 +268,7 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
           <TabsTrigger value="support">Support</TabsTrigger>
           <TabsTrigger value="archive">Archive</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
-          {isAdmin && <TabsTrigger value="supportRequests">Support Requests</TabsTrigger>}
+          {canManage && <TabsTrigger value="supportRequests">Support Requests</TabsTrigger>}
           {canManage && <TabsTrigger value="admin">Admin</TabsTrigger>}
         </TabsList>
       </Tabs>
@@ -304,7 +301,7 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
             <AdminCompanies isAdmin={role === 'admin'} />
             <AdminUsers isAdmin={role === 'admin'} />
           </div>
-        ) : activeTab === 'supportRequests' && isAdmin ? (
+        ) : activeTab === 'supportRequests' && canManage ? (
           <SupportRequestsTab />
         ) : activeTab === 'support' ? (
           effectiveCompanyId ? (

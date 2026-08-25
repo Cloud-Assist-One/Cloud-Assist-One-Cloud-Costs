@@ -6,7 +6,7 @@ import type { SupportRequestWithCompany } from '@/lib/types';
 import SupportRequestsGrid from './SupportRequestsGrid';
 import styles from './Support.module.css';
 
-// Admin-only view of every client's support requests.
+// Staff/admin view of every client's support requests.
 export default function SupportRequestsTab() {
   const [requests, setRequests] = useState<SupportRequestWithCompany[] | null>(null);
   const [error, setError] = useState<string | null>(null);

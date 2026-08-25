@@ -46,11 +46,11 @@ describe('SupportRequestsTab', () => {
   });
 
   it('surfaces an authorization failure rather than showing an empty queue', async () => {
-    (global.fetch as jest.Mock).mockResolvedValueOnce(jsonResponse({ error: 'Admin access required.' }, false));
+    (global.fetch as jest.Mock).mockResolvedValueOnce(jsonResponse({ error: 'Staff access required.' }, false));
 
     render(<SupportRequestsTab />);
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Admin access required.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Staff access required.');
   });
 
   it('refetches when Refresh is clicked', async () => {

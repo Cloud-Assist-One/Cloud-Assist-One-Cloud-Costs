@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin, requireCompanyAccess } from '@/lib/admin-guard';
+import { requireCompanyAccess, requireStaff } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { isSupportTopic } from '@/lib/supportTopics';
 import type { SupportRequestWithCompany } from '@/lib/types';
@@ -80,10 +80,11 @@ export async function GET(request: NextRequest) {
   const scope = request.nextUrl.searchParams.get('scope');
   const adminClient = createAdminClient();
 
-  // scope=all is the admin grid spanning every client; anything else is a
-  // single company's own history.
+  // scope=all is the staff/admin queue spanning every client; anything else
+  // is a single company's own history. This mirrors the table's RLS rule,
+  // where staff and admin both see every company's requests.
   if (scope === 'all') {
-    const guard = await requireAdmin();
+    const guard = await requireStaff();
     if (!guard.authorized) {
       return NextResponse.json({ error: guard.message }, { status: guard.status });
     }
