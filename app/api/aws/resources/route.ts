@@ -1,15 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { EC2Client, DescribeInstancesCommand } from '@aws-sdk/client-ec2';
-import { LambdaClient, ListFunctionsCommand } from '@aws-sdk/client-lambda';
+import { LambdaClient, ListFunctionsCommand, ListTagsCommand } from '@aws-sdk/client-lambda';
 import { ECSClient, ListClustersCommand, ListServicesCommand, DescribeServicesCommand } from '@aws-sdk/client-ecs';
 import { RDSClient, DescribeDBInstancesCommand } from '@aws-sdk/client-rds';
-import { DynamoDBClient, ListTablesCommand, DescribeTableCommand } from '@aws-sdk/client-dynamodb';
+import {
+  DynamoDBClient,
+  ListTablesCommand,
+  DescribeTableCommand,
+  ListTagsOfResourceCommand,
+} from '@aws-sdk/client-dynamodb';
 import { APIGatewayClient, GetRestApisCommand } from '@aws-sdk/client-api-gateway';
 import { ApiGatewayV2Client, GetApisCommand } from '@aws-sdk/client-apigatewayv2';
-import { S3Client, ListBucketsCommand } from '@aws-sdk/client-s3';
+import { S3Client, ListBucketsCommand, GetBucketTaggingCommand } from '@aws-sdk/client-s3';
 import { requireCompanyAccess } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { decryptCredentials } from '@/lib/cloudCredentialsCrypto';
+import { collectPages } from '@/lib/awsPagination';
+import { tagValue } from '@/lib/awsTags';
 import type {
   AwsResourceResult,
   AwsResourcesResponse,
@@ -48,7 +55,7 @@ export async function GET(request: NextRequest) {
   const adminClient = createAdminClient();
   const { data: credRow, error: credError } = await adminClient
     .from('cloud_provider_credentials')
-    .select('encrypted_payload, region')
+    .select('encrypted_payload, region, metadata')
     .eq('company_id', companyId)
     .eq('provider', 'aws')
     .eq('id', credentialId)
@@ -77,12 +84,33 @@ export async function GET(request: NextRequest) {
     credentials: { accessKeyId: secrets.accessKeyId, secretAccessKey: secrets.secretAccessKey },
   };
 
+  // The tag to surface as an extra column is configured per connection. When
+  // it's blank the feature is off, and the services that need a separate tag
+  // call per resource (Lambda, DynamoDB, S3) skip that call entirely — so an
+  // unconfigured connection needs no extra IAM permissions.
+  const tagKey = ((credRow.metadata as Record<string, unknown> | null)?.tagKey as string | undefined) ?? '';
+
+  // A missing tag permission on one resource must not blank that resource's
+  // whole row, so every per-resource tag lookup degrades to null.
+  async function lookupTag(fetchTags: () => Promise<string | null>): Promise<string | null> {
+    if (!tagKey) return null;
+    try {
+      return await fetchTags();
+    } catch {
+      return null;
+    }
+  }
+
   async function fetchEc2(): Promise<AwsResourceResult<Ec2InstanceRow>> {
     try {
       const client = new EC2Client(clientConfig);
-      const result = await client.send(new DescribeInstancesCommand({}));
+      const reservations = await collectPages(
+        (NextToken) => client.send(new DescribeInstancesCommand({ NextToken })),
+        (page) => page.Reservations,
+        (page) => page.NextToken
+      );
       const rows: Ec2InstanceRow[] = [];
-      for (const reservation of result.Reservations ?? []) {
+      for (const reservation of reservations) {
         for (const instance of reservation.Instances ?? []) {
           const nameTag = instance.Tags?.find((tag) => tag.Key === 'Name');
           rows.push({
@@ -94,6 +122,8 @@ export async function GET(request: NextRequest) {
             privateIp: instance.PrivateIpAddress ?? null,
             publicIp: instance.PublicIpAddress ?? null,
             launchTime: instance.LaunchTime ? new Date(instance.LaunchTime).toISOString() : null,
+            // EC2 returns tags inline, so no extra call is needed here.
+            tagValue: tagValue(instance.Tags, tagKey),
           });
         }
       }
@@ -106,14 +136,26 @@ export async function GET(request: NextRequest) {
   async function fetchLambda(): Promise<AwsResourceResult<LambdaFunctionRow>> {
     try {
       const client = new LambdaClient(clientConfig);
-      const result = await client.send(new ListFunctionsCommand({}));
-      const rows = (result.Functions ?? []).map((fn) => ({
-        functionName: fn.FunctionName ?? '',
-        runtime: fn.Runtime ?? null,
-        memorySize: fn.MemorySize ?? null,
-        timeout: fn.Timeout ?? null,
-        lastModified: fn.LastModified ?? null,
-      }));
+      const functions = await collectPages(
+        (Marker) => client.send(new ListFunctionsCommand({ Marker })),
+        (page) => page.Functions,
+        (page) => page.NextMarker
+      );
+      // ListFunctions omits tags, so each function needs its own ListTags.
+      const rows = await Promise.all(
+        functions.map(async (fn): Promise<LambdaFunctionRow> => ({
+          functionName: fn.FunctionName ?? '',
+          runtime: fn.Runtime ?? null,
+          memorySize: fn.MemorySize ?? null,
+          timeout: fn.Timeout ?? null,
+          lastModified: fn.LastModified ?? null,
+          tagValue: await lookupTag(async () => {
+            if (!fn.FunctionArn) return null;
+            const tags = await client.send(new ListTagsCommand({ Resource: fn.FunctionArn }));
+            return tagValue(tags.Tags, tagKey);
+          }),
+        }))
+      );
       return { data: rows, error: null };
     } catch (err) {
       return { data: [], error: errorMessage(err) };
@@ -123,15 +165,24 @@ export async function GET(request: NextRequest) {
   async function fetchEcs(): Promise<AwsResourceResult<EcsServiceRow>> {
     try {
       const client = new ECSClient(clientConfig);
-      const clustersResult = await client.send(new ListClustersCommand({}));
+      const clusterArns = await collectPages(
+        (nextToken) => client.send(new ListClustersCommand({ nextToken })),
+        (page) => page.clusterArns,
+        (page) => page.nextToken
+      );
       const rows: EcsServiceRow[] = [];
-      for (const clusterArn of clustersResult.clusterArns ?? []) {
-        const servicesResult = await client.send(new ListServicesCommand({ cluster: clusterArn }));
-        const serviceArns = servicesResult.serviceArns ?? [];
+      for (const clusterArn of clusterArns) {
+        const serviceArns = await collectPages(
+          (nextToken) => client.send(new ListServicesCommand({ cluster: clusterArn, nextToken })),
+          (page) => page.serviceArns,
+          (page) => page.nextToken
+        );
         for (const batch of chunk(serviceArns, 10)) {
           if (batch.length === 0) continue;
           const describeResult = await client.send(
-            new DescribeServicesCommand({ cluster: clusterArn, services: batch })
+            // 'TAGS' makes DescribeServices return tags inline, avoiding a
+            // separate tag call per service.
+            new DescribeServicesCommand({ cluster: clusterArn, services: batch, include: ['TAGS'] })
           );
           for (const service of describeResult.services ?? []) {
             rows.push({
@@ -141,6 +192,7 @@ export async function GET(request: NextRequest) {
               runningCount: service.runningCount ?? 0,
               launchType: service.launchType ?? null,
               createdAt: service.createdAt ? new Date(service.createdAt).toISOString() : null,
+              tagValue: tagValue(service.tags, tagKey),
             });
           }
         }
@@ -154,8 +206,12 @@ export async function GET(request: NextRequest) {
   async function fetchRds(): Promise<AwsResourceResult<RdsInstanceRow>> {
     try {
       const client = new RDSClient(clientConfig);
-      const result = await client.send(new DescribeDBInstancesCommand({}));
-      const rows = (result.DBInstances ?? []).map((db) => ({
+      const instances = await collectPages(
+        (Marker) => client.send(new DescribeDBInstancesCommand({ Marker })),
+        (page) => page.DBInstances,
+        (page) => page.Marker
+      );
+      const rows = instances.map((db) => ({
         dbInstanceIdentifier: db.DBInstanceIdentifier ?? '',
         engine: db.Engine ?? '',
         dbInstanceClass: db.DBInstanceClass ?? '',
@@ -163,6 +219,8 @@ export async function GET(request: NextRequest) {
         multiAz: db.MultiAZ ?? false,
         allocatedStorage: db.AllocatedStorage ?? 0,
         instanceCreateTime: db.InstanceCreateTime ? new Date(db.InstanceCreateTime).toISOString() : null,
+        // RDS returns TagList inline on DescribeDBInstances.
+        tagValue: tagValue(db.TagList, tagKey),
       }));
       return { data: rows, error: null };
     } catch (err) {
@@ -173,19 +231,32 @@ export async function GET(request: NextRequest) {
   async function fetchDynamoDb(): Promise<AwsResourceResult<DynamoTableRow>> {
     try {
       const client = new DynamoDBClient(clientConfig);
-      const result = await client.send(new ListTablesCommand({}));
-      const tableNames = result.TableNames ?? [];
+      const tableNames = await collectPages(
+        (ExclusiveStartTableName) => client.send(new ListTablesCommand({ ExclusiveStartTableName })),
+        (page) => page.TableNames,
+        (page) => page.LastEvaluatedTableName
+      );
       // A per-table Describe call is needed to get each table's creation
       // date (ListTables returns only names) — run in parallel since this
-      // is specifically what the age-based color flag needs.
+      // is specifically what the age-based color flag needs. The same call
+      // yields the ARN that the tag lookup needs.
       const rows = await Promise.all(
         tableNames.map(async (tableName): Promise<DynamoTableRow> => {
           try {
             const describeResult = await client.send(new DescribeTableCommand({ TableName: tableName }));
             const creationDateTime = describeResult.Table?.CreationDateTime;
-            return { tableName, creationDateTime: creationDateTime ? new Date(creationDateTime).toISOString() : null };
+            return {
+              tableName,
+              creationDateTime: creationDateTime ? new Date(creationDateTime).toISOString() : null,
+              tagValue: await lookupTag(async () => {
+                const tableArn = describeResult.Table?.TableArn;
+                if (!tableArn) return null;
+                const tags = await client.send(new ListTagsOfResourceCommand({ ResourceArn: tableArn }));
+                return tagValue(tags.Tags, tagKey);
+              }),
+            };
           } catch {
-            return { tableName, creationDateTime: null };
+            return { tableName, creationDateTime: null, tagValue: null };
           }
         })
       );
@@ -201,14 +272,20 @@ export async function GET(request: NextRequest) {
 
     try {
       const client = new APIGatewayClient(clientConfig);
-      const result = await client.send(new GetRestApisCommand({}));
-      for (const api of result.items ?? []) {
+      const items = await collectPages(
+        (position) => client.send(new GetRestApisCommand({ position })),
+        (page) => page.items,
+        (page) => page.position
+      );
+      for (const api of items) {
         rows.push({
           id: api.id ?? '',
           name: api.name ?? '',
           type: 'REST',
           createdDate: api.createdDate ? new Date(api.createdDate).toISOString() : null,
           endpoint: api.endpointConfiguration?.types?.join(', ') ?? null,
+          // API Gateway returns tags inline as a plain record.
+          tagValue: tagValue(api.tags, tagKey),
         });
       }
     } catch (err) {
@@ -217,14 +294,19 @@ export async function GET(request: NextRequest) {
 
     try {
       const clientV2 = new ApiGatewayV2Client(clientConfig);
-      const resultV2 = await clientV2.send(new GetApisCommand({}));
-      for (const api of resultV2.Items ?? []) {
+      const items = await collectPages(
+        (NextToken) => clientV2.send(new GetApisCommand({ NextToken })),
+        (page) => page.Items,
+        (page) => page.NextToken
+      );
+      for (const api of items) {
         rows.push({
           id: api.ApiId ?? '',
           name: api.Name ?? '',
           type: 'HTTP',
           createdDate: api.CreatedDate ? new Date(api.CreatedDate).toISOString() : null,
           endpoint: api.ApiEndpoint ?? null,
+          tagValue: tagValue(api.Tags, tagKey),
         });
       }
     } catch (err) {
@@ -237,11 +319,24 @@ export async function GET(request: NextRequest) {
   async function fetchS3(): Promise<AwsResourceResult<S3BucketRow>> {
     try {
       const client = new S3Client(clientConfig);
-      const result = await client.send(new ListBucketsCommand({}));
-      const rows = (result.Buckets ?? []).map((bucket) => ({
-        name: bucket.Name ?? '',
-        creationDate: bucket.CreationDate ? new Date(bucket.CreationDate).toISOString() : null,
-      }));
+      const buckets = await collectPages(
+        (ContinuationToken) => client.send(new ListBucketsCommand({ ContinuationToken })),
+        (page) => page.Buckets,
+        (page) => page.ContinuationToken
+      );
+      // GetBucketTagging throws NoSuchTagSet for an untagged bucket, which
+      // lookupTag turns into a plain null rather than an error.
+      const rows = await Promise.all(
+        buckets.map(async (bucket): Promise<S3BucketRow> => ({
+          name: bucket.Name ?? '',
+          creationDate: bucket.CreationDate ? new Date(bucket.CreationDate).toISOString() : null,
+          tagValue: await lookupTag(async () => {
+            if (!bucket.Name) return null;
+            const tags = await client.send(new GetBucketTaggingCommand({ Bucket: bucket.Name }));
+            return tagValue(tags.TagSet, tagKey);
+          }),
+        }))
+      );
       return { data: rows, error: null };
     } catch (err) {
       return { data: [], error: errorMessage(err) };
@@ -265,6 +360,7 @@ export async function GET(request: NextRequest) {
     connected: true,
     region,
     fetchedAt: new Date().toISOString(),
+    tagKey,
     ec2,
     lambda,
     ecs,

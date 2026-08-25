@@ -127,6 +127,63 @@ describe('AwsIamUsersTab', () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(3));
   });
 
+  describe('configurable tag column', () => {
+    const userWithTag = (tagValue: string | null) => ({
+      userName: 'jdoe',
+      userId: 'AIDAEXAMPLE',
+      arn: 'arn:aws:iam::123456789012:user/jdoe',
+      path: '/',
+      createDate: null,
+      passwordLastUsed: null,
+      tagValue,
+    });
+
+    it('adds a column headed with the configured tag key and shows the value', async () => {
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({ ok: true, json: async () => connectionsResponse })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () =>
+            makeResponse({ tagKey: 'CostCenter', users: { data: [userWithTag('CC-1234')], error: null } }),
+        });
+
+      render(<AwsIamUsersTab companyId="company-1" />);
+
+      expect(await screen.findByRole('columnheader', { name: 'CostCenter' })).toBeInTheDocument();
+      expect(screen.getByText('CC-1234')).toBeInTheDocument();
+    });
+
+    it('shows a dash for a user missing the configured tag', async () => {
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({ ok: true, json: async () => connectionsResponse })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => makeResponse({ tagKey: 'CostCenter', users: { data: [userWithTag(null)], error: null } }),
+        });
+
+      render(<AwsIamUsersTab companyId="company-1" />);
+
+      await screen.findByRole('columnheader', { name: 'CostCenter' });
+      const row = screen.getByText('jdoe').closest('tr');
+      expect(row).toHaveTextContent('—');
+    });
+
+    it('omits the column entirely when no tag key is configured', async () => {
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({ ok: true, json: async () => connectionsResponse })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => makeResponse({ tagKey: '', users: { data: [userWithTag(null)], error: null } }),
+        });
+
+      render(<AwsIamUsersTab companyId="company-1" />);
+
+      await screen.findByText('jdoe');
+      // Exactly the four original columns plus the injected Verify column.
+      expect(screen.getAllByRole('columnheader')).toHaveLength(5);
+    });
+  });
+
   it("switches accounts via the picker and refetches that account's IAM users", async () => {
     const twoConnections = {
       connections: [

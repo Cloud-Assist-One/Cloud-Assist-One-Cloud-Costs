@@ -36,6 +36,16 @@ export function ResourceLegend() {
   );
 }
 
+// The extra tag column is configured per AWS connection, so it is spread
+// into each grid's column list rather than injected like Verify — a blank
+// tagKey yields no column at all.
+export function tagColumn<T extends { tagValue: string | null }>(
+  tagKey: string
+): { header: string; render: (row: T) => React.ReactNode }[] {
+  if (!tagKey) return [];
+  return [{ header: tagKey, render: (row: T) => row.tagValue ?? '—' }];
+}
+
 export function ResourceGrid<T extends object>({
   title,
   emptyLabel,

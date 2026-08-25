@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { ResourceGrid, ResourceLegend } from './ResourceGrid';
+import { ResourceGrid, ResourceLegend, tagColumn } from './ResourceGrid';
 import type {
   AwsCredentialSummary,
   AwsResourcesResponse,
@@ -164,6 +164,7 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
           { header: 'AZ', render: (r) => r.availabilityZone ?? '—' },
           { header: 'Private IP', render: (r) => r.privateIp ?? '—' },
           { header: 'Public IP', render: (r) => r.publicIp ?? '—' },
+          ...tagColumn<Ec2InstanceRow>(response.tagKey),
         ]}
       />
 
@@ -180,6 +181,7 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
           { header: 'Memory (MB)', render: (r) => r.memorySize ?? '—', align: 'right' },
           { header: 'Timeout (s)', render: (r) => r.timeout ?? '—', align: 'right' },
           { header: 'Last modified', render: (r) => r.lastModified ?? '—' },
+          ...tagColumn<LambdaFunctionRow>(response.tagKey),
         ]}
       />
 
@@ -196,6 +198,7 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
           { header: 'Desired count', render: (r) => r.desiredCount, align: 'right' },
           { header: 'Running count', render: (r) => r.runningCount, align: 'right' },
           { header: 'Launch type', render: (r) => r.launchType ?? '—' },
+          ...tagColumn<EcsServiceRow>(response.tagKey),
         ]}
       />
 
@@ -213,6 +216,7 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
           { header: 'Status', render: (r) => r.status },
           { header: 'Multi-AZ', render: (r) => (r.multiAz ? 'Yes' : 'No') },
           { header: 'Storage (GB)', render: (r) => r.allocatedStorage, align: 'right' },
+          ...tagColumn<RdsInstanceRow>(response.tagKey),
         ]}
       />
 
@@ -223,7 +227,10 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         getCreatedAt={(r) => r.creationDateTime}
         getName={(r) => r.tableName}
         resourceType="DynamoDB table"
-        columns={[{ header: 'Table name', render: (r) => r.tableName }]}
+        columns={[
+          { header: 'Table name', render: (r) => r.tableName },
+          ...tagColumn<DynamoTableRow>(response.tagKey),
+        ]}
       />
 
       <ResourceGrid<ApiRow>
@@ -239,6 +246,7 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
           { header: 'Type', render: (r) => r.type },
           { header: 'Created', render: (r) => r.createdDate ?? '—' },
           { header: 'Endpoint', render: (r) => r.endpoint ?? '—' },
+          ...tagColumn<ApiRow>(response.tagKey),
         ]}
       />
 
@@ -252,6 +260,7 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         columns={[
           { header: 'Bucket name', render: (r) => r.name },
           { header: 'Created', render: (r) => r.creationDate ?? '—' },
+          ...tagColumn<S3BucketRow>(response.tagKey),
         ]}
       />
     </div>

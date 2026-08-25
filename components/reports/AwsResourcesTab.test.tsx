@@ -36,6 +36,71 @@ describe('AwsResourcesTab', () => {
     expect(await screen.findByText(/aws isn't connected yet/i)).toBeInTheDocument();
   });
 
+  describe('configurable tag column', () => {
+    // One EC2 instance (tags inline) and one S3 bucket (tags via a separate
+    // call) so the column is covered on both tag-sourcing paths.
+    const taggedResponse = (tagKey: string) =>
+      makeResponse({
+        tagKey,
+        ec2: {
+          data: [
+            {
+              instanceId: 'i-abc123',
+              name: 'web-01',
+              instanceType: 't3.micro',
+              state: 'running',
+              availabilityZone: 'us-east-1a',
+              privateIp: '10.0.0.1',
+              publicIp: null,
+              launchTime: null,
+              tagValue: 'CC-1234',
+            },
+          ],
+          error: null,
+        },
+        s3: {
+          // A real creationDate so the tag cell is the only possible dash.
+          data: [{ name: 'my-bucket', creationDate: '2026-01-01T00:00:00.000Z', tagValue: null }],
+          error: null,
+        },
+      });
+
+    it('heads the column with the configured tag key and shows the value', async () => {
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({ ok: true, json: async () => connectionsResponse })
+        .mockResolvedValueOnce({ ok: true, json: async () => taggedResponse('CostCenter') });
+
+      render(<AwsResourcesTab companyId="company-1" />);
+
+      await screen.findByText('i-abc123');
+      expect(screen.getAllByRole('columnheader', { name: 'CostCenter' }).length).toBeGreaterThan(0);
+      expect(screen.getByText('CC-1234')).toBeInTheDocument();
+    });
+
+    it('shows a dash for a resource missing the configured tag', async () => {
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({ ok: true, json: async () => connectionsResponse })
+        .mockResolvedValueOnce({ ok: true, json: async () => taggedResponse('CostCenter') });
+
+      render(<AwsResourcesTab companyId="company-1" />);
+
+      const bucketRow = (await screen.findByText('my-bucket')).closest('tr');
+      expect(bucketRow).toHaveTextContent('—');
+    });
+
+    it('omits the column everywhere when no tag key is configured', async () => {
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({ ok: true, json: async () => connectionsResponse })
+        .mockResolvedValueOnce({ ok: true, json: async () => taggedResponse('') });
+
+      render(<AwsResourcesTab companyId="company-1" />);
+
+      await screen.findByText('i-abc123');
+      expect(screen.queryByRole('columnheader', { name: 'CostCenter' })).not.toBeInTheDocument();
+      expect(screen.queryByText('CC-1234')).not.toBeInTheDocument();
+    });
+  });
+
   it('renders rows for each grid when data is present', async () => {
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce({ ok: true, json: async () => connectionsResponse })

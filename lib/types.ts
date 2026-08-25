@@ -108,6 +108,7 @@ export interface AwsCredentialSummary {
   label: string;
   accessKeyIdMasked: string;
   region: string;
+  tagKey: string;
 }
 
 export interface AzureCredentialSummary {
@@ -140,6 +141,7 @@ export interface Ec2InstanceRow {
   privateIp: string | null;
   publicIp: string | null;
   launchTime: string | null;
+  tagValue: string | null;
 }
 
 export interface LambdaFunctionRow {
@@ -148,6 +150,7 @@ export interface LambdaFunctionRow {
   memorySize: number | null;
   timeout: number | null;
   lastModified: string | null;
+  tagValue: string | null;
 }
 
 export interface EcsServiceRow {
@@ -157,6 +160,7 @@ export interface EcsServiceRow {
   runningCount: number;
   launchType: string | null;
   createdAt: string | null;
+  tagValue: string | null;
 }
 
 export interface RdsInstanceRow {
@@ -167,11 +171,13 @@ export interface RdsInstanceRow {
   multiAz: boolean;
   allocatedStorage: number;
   instanceCreateTime: string | null;
+  tagValue: string | null;
 }
 
 export interface DynamoTableRow {
   tableName: string;
   creationDateTime: string | null;
+  tagValue: string | null;
 }
 
 export interface ApiRow {
@@ -180,11 +186,13 @@ export interface ApiRow {
   type: 'REST' | 'HTTP';
   createdDate: string | null;
   endpoint: string | null;
+  tagValue: string | null;
 }
 
 export interface S3BucketRow {
   name: string;
   creationDate: string | null;
+  tagValue: string | null;
 }
 
 export interface IamUserRow {
@@ -194,6 +202,7 @@ export interface IamUserRow {
   path: string;
   createDate: string | null;
   passwordLastUsed: string | null;
+  tagValue: string | null;
 }
 
 export interface AwsResourceResult<T> {
@@ -207,6 +216,7 @@ export type AwsResourcesResponse =
       connected: true;
       region: string;
       fetchedAt: string;
+      tagKey: string;
       ec2: AwsResourceResult<Ec2InstanceRow>;
       lambda: AwsResourceResult<LambdaFunctionRow>;
       ecs: AwsResourceResult<EcsServiceRow>;
@@ -221,6 +231,7 @@ export type AwsIamUsersResponse =
   | {
       connected: true;
       fetchedAt: string;
+      tagKey: string;
       users: AwsResourceResult<IamUserRow>;
     };
 

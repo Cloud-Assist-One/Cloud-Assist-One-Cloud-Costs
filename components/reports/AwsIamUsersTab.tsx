@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { ResourceGrid, ResourceLegend } from './ResourceGrid';
+import { ResourceGrid, ResourceLegend, tagColumn } from './ResourceGrid';
 import type { AwsCredentialSummary, AwsIamUsersResponse, IamUserRow } from '@/lib/types';
 import styles from './AwsIamUsersTab.module.css';
 
@@ -151,6 +151,7 @@ export default function AwsIamUsersTab({ companyId }: AwsIamUsersTabProps) {
           { header: 'User ID', render: (r) => r.userId },
           { header: 'Created', render: (r) => r.createDate ?? '—' },
           { header: 'Password last used', render: (r) => r.passwordLastUsed ?? '—' },
+          ...tagColumn<IamUserRow>(response.tagKey),
         ]}
       />
     </div>

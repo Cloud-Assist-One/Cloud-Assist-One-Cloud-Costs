@@ -20,6 +20,27 @@ describe('provider credentials panels', () => {
     expect(screen.getByLabelText(/access key id/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/secret access key/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^region$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/tag to display/i)).toBeInTheDocument();
+  });
+
+  it('AWS panel sends the configured tag key when saving a new connection', async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        return { ok: true, json: async () => ({ connection: { id: 'c1', label: 'Prod', accessKeyIdMasked: '', region: 'us-east-1', tagKey: 'CostCenter' } }) };
+      }
+      return { ok: true, json: async () => ({ connections: [] }) };
+    });
+
+    const user = userEvent.setup();
+    render(<AwsCredentialsPanel companyId="company-1" />);
+
+    await screen.findByText(/no connections yet/i);
+    await user.click(screen.getByRole('button', { name: /add connection/i }));
+    await user.type(screen.getByLabelText(/tag to display/i), 'CostCenter');
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+    const post = (global.fetch as jest.Mock).mock.calls.find(([, init]) => init?.method === 'POST');
+    expect(JSON.parse(post[1].body)).toMatchObject({ tagKey: 'CostCenter' });
   });
 
   it('Azure panel fetches from the Azure endpoint and shows Azure fields', async () => {
