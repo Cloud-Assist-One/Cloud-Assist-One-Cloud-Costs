@@ -129,6 +129,18 @@ describe('CostReportTab', () => {
     expect(screen.getByText('pull-billing-modal-content')).toBeInTheDocument();
   });
 
+  it('unmounts the modal when it is closed', async () => {
+    loadRecords.mockResolvedValueOnce({ data: [] });
+
+    render(<CostReportTab companyId="company-1" cloudProvider="aws" periodId="period-1" />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /pull billing/i }));
+    expect(screen.getByText('pull-billing-modal-content')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'close-modal' }));
+    expect(screen.queryByText('pull-billing-modal-content')).not.toBeInTheDocument();
+  });
+
   it('does not show a Pull Billing button for non-AWS providers', async () => {
     loadRecords.mockResolvedValueOnce({ data: [] });
 

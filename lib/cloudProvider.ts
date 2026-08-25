@@ -24,3 +24,27 @@ export function formatBillingMonth(billingMonth: string | null): string {
     timeZone: 'UTC',
   });
 }
+
+export const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+export interface MonthOption {
+  label: string;
+  value: string;
+}
+
+// Shared by UploadForm (all 12 months of the current year) and
+// PullBillingModal (capped to the current month) so the two forms can't
+// disagree on which months exist for a given "now" — both must build their
+// options from UTC, since a local-time basis can put the two forms in
+// different months on the first/last day of a month depending on the
+// viewer's timezone.
+export function buildMonthOptions(now: Date): MonthOption[] {
+  const year = now.getUTCFullYear();
+  return MONTH_NAMES.map((name, i) => ({
+    label: `${name} ${year}`,
+    value: `${year}-${String(i + 1).padStart(2, '0')}-01`,
+  }));
+}

@@ -136,7 +136,7 @@ export default function CostReportTab({
             Pull Billing
           </button>
         )}
-        <button type="button" className={styles.printButton} onClick={() => window.print()}>
+        <button type="button" onClick={() => window.print()}>
           Print
         </button>
       </div>

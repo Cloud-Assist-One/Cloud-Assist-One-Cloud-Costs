@@ -49,36 +49,6 @@ export async function POST(request: NextRequest) {
 
   const adminClient = createAdminClient();
 
-  let periodId: string;
-  let newPeriodId: string | undefined;
-
-  if (archiveFirst) {
-    const { data: archivedId, error: archiveError } = await adminClient.rpc('archive_billing_period', {
-      p_company_id: companyId,
-    });
-    if (archiveError || !archivedId) {
-      return NextResponse.json({ error: archiveError?.message ?? 'Could not archive the current period.' }, { status: 500 });
-    }
-    periodId = archivedId;
-    newPeriodId = archivedId;
-  } else {
-    const { data: activePeriod, error: activePeriodError } = await adminClient
-      .from('billing_periods')
-      .select('id')
-      .eq('company_id', companyId)
-      .eq('status', 'active')
-      .single();
-    if (activePeriodError || !activePeriod) {
-      return NextResponse.json({ error: 'No active billing period found for this company.' }, { status: 500 });
-    }
-    periodId = activePeriod.id;
-  }
-
-  const monthCheck = await checkBillingMonthMatches(adminClient, periodId, 'aws', billingMonth);
-  if (!monthCheck.ok) {
-    return NextResponse.json({ error: monthCheck.errorMessage }, { status: monthCheck.status ?? 500 });
-  }
-
   const { data: credRow, error: credError } = await adminClient
     .from('cloud_provider_credentials')
     .select('label, encrypted_payload')
@@ -140,6 +110,42 @@ export async function POST(request: NextRequest) {
 
   if (rows.length === 0) {
     return NextResponse.json({ error: 'AWS Cost Explorer returned no cost data for this month.' }, { status: 502 });
+  }
+
+  // Archiving is deferred until after every fallible step above (credential
+  // lookup/decrypt, date-range resolution, the Cost Explorer call itself) has
+  // succeeded. Archiving before that risked burning the user's active period
+  // on a call that was always going to fail — e.g. a missing
+  // ce:GetCostAndUsage permission, a bad key, or an empty month — and
+  // "Try Again" would then archive again, chaining period churn.
+  let periodId: string;
+  let newPeriodId: string | undefined;
+
+  if (archiveFirst) {
+    const { data: archivedId, error: archiveError } = await adminClient.rpc('archive_billing_period', {
+      p_company_id: companyId,
+    });
+    if (archiveError || !archivedId) {
+      return NextResponse.json({ error: archiveError?.message ?? 'Could not archive the current period.' }, { status: 500 });
+    }
+    periodId = archivedId;
+    newPeriodId = archivedId;
+  } else {
+    const { data: activePeriod, error: activePeriodError } = await adminClient
+      .from('billing_periods')
+      .select('id')
+      .eq('company_id', companyId)
+      .eq('status', 'active')
+      .single();
+    if (activePeriodError || !activePeriod) {
+      return NextResponse.json({ error: 'No active billing period found for this company.' }, { status: 500 });
+    }
+    periodId = activePeriod.id;
+  }
+
+  const monthCheck = await checkBillingMonthMatches(adminClient, periodId, 'aws', billingMonth);
+  if (!monthCheck.ok) {
+    return NextResponse.json({ error: monthCheck.errorMessage }, { status: monthCheck.status ?? 500 });
   }
 
   const storagePath = `${companyId}/${Date.now()}-aws-cost-explorer-pull.json`;

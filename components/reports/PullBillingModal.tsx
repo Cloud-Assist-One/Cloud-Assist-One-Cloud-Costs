@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { AwsCredentialSummary } from '@/lib/types';
-import { formatBillingMonth } from '@/lib/cloudProvider';
+import { formatBillingMonth, buildMonthOptions } from '@/lib/cloudProvider';
 import styles from './PullBillingModal.module.css';
 
 interface PullBillingModalProps {
@@ -13,18 +13,11 @@ interface PullBillingModalProps {
 
 type Step = 'form' | 'confirm' | 'result';
 
-const MONTH_NAMES = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-];
-
+// Pulling can only ever fetch data through the current calendar month, so
+// slice the shared 12-month list down to months up to and including "now".
 function buildPullableMonthOptions(now: Date): { label: string; value: string }[] {
-  const year = now.getUTCFullYear();
   const currentMonthIndex0 = now.getUTCMonth();
-  return MONTH_NAMES.slice(0, currentMonthIndex0 + 1).map((name, i) => ({
-    label: `${name} ${year}`,
-    value: `${year}-${String(i + 1).padStart(2, '0')}-01`,
-  }));
+  return buildMonthOptions(now).slice(0, currentMonthIndex0 + 1);
 }
 
 export default function PullBillingModal({ companyId, onClose, onPulled }: PullBillingModalProps) {
@@ -38,7 +31,6 @@ export default function PullBillingModal({ companyId, onClose, onPulled }: PullB
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [rowCount, setRowCount] = useState<number | null>(null);
-  const [newPeriodId, setNewPeriodId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,6 +40,10 @@ export default function PullBillingModal({ companyId, onClose, onPulled }: PullB
         const res = await fetch(`/api/settings/aws-credentials?companyId=${companyId}`);
         const body = await res.json();
         if (cancelled) return;
+        if (!res.ok) {
+          setConnectionsError(body.error ?? 'Could not load your AWS connections.');
+          return;
+        }
         const list = (body.connections ?? []) as AwsCredentialSummary[];
         setConnections(list);
         if (list.length > 0) setSelectedCredentialId(list[0].id);
@@ -79,8 +75,14 @@ export default function PullBillingModal({ companyId, onClose, onPulled }: PullB
         return;
       }
       setRowCount(body.rowCount);
-      setNewPeriodId(body.newPeriodId);
       setSubmitting(false);
+      // Fire onPulled here, right as the pull succeeds, rather than waiting
+      // for the "Done" button: the × close button also renders on this step,
+      // and if a user closes with × after an archiving pull, AppShell must
+      // still learn about the new period so it stops pointing at the one
+      // that was just archived. Use the response body directly since state
+      // set above isn't visible synchronously.
+      onPulled({ rowCount: body.rowCount, newPeriodId: body.newPeriodId });
     } catch {
       setSubmitError('Could not pull billing data. Please check your connection and try again.');
       setSubmitting(false);
@@ -136,7 +138,7 @@ export default function PullBillingModal({ companyId, onClose, onPulled }: PullB
               </>
             )}
 
-            <p>This will overwrite the current AWS Billing Overview data for the selected month.</p>
+            <p>This will overwrite the current AWS Billing Overview data for the selected month (through today).</p>
 
             <div className={styles.actions}>
               <button type="button" onClick={onClose}>
@@ -151,7 +153,10 @@ export default function PullBillingModal({ companyId, onClose, onPulled }: PullB
 
         {connections !== null && connections.length > 0 && step === 'confirm' && (
           <div className={styles.confirm}>
-            <p>This will overwrite the current AWS Billing Overview data for {formatBillingMonth(billingMonth)}.</p>
+            <p>
+              This will overwrite the current AWS Billing Overview data for {formatBillingMonth(billingMonth)} (through
+              today).
+            </p>
             <div className={styles.actions}>
               <button type="button" onClick={() => setStep('form')}>
                 Back
@@ -188,13 +193,7 @@ export default function PullBillingModal({ companyId, onClose, onPulled }: PullB
               <>
                 <p role="status">Pulled {rowCount} rows.</p>
                 <div className={styles.actions}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onPulled({ rowCount: rowCount ?? 0, newPeriodId });
-                      onClose();
-                    }}
-                  >
+                  <button type="button" onClick={onClose}>
                     Done
                   </button>
                 </div>

@@ -42,6 +42,35 @@ describe('PullBillingModal', () => {
     expect(await screen.findByLabelText(/account/i)).toBeInTheDocument();
   });
 
+  it('posts the selected connection when a non-default account is chosen', async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce(jsonResponse({ connections: twoConnections }))
+      .mockResolvedValueOnce(jsonResponse({ uploadedFileId: 'file-1', status: 'processed', rowCount: 4 }));
+
+    render(<PullBillingModal companyId="company-1" onClose={jest.fn()} onPulled={jest.fn()} />);
+
+    const now = new Date();
+    const defaultBillingMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01`;
+    await screen.findByLabelText(/account/i);
+    await userEvent.selectOptions(screen.getByLabelText(/account/i), 'conn-2');
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Ok' }));
+
+    expect(await screen.findByText('Pulled 4 rows.')).toBeInTheDocument();
+    expect(global.fetch).toHaveBeenLastCalledWith(
+      '/api/aws/pull-billing',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          companyId: 'company-1',
+          credentialId: 'conn-2',
+          billingMonth: defaultBillingMonth,
+          archiveFirst: false,
+        }),
+      })
+    );
+  });
+
   it('posts archiveFirst: false when Ok is clicked', async () => {
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce(jsonResponse({ connections: oneConnection }))
@@ -70,7 +99,7 @@ describe('PullBillingModal', () => {
     );
   });
 
-  it('posts archiveFirst: true when Yes, but Archive Current View is clicked, then calls onPulled/onClose on Done', async () => {
+  it('posts archiveFirst: true when Yes, but Archive Current View is clicked, calls onPulled as soon as the pull completes, and calls onClose on Done', async () => {
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce(jsonResponse({ connections: oneConnection }))
       .mockResolvedValueOnce(
@@ -86,9 +115,11 @@ describe('PullBillingModal', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Yes, but Archive Current View' }));
 
     expect(await screen.findByText('Pulled 8 rows.')).toBeInTheDocument();
+    expect(onPulled).toHaveBeenCalledWith({ rowCount: 8, newPeriodId: 'period-2' });
+    expect(onClose).not.toHaveBeenCalled();
+
     await userEvent.click(screen.getByRole('button', { name: 'Done' }));
 
-    expect(onPulled).toHaveBeenCalledWith({ rowCount: 8, newPeriodId: 'period-2' });
     expect(onClose).toHaveBeenCalled();
   });
 

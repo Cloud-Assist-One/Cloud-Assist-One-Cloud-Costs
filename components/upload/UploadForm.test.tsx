@@ -37,7 +37,7 @@ describe('UploadForm', () => {
       json: async () => ({ uploadedFileId: 'file-1', status: 'processed', rowCount: 1 }),
     });
     const now = new Date();
-    const expectedValue = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    const expectedValue = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01`;
     const user = userEvent.setup();
     render(<UploadForm companyId="company-1" />);
 

@@ -2,7 +2,7 @@
 
 import { useState, FormEvent } from 'react';
 import type { CloudProvider } from '@/lib/types';
-import { CLOUD_PROVIDERS, CLOUD_PROVIDER_LABELS } from '@/lib/cloudProvider';
+import { CLOUD_PROVIDERS, CLOUD_PROVIDER_LABELS, buildMonthOptions } from '@/lib/cloudProvider';
 import styles from './UploadForm.module.css';
 
 interface UploadFormProps {
@@ -12,24 +12,12 @@ interface UploadFormProps {
 
 type Status = 'idle' | 'uploading' | 'error';
 
-const MONTH_NAMES = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-];
-
-function buildMonthOptions(year: number): { label: string; value: string }[] {
-  return MONTH_NAMES.map((name, i) => ({
-    label: `${name} ${year}`,
-    value: `${year}-${String(i + 1).padStart(2, '0')}-01`,
-  }));
-}
-
 export default function UploadForm({ companyId, onUploaded }: UploadFormProps) {
   const now = new Date();
-  const monthOptions = buildMonthOptions(now.getFullYear());
+  const monthOptions = buildMonthOptions(now);
 
   const [cloudProvider, setCloudProvider] = useState<CloudProvider>('aws');
-  const [billingMonth, setBillingMonth] = useState(monthOptions[now.getMonth()].value);
+  const [billingMonth, setBillingMonth] = useState(monthOptions[now.getUTCMonth()].value);
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<Status>('idle');
   const [errors, setErrors] = useState<string[]>([]);
