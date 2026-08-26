@@ -17,6 +17,12 @@ export interface BillingPeriod {
   status: BillingPeriodStatus;
   created_at: string;
   archived_at: string | null;
+  /**
+   * Stamped when the period is archived, from the billing month its uploads
+   * and pulls were for. Null on the active period, and on anything archived
+   * before this was recorded. One archived period per month per company.
+   */
+  billing_month: string | null;
 }
 
 export interface Profile {

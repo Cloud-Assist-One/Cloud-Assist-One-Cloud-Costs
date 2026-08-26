@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { formatBillingMonth } from '@/lib/cloudProvider';
 import type { BillingPeriod } from '@/lib/types';
 import styles from './ArchiveTab.module.css';
 
@@ -44,12 +45,17 @@ export default function ArchiveTab({ companyId, onSelectPeriod }: ArchiveTabProp
           .limit(1)
           .maybeSingle();
 
-        const label =
+        // The billing month is what an archive is keyed by, so it leads.
+        // Periods archived before the month was recorded fall back to the
+        // span of their data.
+        const dateRangeLabel =
           range && rangeEnd
             ? range.usage_date === rangeEnd.usage_date
               ? range.usage_date
               : `${range.usage_date} – ${rangeEnd.usage_date}`
             : 'No data';
+
+        const label = period.billing_month ? formatBillingMonth(period.billing_month) : dateRangeLabel;
 
         return { ...period, label };
       })
