@@ -37,9 +37,32 @@ export interface ParseResult {
   errors: string[];
 }
 
-const SERVICE_HEADER_ALIASES = ['service', 'service name', 'service description'];
-const DATE_HEADER_ALIASES = ['date', 'usage date', 'start date', 'month'];
-const COST_HEADER_ALIASES = ['cost', 'amount', 'blended cost', 'unblended cost', 'total cost', 'cost (usd)'];
+// Aliases are tried in order, so the earliest match wins. Azure Cost Details
+// names are appended to each list rather than inserted, which keeps the
+// column an existing spreadsheet resolves to unchanged.
+const SERVICE_HEADER_ALIASES = [
+  'service',
+  'service name',
+  'service description',
+  'servicename',
+  // Azure Cost Details has no plain service column. MeterCategory holds the
+  // service-like names ("Virtual Machines", "Storage") and is what the Azure
+  // pull grouped by before it moved to this report, so pulled months keep
+  // reading the same. ConsumedService ("Microsoft.Compute") is the fallback.
+  'metercategory',
+  'consumedservice',
+];
+const DATE_HEADER_ALIASES = ['date', 'usage date', 'start date', 'month', 'usagedatetime'];
+const COST_HEADER_ALIASES = [
+  'cost',
+  'amount',
+  'blended cost',
+  'unblended cost',
+  'total cost',
+  'cost (usd)',
+  'costinbillingcurrency',
+  'pretaxcost',
+];
 const ACCOUNT_HEADER_ALIASES = ['account id', 'linked account', 'subscription id', 'subscription name'];
 
 // Line-item detail aliases, covering both AWS Cost and Usage Report (CUR)

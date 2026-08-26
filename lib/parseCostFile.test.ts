@@ -261,4 +261,70 @@ describe('parseCostFile', () => {
     expect(result.errors).toEqual([]);
     expect(result.rows[0].quantity).toBeNull();
   });
+
+  // The Azure pull downloads a Cost Details CSV and hands it straight to this
+  // parser, so these exact column names are the contract between the two.
+  describe('Azure Cost Details report', () => {
+    const COST_DETAILS_CSV = [
+      'Date,MeterCategory,MeterName,ConsumedService,CostInBillingCurrency,BillingCurrency,ResourceId,ResourceGroup,' +
+        'ResourceLocation,SubscriptionId,SubscriptionName,Quantity,UnitOfMeasure,UnitPrice,EffectivePrice,ChargeType,' +
+        'PricingModel,ReservationId,ReservationName,Tags',
+      '2026-08-03,Virtual Machines,D2s v3,Microsoft.Compute,12.34,USD,/subscriptions/s1/resourceGroups/rg1/providers/' +
+        'Microsoft.Compute/virtualMachines/web1,rg1,eastus,s1,Production,24,1 Hour,0.55,0.51,Usage,OnDemand,,,' +
+        '"{""env"":""prod""}"',
+    ].join('\n');
+
+    function parseCsv(csv: string) {
+      return parseCostFile(Buffer.from(csv, 'utf8'));
+    }
+
+    it('reads the report Azure actually returns, filling the line-item columns', () => {
+      const result = parseCsv(COST_DETAILS_CSV);
+
+      expect(result.errors).toEqual([]);
+      expect(result.rows).toHaveLength(1);
+
+      const row = result.rows[0];
+      expect(row.usage_date).toBe('2026-08-03');
+      expect(row.cost).toBeCloseTo(12.34);
+      // MeterCategory is the service-like name, matching what the pull showed
+      // before it moved off the Query API.
+      expect(row.service_name).toBe('Virtual Machines');
+      expect(row.meter_name).toBe('D2s v3');
+      expect(row.region).toBe('eastus');
+      expect(row.resource_group).toBe('rg1');
+      expect(row.resource_id).toContain('virtualMachines/web1');
+      expect(row.subscription_name).toBe('Production');
+      expect(row.quantity).toBe(24);
+      expect(row.unit).toBe('1 Hour');
+      expect(row.unit_price).toBeCloseTo(0.55);
+      expect(row.effective_price).toBeCloseTo(0.51);
+      expect(row.currency).toBe('USD');
+      expect(row.charge_type).toBe('Usage');
+      expect(row.tags).toEqual({ env: 'prod' });
+    });
+
+    it('reads the pay-as-you-go column spellings too', () => {
+      // EA and pay-as-you-go exports name these differently from MCA, and the
+      // account type is not something the pull can know in advance.
+      const result = parseCsv(
+        ['UsageDateTime,MeterCategory,PreTaxCost,Currency', '2026-08-04,Storage,3.21,USD'].join('\n')
+      );
+
+      expect(result.errors).toEqual([]);
+      expect(result.rows[0].usage_date).toBe('2026-08-04');
+      expect(result.rows[0].cost).toBeCloseTo(3.21);
+      expect(result.rows[0].service_name).toBe('Storage');
+    });
+
+    it('still prefers an explicit Service column when a sheet has one', () => {
+      // Adding MeterCategory as a service fallback must not change how an
+      // uploaded spreadsheet that already names its service resolves.
+      const result = parseCsv(
+        ['Service,MeterCategory,Date,Cost', 'Contoso Widgets,Virtual Machines,2026-08-05,1.00'].join('\n')
+      );
+
+      expect(result.rows[0].service_name).toBe('Contoso Widgets');
+    });
+  });
 });
