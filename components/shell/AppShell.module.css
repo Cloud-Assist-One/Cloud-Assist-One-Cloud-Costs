@@ -4,6 +4,13 @@
   padding: 2rem 1.5rem 4rem;
 }
 
+/* Line Items is a wide grid of billing detail columns. Widening the whole
+   shell for it beats letting the table scroll sideways inside a 72rem
+   column, which hides most of the row. */
+.wrapperWide {
+  max-width: 110rem;
+}
+
 .topBar {
   display: flex;
   align-items: center;
@@ -113,6 +120,12 @@
 .resourcesContent {
   max-width: 70rem;
   margin: 0 auto;
+}
+
+/* Takes whatever the widened shell gives it, rather than being re-narrowed
+   by a cap of its own. */
+.lineItemsContent {
+  max-width: none;
 }
 
 .archiveBanner {
