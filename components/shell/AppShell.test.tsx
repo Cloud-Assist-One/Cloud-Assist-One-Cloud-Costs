@@ -26,6 +26,10 @@ jest.mock('./../admin/AdminCompanies', () => ({
   __esModule: true,
   default: () => <div>admin-companies-content</div>,
 }));
+jest.mock('./../admin/AdminUserEmails', () => ({
+  __esModule: true,
+  default: () => <div>admin-user-emails-content</div>,
+}));
 jest.mock('./../admin/AdminUsers', () => ({
   __esModule: true,
   default: () => <div>admin-users-content</div>,
@@ -233,8 +237,16 @@ describe('AppShell', () => {
     expect(await screen.findByText('notes-feed-content isStaff=true')).toBeInTheDocument();
 
     await user.click(screen.getByRole('tab', { name: /admin/i }));
+    // The three admin screens are now sub-tabs, so only Companies shows first
+    // and the others must be reachable rather than stacked below it.
     expect(await screen.findByText('admin-companies-content')).toBeInTheDocument();
-    expect(screen.getByText('admin-users-content')).toBeInTheDocument();
+    expect(screen.queryByText('admin-users-content')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: /^users$/i }));
+    expect(await screen.findByText('admin-users-content')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: /email management/i }));
+    expect(await screen.findByText('admin-user-emails-content')).toBeInTheDocument();
   });
 
   it("shows the logged-in user's email in the top bar", async () => {

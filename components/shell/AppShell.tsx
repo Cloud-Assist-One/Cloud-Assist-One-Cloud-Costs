@@ -13,6 +13,7 @@ import LineItemsTab from '../reports/LineItemsTab';
 import NotesFeed from '../notes/NotesFeed';
 import AdminCompanies from '../admin/AdminCompanies';
 import AdminUsers from '../admin/AdminUsers';
+import AdminUserEmails from '../admin/AdminUserEmails';
 import ArchiveTab from './ArchiveTab';
 import SupportTab from '../support/SupportTab';
 import SupportRequestsTab from '../support/SupportRequestsTab';
@@ -80,6 +81,7 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
   const greeting = useSyncExternalStore(subscribeToClock, readLocalGreeting, readServerGreeting);
   const [awsSubTab, setAwsSubTab] = useState<'overview' | 'resources' | 'iamUsers'>('overview');
   const [azureSubTab, setAzureSubTab] = useState<'overview' | 'resources' | 'users'>('overview');
+  const [adminSubTab, setAdminSubTab] = useState<'companies' | 'users' | 'emails'>('companies');
   const isWideCloudView =
     (activeTab === 'aws' && (awsSubTab === 'resources' || awsSubTab === 'iamUsers')) ||
     (activeTab === 'azure' && (azureSubTab === 'resources' || azureSubTab === 'users'));
@@ -298,8 +300,23 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
       <div className={styles.panel}>
         {activeTab === 'admin' && canManage ? (
           <div className={styles.adminSections}>
-            <AdminCompanies isAdmin={role === 'admin'} />
-            <AdminUsers isAdmin={role === 'admin'} />
+            <Tabs
+              value={adminSubTab}
+              onValueChange={(value) => setAdminSubTab(value as 'companies' | 'users' | 'emails')}
+            >
+              <TabsList>
+                <TabsTrigger value="companies">Companies</TabsTrigger>
+                <TabsTrigger value="users">Users</TabsTrigger>
+                <TabsTrigger value="emails">Email Management</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            {adminSubTab === 'companies' ? (
+              <AdminCompanies isAdmin={role === 'admin'} />
+            ) : adminSubTab === 'users' ? (
+              <AdminUsers isAdmin={role === 'admin'} />
+            ) : (
+              <AdminUserEmails />
+            )}
           </div>
         ) : activeTab === 'supportRequests' && canManage ? (
           <SupportRequestsTab />
