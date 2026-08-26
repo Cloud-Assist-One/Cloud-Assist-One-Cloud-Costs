@@ -151,7 +151,26 @@ export async function POST(request: NextRequest) {
   });
 
   if (otpError) {
+    // Rolling back is deliberate: the account is passwordless, so one that
+    // never received its link is an account nobody can get into.
     await rollbackUserAndCompany('signup: failed to send the sign-in link:', otpError);
+
+    // Two of these are worth naming. A rejected address means a typo the user
+    // can fix, and telling them to "try again" would have them retry forever.
+    // A rate limit is temporary and genuinely is worth retrying — Supabase's
+    // built-in mailer allows only a few messages an hour.
+    if (otpError.code === 'email_address_invalid') {
+      return NextResponse.json(
+        { error: 'That email address was rejected. Please check it and try again.' },
+        { status: 400 }
+      );
+    }
+    if (otpError.status === 429) {
+      return NextResponse.json(
+        { error: 'Too many sign-up emails have been sent just now. Please wait a few minutes and try again.' },
+        { status: 429 }
+      );
+    }
     return NextResponse.json({ error: GENERIC_ERROR }, { status: 500 });
   }
 
