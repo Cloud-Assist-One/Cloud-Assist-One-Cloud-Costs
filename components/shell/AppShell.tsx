@@ -235,7 +235,7 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
   const periodIdForReports = viewingArchivedPeriod ? viewingPeriodId : activePeriodId;
 
   return (
-    <div className={styles.wrapper}>
+    <div className={`${styles.wrapper} ${activeTab === 'lineItems' ? styles.wrapperWide : ''}`}>
       <div className={`${styles.topBar} print-hidden`}>
         <div className={styles.brand}>
           <Image
@@ -389,7 +389,15 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
         ) : !periodIdForReports ? (
           <p>Loading…</p>
         ) : (
-          <div className={isWideCloudView ? styles.resourcesContent : styles.reportContent}>
+          <div
+            className={
+              activeTab === 'lineItems'
+                ? styles.lineItemsContent
+                : isWideCloudView
+                  ? styles.resourcesContent
+                  : styles.reportContent
+            }
+          >
               {activeTab === 'aws' && (
                 <div className={styles.cloudSubTabs}>
                   <Tabs

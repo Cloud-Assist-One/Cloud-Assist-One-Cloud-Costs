@@ -152,4 +152,46 @@ describe('LineItemsTab', () => {
     // Null line-item fields render as an em dash, not blank.
     expect(screen.getAllByText('—').length).toBeGreaterThan(0);
   });
+
+  it('leaves out the columns that were too rarely populated to be worth the width', async () => {
+    fetchPage.mockResolvedValue({
+      rows: [
+        {
+          id: 'r1',
+          company_id: 'c1',
+          period_id: 'p1',
+          cloud_provider: 'azure',
+          service_name: 'Virtual Machines',
+          usage_date: '2026-08-01',
+          cost: 12.5,
+          account_id: null,
+          source_file_id: 'f1',
+          created_at: '2026-08-01T00:00:00.000Z',
+        },
+      ],
+      totalCount: 1,
+    });
+    render(<LineItemsTab companyId="c1" periodId="p1" />);
+
+    await screen.findByRole('table');
+
+    // Dropped so the grid fits without scrolling sideways. Matched exactly so
+    // a header like "Resource Group" can't satisfy a looser check.
+    for (const header of [
+      'AZ',
+      'Usage Type',
+      'Operation',
+      'Reservation ID',
+      'Reservation Name',
+      'Currency',
+      'Effective Price',
+    ]) {
+      expect(screen.queryByRole('columnheader', { name: header })).not.toBeInTheDocument();
+    }
+
+    // The ones that carry the detail people actually sort by stay.
+    expect(screen.getByRole('columnheader', { name: 'Region' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Unit Price' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Tags' })).toBeInTheDocument();
+  });
 });
