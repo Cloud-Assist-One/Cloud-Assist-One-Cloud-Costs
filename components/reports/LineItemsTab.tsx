@@ -44,42 +44,77 @@ function textCell(info: CellContext<LineItemRow, string | null>) {
   );
 }
 
+// Providers report usage quantities at full float precision, which renders
+// as things like 0.000277777777777778 and pushes the column far wider than
+// the number is worth. Eight decimals is past the point of meaning for a
+// billing quantity, and trailing zeros are dropped so whole numbers stay
+// short.
+const MAX_QUANTITY_DECIMALS = 8;
+
+export function formatQuantity(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return '—';
+  if (Number.isInteger(value)) return String(value);
+
+  const rounded = Number(value.toFixed(MAX_QUANTITY_DECIMALS));
+  // A value smaller than the last kept decimal would round to zero, which
+  // reads as "no usage" rather than "a very small amount".
+  if (rounded === 0) return value > 0 ? `<0.00000001` : `>-0.00000001`;
+  return String(rounded);
+}
+
 function numberCell(info: CellContext<LineItemRow, number | null>) {
   const value = info.getValue();
   return value === null ? '—' : String(value);
 }
 
-function formatTags(tags: Record<string, string> | null): string {
+function quantityCell(info: CellContext<LineItemRow, number | null>) {
+  return formatQuantity(info.getValue());
+}
+
+/**
+ * True for the billing-code tag under any spelling.
+ *
+ * Tag keys are typed by hand in each cloud console, so the same tag shows up
+ * as "Billing Code", "billing_code", "BillingCode", "billing-code" and so on.
+ * Comparing on letters and digits alone treats them all as one tag.
+ */
+export function isBillingCodeTag(key: string): boolean {
+  return key.replace(/[^a-z0-9]/gi, '').toLowerCase() === 'billingcode';
+}
+
+/**
+ * Shows only the billing code, not the whole tag set.
+ *
+ * A resource can carry dozens of tags, which made the column an unreadable
+ * run-on string. The billing code is the one this grid is used to group by.
+ */
+export function formatTags(tags: Record<string, string> | null): string {
   if (!tags) return '—';
-  const entries = Object.entries(tags);
-  if (entries.length === 0) return '—';
-  return entries.map(([key, value]) => `${key}=${value}`).join(', ');
+  const matches = Object.entries(tags).filter(([key]) => isBillingCodeTag(key));
+  if (matches.length === 0) return '—';
+  // Keyed only by value: the column header already says what it is, and a
+  // resource tagged twice under different spellings should read as its
+  // values, not repeat the key.
+  return matches.map(([, value]) => value).join(', ');
 }
 
 // Columns that can be sorted server-side beyond the two with their own
-// buttons above (Date, Cost). `tags` is jsonb and deliberately excluded —
-// sorting it isn't meaningful.
+// buttons above (Date, Cost). Kept in step with the visible columns: an
+// option for a column the grid no longer shows sorts by something invisible.
+// `tags` is jsonb and deliberately excluded — sorting it isn't meaningful.
 const MORE_SORT_OPTIONS: { value: LineItemSortColumn; label: string }[] = [
   { value: 'resource_id', label: 'Resource ID' },
-  { value: 'resource_group', label: 'Resource Group' },
   { value: 'region', label: 'Region' },
-  { value: 'availability_zone', label: 'Availability Zone' },
   { value: 'instance_type', label: 'Instance Type' },
   { value: 'database_engine', label: 'Database Engine' },
   { value: 'meter_category', label: 'Meter Category' },
   { value: 'meter_name', label: 'Meter Name' },
-  { value: 'usage_type', label: 'Usage Type' },
-  { value: 'operation', label: 'Operation' },
   { value: 'subscription_id', label: 'Subscription ID' },
   { value: 'subscription_name', label: 'Subscription Name' },
   { value: 'purchase_type', label: 'Purchase Type' },
-  { value: 'reservation_id', label: 'Reservation ID' },
-  { value: 'reservation_name', label: 'Reservation Name' },
   { value: 'quantity', label: 'Quantity' },
   { value: 'unit', label: 'Unit' },
   { value: 'unit_price', label: 'Unit Price' },
-  { value: 'effective_price', label: 'Effective Price' },
-  { value: 'currency', label: 'Currency' },
   { value: 'charge_type', label: 'Charge Type' },
 ];
 
@@ -93,7 +128,6 @@ const columns = [
   columnHelper.accessor('account_id', { header: 'Account', cell: (info) => info.getValue() ?? '—' }),
   columnHelper.accessor('cost', { header: 'Cost', cell: (info) => formatCurrency(info.getValue()) }),
   columnHelper.accessor('resource_id', { header: 'Resource ID', cell: textCell }),
-  columnHelper.accessor('resource_group', { header: 'Resource Group', cell: textCell }),
   columnHelper.accessor('region', { header: 'Region', cell: textCell }),
   columnHelper.accessor('instance_type', { header: 'Instance Type', cell: textCell }),
   columnHelper.accessor('database_engine', { header: 'DB Engine', cell: textCell }),
@@ -102,12 +136,12 @@ const columns = [
   columnHelper.accessor('subscription_id', { header: 'Subscription ID', cell: textCell }),
   columnHelper.accessor('subscription_name', { header: 'Subscription Name', cell: textCell }),
   columnHelper.accessor('purchase_type', { header: 'Purchase Type', cell: textCell }),
-  columnHelper.accessor('quantity', { header: 'Quantity', cell: numberCell }),
+  columnHelper.accessor('quantity', { header: 'Quantity', cell: quantityCell }),
   columnHelper.accessor('unit', { header: 'Unit', cell: textCell }),
   columnHelper.accessor('unit_price', { header: 'Unit Price', cell: numberCell }),
   columnHelper.accessor('charge_type', { header: 'Charge Type', cell: textCell }),
   columnHelper.accessor('tags', {
-    header: 'Tags',
+    header: 'Billing Code',
     cell: (info) => {
       const text = formatTags(info.getValue());
       return text === '—' ? (
