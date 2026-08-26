@@ -2,10 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireCompanyAccess, requireStaff } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { isSupportTopic } from '@/lib/supportTopics';
+import { sendEmail } from '@/lib/sendEmail';
+import { buildSupportRequestEmail } from '@/lib/supportRequestEmail';
 import type { SupportRequestWithCompany } from '@/lib/types';
 
 const MAX_TEXT = 200;
 const MAX_DETAILS = 2000;
+
+// Where support notifications land. Overridable without a deploy, so routing
+// them to a real support inbox later is a settings change.
+const SUPPORT_INBOX = process.env.SUPPORT_EMAIL_TO ?? 'mgolino@outlook.com';
 
 function cleanText(value: unknown, limit: number): string | null {
   if (typeof value !== 'string') return null;
@@ -70,6 +76,26 @@ export async function POST(request: NextRequest) {
   if (error) {
     console.error('Failed to record support request:', error);
     return NextResponse.json({ error: 'Could not submit your request. Please try again.' }, { status: 500 });
+  }
+
+  // The ticket is already saved, so notification failures are logged and the
+  // submitter still gets a success -- the request is not lost, and the queue
+  // in the Support Requests tab remains the system of record.
+  const { data: company } = await adminClient.from('companies').select('name').eq('id', companyId).maybeSingle();
+
+  const { subject, text } = buildSupportRequestEmail({
+    companyName: company?.name ?? 'Unknown company',
+    firstName: cleanFirstName,
+    email: cleanEmail,
+    phone: cleanText(phone, MAX_TEXT),
+    phoneExt: cleanText(phoneExt, MAX_TEXT),
+    topics: cleanTopics,
+    details: cleanText(details, MAX_DETAILS),
+  });
+
+  const sent = await sendEmail({ to: SUPPORT_INBOX, subject, text, replyTo: cleanEmail });
+  if (!sent.ok) {
+    console.error('Recorded the support request but could not email it:', sent.error);
   }
 
   return NextResponse.json({ request: data });
