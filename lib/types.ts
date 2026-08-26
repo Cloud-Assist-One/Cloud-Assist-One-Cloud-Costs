@@ -53,6 +53,33 @@ export interface CostRecord {
   account_id: string | null;
   source_file_id: string;
   created_at: string;
+
+  // Billing line-item detail. Nullable because they only populate when a
+  // provider export (CUR, Azure usage export) carries them; a service-level
+  // pull fills almost none of these. See
+  // supabase/migrations/20260829000000_billing_line_item_fields.sql.
+  resource_id: string | null;
+  resource_group: string | null;
+  region: string | null;
+  availability_zone: string | null;
+  instance_type: string | null;
+  database_engine: string | null;
+  meter_category: string | null;
+  meter_name: string | null;
+  usage_type: string | null;
+  operation: string | null;
+  subscription_id: string | null;
+  subscription_name: string | null;
+  purchase_type: string | null;
+  reservation_id: string | null;
+  reservation_name: string | null;
+  quantity: number | null;
+  unit: string | null;
+  unit_price: number | null;
+  effective_price: number | null;
+  currency: string | null;
+  charge_type: string | null;
+  tags: Record<string, string> | null;
 }
 
 export type TodoStatus = 'open' | 'done';

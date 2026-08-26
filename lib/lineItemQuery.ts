@@ -1,7 +1,30 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { CloudProvider, CostRecord } from './types';
 
-export type LineItemSortColumn = 'usage_date' | 'cost';
+export type LineItemSortColumn =
+  | 'usage_date'
+  | 'cost'
+  | 'resource_id'
+  | 'resource_group'
+  | 'region'
+  | 'availability_zone'
+  | 'instance_type'
+  | 'database_engine'
+  | 'meter_category'
+  | 'meter_name'
+  | 'usage_type'
+  | 'operation'
+  | 'subscription_id'
+  | 'subscription_name'
+  | 'purchase_type'
+  | 'reservation_id'
+  | 'reservation_name'
+  | 'quantity'
+  | 'unit'
+  | 'unit_price'
+  | 'effective_price'
+  | 'currency'
+  | 'charge_type';
 export type SortDirection = 'asc' | 'desc';
 
 export interface LineItemFilters {
