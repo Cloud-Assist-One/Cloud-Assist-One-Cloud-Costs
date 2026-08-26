@@ -6,6 +6,7 @@ import {
   flexRender,
   getCoreRowModel,
   useReactTable,
+  type CellContext,
 } from '@tanstack/react-table';
 import { createClient } from '@/lib/supabase/client';
 import type { CloudProvider, CostRecord } from '@/lib/types';
@@ -26,7 +27,61 @@ function formatCurrency(amount: number): string {
   return `$${amount.toFixed(2)}`;
 }
 
-const columnHelper = createColumnHelper<CostRecord & { referenced: boolean }>();
+type LineItemRow = CostRecord & { referenced: boolean };
+
+const columnHelper = createColumnHelper<LineItemRow>();
+
+// Shared by every "just show the text, or an em dash" column below. Long
+// values (resource ids, names) truncate visually but keep the full value
+// available via the title attribute on hover.
+function textCell(info: CellContext<LineItemRow, string | null>) {
+  const value = info.getValue();
+  if (value === null) return '—';
+  return (
+    <span className={styles.truncate} title={value}>
+      {value}
+    </span>
+  );
+}
+
+function numberCell(info: CellContext<LineItemRow, number | null>) {
+  const value = info.getValue();
+  return value === null ? '—' : String(value);
+}
+
+function formatTags(tags: Record<string, string> | null): string {
+  if (!tags) return '—';
+  const entries = Object.entries(tags);
+  if (entries.length === 0) return '—';
+  return entries.map(([key, value]) => `${key}=${value}`).join(', ');
+}
+
+// Columns that can be sorted server-side beyond the two with their own
+// buttons above (Date, Cost). `tags` is jsonb and deliberately excluded —
+// sorting it isn't meaningful.
+const MORE_SORT_OPTIONS: { value: LineItemSortColumn; label: string }[] = [
+  { value: 'resource_id', label: 'Resource ID' },
+  { value: 'resource_group', label: 'Resource Group' },
+  { value: 'region', label: 'Region' },
+  { value: 'availability_zone', label: 'Availability Zone' },
+  { value: 'instance_type', label: 'Instance Type' },
+  { value: 'database_engine', label: 'Database Engine' },
+  { value: 'meter_category', label: 'Meter Category' },
+  { value: 'meter_name', label: 'Meter Name' },
+  { value: 'usage_type', label: 'Usage Type' },
+  { value: 'operation', label: 'Operation' },
+  { value: 'subscription_id', label: 'Subscription ID' },
+  { value: 'subscription_name', label: 'Subscription Name' },
+  { value: 'purchase_type', label: 'Purchase Type' },
+  { value: 'reservation_id', label: 'Reservation ID' },
+  { value: 'reservation_name', label: 'Reservation Name' },
+  { value: 'quantity', label: 'Quantity' },
+  { value: 'unit', label: 'Unit' },
+  { value: 'unit_price', label: 'Unit Price' },
+  { value: 'effective_price', label: 'Effective Price' },
+  { value: 'currency', label: 'Currency' },
+  { value: 'charge_type', label: 'Charge Type' },
+];
 
 const columns = [
   columnHelper.accessor('usage_date', { header: 'Date', cell: (info) => info.getValue() }),
@@ -37,6 +92,40 @@ const columns = [
   columnHelper.accessor('service_name', { header: 'Service', cell: (info) => info.getValue() }),
   columnHelper.accessor('account_id', { header: 'Account', cell: (info) => info.getValue() ?? '—' }),
   columnHelper.accessor('cost', { header: 'Cost', cell: (info) => formatCurrency(info.getValue()) }),
+  columnHelper.accessor('resource_id', { header: 'Resource ID', cell: textCell }),
+  columnHelper.accessor('resource_group', { header: 'Resource Group', cell: textCell }),
+  columnHelper.accessor('region', { header: 'Region', cell: textCell }),
+  columnHelper.accessor('availability_zone', { header: 'AZ', cell: textCell }),
+  columnHelper.accessor('instance_type', { header: 'Instance Type', cell: textCell }),
+  columnHelper.accessor('database_engine', { header: 'DB Engine', cell: textCell }),
+  columnHelper.accessor('meter_category', { header: 'Meter Category', cell: textCell }),
+  columnHelper.accessor('meter_name', { header: 'Meter Name', cell: textCell }),
+  columnHelper.accessor('usage_type', { header: 'Usage Type', cell: textCell }),
+  columnHelper.accessor('operation', { header: 'Operation', cell: textCell }),
+  columnHelper.accessor('subscription_id', { header: 'Subscription ID', cell: textCell }),
+  columnHelper.accessor('subscription_name', { header: 'Subscription Name', cell: textCell }),
+  columnHelper.accessor('purchase_type', { header: 'Purchase Type', cell: textCell }),
+  columnHelper.accessor('reservation_id', { header: 'Reservation ID', cell: textCell }),
+  columnHelper.accessor('reservation_name', { header: 'Reservation Name', cell: textCell }),
+  columnHelper.accessor('quantity', { header: 'Quantity', cell: numberCell }),
+  columnHelper.accessor('unit', { header: 'Unit', cell: textCell }),
+  columnHelper.accessor('unit_price', { header: 'Unit Price', cell: numberCell }),
+  columnHelper.accessor('effective_price', { header: 'Effective Price', cell: numberCell }),
+  columnHelper.accessor('currency', { header: 'Currency', cell: textCell }),
+  columnHelper.accessor('charge_type', { header: 'Charge Type', cell: textCell }),
+  columnHelper.accessor('tags', {
+    header: 'Tags',
+    cell: (info) => {
+      const text = formatTags(info.getValue());
+      return text === '—' ? (
+        '—'
+      ) : (
+        <span className={styles.truncate} title={text}>
+          {text}
+        </span>
+      );
+    },
+  }),
   columnHelper.accessor('referenced', {
     header: '',
     cell: (info) => (info.getValue() ? <span title="Referenced by a note or follow-up">📝</span> : null),
@@ -156,6 +245,22 @@ export default function LineItemsTab({ companyId, periodId, initialServiceFilter
         <button type="button" onClick={() => toggleSort('cost')}>
           Sort by cost {sortColumn === 'cost' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
         </button>
+        <label htmlFor="line-items-more-sort">More sort options</label>
+        <select
+          id="line-items-more-sort"
+          value={MORE_SORT_OPTIONS.some((opt) => opt.value === sortColumn) ? sortColumn : ''}
+          onChange={(e) => {
+            if (e.target.value) toggleSort(e.target.value as LineItemSortColumn);
+          }}
+        >
+          <option value="">More sort options…</option>
+          {MORE_SORT_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+              {sortColumn === opt.value ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : ''}
+            </option>
+          ))}
+        </select>
       </div>
 
       {loading ? (

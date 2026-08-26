@@ -20,3 +20,15 @@
 .error {
   color: var(--color-destructive, #d1274b);
 }
+
+/* Long values (resource ids, tag lists) truncate instead of stretching the
+   grid; the title attribute on the same element still surfaces the full
+   value on hover. */
+.truncate {
+  display: inline-block;
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
