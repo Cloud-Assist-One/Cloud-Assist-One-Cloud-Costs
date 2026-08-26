@@ -1,7 +1,7 @@
 import Image from 'next/image';
 import styles from './MarketingHeader.module.css';
 
-const MARKETING_SITE = 'https://cloud-assist-one-cloud.vercel.app';
+const MARKETING_SITE = 'https://www.cloudassistone.com';
 
 // The portal has no marketing pages of its own, so every link here points back
 // at the main site. No "Login" entry: this header only appears on the login
