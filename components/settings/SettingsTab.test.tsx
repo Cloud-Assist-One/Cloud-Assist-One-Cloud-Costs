@@ -20,6 +20,12 @@ jest.mock('./SnowflakeCredentialsPanel', () => ({
 }));
 
 describe('SettingsTab', () => {
+  beforeEach(() => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => ({ canAdd: true, message: null }) });
+  });
+
   it('defaults to the AWS panel', async () => {
     render(<SettingsTab companyId="company-1" />);
 

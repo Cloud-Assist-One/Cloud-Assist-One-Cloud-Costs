@@ -3,10 +3,25 @@
 import ConnectionsPanel from './ConnectionsPanel';
 import type { AwsCredentialSummary } from '@/lib/types';
 
-export default function AwsCredentialsPanel({ companyId }: { companyId: string }) {
+interface AwsCredentialsPanelProps {
+  companyId: string;
+  canAdd?: boolean;
+  limitMessage?: string | null;
+  onConnectionsChanged?: () => void;
+}
+
+export default function AwsCredentialsPanel({
+  companyId,
+  canAdd,
+  limitMessage,
+  onConnectionsChanged,
+}: AwsCredentialsPanelProps) {
   return (
     <ConnectionsPanel<AwsCredentialSummary>
       companyId={companyId}
+      canAdd={canAdd}
+      limitMessage={limitMessage}
+      onConnectionsChanged={onConnectionsChanged}
       apiPath="/api/settings/aws-credentials"
       fields={[
         { name: 'accessKeyId', label: 'Access key ID', type: 'text' },

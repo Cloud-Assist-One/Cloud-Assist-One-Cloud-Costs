@@ -3,10 +3,25 @@
 import ConnectionsPanel from './ConnectionsPanel';
 import type { AzureCredentialSummary } from '@/lib/types';
 
-export default function AzureCredentialsPanel({ companyId }: { companyId: string }) {
+interface AzureCredentialsPanelProps {
+  companyId: string;
+  canAdd?: boolean;
+  limitMessage?: string | null;
+  onConnectionsChanged?: () => void;
+}
+
+export default function AzureCredentialsPanel({
+  companyId,
+  canAdd,
+  limitMessage,
+  onConnectionsChanged,
+}: AzureCredentialsPanelProps) {
   return (
     <ConnectionsPanel<AzureCredentialSummary>
       companyId={companyId}
+      canAdd={canAdd}
+      limitMessage={limitMessage}
+      onConnectionsChanged={onConnectionsChanged}
       apiPath="/api/settings/azure-credentials"
       fields={[
         { name: 'tenantId', label: 'Tenant ID', type: 'text' },

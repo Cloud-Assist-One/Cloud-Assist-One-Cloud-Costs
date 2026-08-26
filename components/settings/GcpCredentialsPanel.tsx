@@ -3,10 +3,25 @@
 import ConnectionsPanel from './ConnectionsPanel';
 import type { GcpCredentialSummary } from '@/lib/types';
 
-export default function GcpCredentialsPanel({ companyId }: { companyId: string }) {
+interface GcpCredentialsPanelProps {
+  companyId: string;
+  canAdd?: boolean;
+  limitMessage?: string | null;
+  onConnectionsChanged?: () => void;
+}
+
+export default function GcpCredentialsPanel({
+  companyId,
+  canAdd,
+  limitMessage,
+  onConnectionsChanged,
+}: GcpCredentialsPanelProps) {
   return (
     <ConnectionsPanel<GcpCredentialSummary>
       companyId={companyId}
+      canAdd={canAdd}
+      limitMessage={limitMessage}
+      onConnectionsChanged={onConnectionsChanged}
       apiPath="/api/settings/gcp-credentials"
       fields={[
         { name: 'projectId', label: 'Project ID', type: 'text' },

@@ -3,6 +3,7 @@ import { requireCompanyAccess } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { encryptCredentials } from '@/lib/cloudCredentialsCrypto';
 import { readTagKey } from '@/lib/resourceTags';
+import { getConnectionAllowance } from '@/lib/connectionAllowance';
 import type { AzureCredentialSummary } from '@/lib/types';
 
 function toSummary(row: { id: string; label: string; metadata: Record<string, unknown> }): AzureCredentialSummary {
@@ -84,6 +85,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: guard.message }, { status: guard.status });
   }
 
+  const adminClient = createAdminClient();
+
+  // The real enforcement of the subscription tier's connection cap — the
+  // UI greying the Add Connection button is only a courtesy, since a user
+  // could POST directly.
+  const allowance = await getConnectionAllowance(adminClient, companyId);
+  if (!allowance.canAdd) {
+    return NextResponse.json(
+      { error: allowance.message ?? 'Your plan does not allow adding another cloud connection.' },
+      { status: 409 }
+    );
+  }
+
   let encryptedPayload: string;
   try {
     encryptedPayload = encryptCredentials({ tenantId, clientId, clientSecret, subscriptionId });
@@ -92,7 +106,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Could not save the Azure connection.' }, { status: 500 });
   }
 
-  const adminClient = createAdminClient();
   const { data, error } = await adminClient
     .from('cloud_provider_credentials')
     .insert({

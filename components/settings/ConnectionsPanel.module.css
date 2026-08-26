@@ -81,7 +81,21 @@
   align-self: flex-start;
 }
 
-.actions button:disabled {
+.addSection {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.limitMessage {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+}
+
+.actions button:disabled,
+.addButton:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }

@@ -15,6 +15,14 @@ interface ConnectionsPanelProps<TSummary extends { id: string; label: string; ta
   apiPath: string;
   fields: ConnectionField[];
   renderSummary: (connection: TSummary) => string;
+  // Server-side enforcement lives in the POST route — this only greys the
+  // button so the user isn't surprised by a 409 after filling out the form.
+  canAdd?: boolean;
+  limitMessage?: string | null;
+  // Lets the parent (SettingsTab) refresh the subscription-tier allowance
+  // after a connection is added or removed, so the button greys/ungreys
+  // without a page reload.
+  onConnectionsChanged?: () => void;
 }
 
 export default function ConnectionsPanel<TSummary extends { id: string; label: string; tagKey?: string }>({
@@ -22,6 +30,9 @@ export default function ConnectionsPanel<TSummary extends { id: string; label: s
   apiPath,
   fields,
   renderSummary,
+  canAdd = true,
+  limitMessage = null,
+  onConnectionsChanged,
 }: ConnectionsPanelProps<TSummary>) {
   const [connections, setConnections] = useState<TSummary[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -92,6 +103,7 @@ export default function ConnectionsPanel<TSummary extends { id: string; label: s
       setAdding(false);
       setLabel('');
       setValues(Object.fromEntries(fields.map((f) => [f.name, f.defaultValue ?? ''])));
+      onConnectionsChanged?.();
     } catch {
       setError('Could not save the connection.');
     } finally {
@@ -111,6 +123,7 @@ export default function ConnectionsPanel<TSummary extends { id: string; label: s
       }
       setConnections((prev) => (prev ?? []).filter((c) => c.id !== id));
       setConfirmingDeleteId(null);
+      onConnectionsChanged?.();
     } catch {
       setError('Could not disconnect.');
     } finally {
@@ -254,9 +267,17 @@ export default function ConnectionsPanel<TSummary extends { id: string; label: s
           </div>
         </div>
       ) : (
-        <button type="button" className={styles.addButton} onClick={() => setAdding(true)}>
-          Add connection
-        </button>
+        <div className={styles.addSection}>
+          <button
+            type="button"
+            className={styles.addButton}
+            disabled={!canAdd}
+            onClick={() => setAdding(true)}
+          >
+            Add connection
+          </button>
+          {limitMessage && <p className={styles.limitMessage}>{limitMessage}</p>}
+        </div>
       )}
     </div>
   );
