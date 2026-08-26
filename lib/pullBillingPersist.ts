@@ -2,11 +2,69 @@ import type { createAdminClient } from '@/lib/supabase/admin';
 import { checkBillingMonthMatches } from '@/lib/billingMonthCheck';
 import type { CloudProvider, PullBillingSuccessResponse } from '@/lib/types';
 
+/**
+ * A pulled cost row.
+ *
+ * The three required fields are all an aggregation API can return. Providers
+ * whose API delivers real line items (Azure's Cost Details report) also fill
+ * in the detail columns, which are the same ones the upload path populates --
+ * see ParsedCostRow in lib/parseCostFile.
+ */
 export interface PulledCostRow {
   service_name: string;
   usage_date: string;
   cost: number;
+  account_id?: string | null;
+  resource_id?: string | null;
+  resource_group?: string | null;
+  region?: string | null;
+  availability_zone?: string | null;
+  instance_type?: string | null;
+  database_engine?: string | null;
+  meter_category?: string | null;
+  meter_name?: string | null;
+  usage_type?: string | null;
+  operation?: string | null;
+  subscription_id?: string | null;
+  subscription_name?: string | null;
+  purchase_type?: string | null;
+  reservation_id?: string | null;
+  reservation_name?: string | null;
+  quantity?: number | null;
+  unit?: string | null;
+  unit_price?: number | null;
+  effective_price?: number | null;
+  currency?: string | null;
+  charge_type?: string | null;
+  tags?: Record<string, string> | null;
 }
+
+// Every optional column on PulledCostRow, so a row's detail is written
+// without naming each field twice.
+const DETAIL_COLUMNS = [
+  'resource_id',
+  'resource_group',
+  'region',
+  'availability_zone',
+  'instance_type',
+  'database_engine',
+  'meter_category',
+  'meter_name',
+  'usage_type',
+  'operation',
+  'subscription_id',
+  'subscription_name',
+  'purchase_type',
+  'reservation_id',
+  'reservation_name',
+  'quantity',
+  'unit',
+  'unit_price',
+  'effective_price',
+  'currency',
+  'charge_type',
+  'tags',
+] as const satisfies readonly (keyof PulledCostRow)[];
 
 export interface PersistPulledBillingArgs {
   adminClient: ReturnType<typeof createAdminClient>;
@@ -87,9 +145,14 @@ export async function persistPulledBilling(args: PersistPulledBillingArgs): Prom
   }
 
   const storagePath = `${companyId}/${Date.now()}-${artifactSuffix}`;
+  // A string artifact is already a document in its own right (Azure's cost
+  // report is CSV) and is stored verbatim; anything else is serialized.
+  const rawIsText = typeof rawResponse === 'string';
   const { error: uploadError } = await adminClient.storage
     .from('billing-files')
-    .upload(storagePath, JSON.stringify(rawResponse), { contentType: 'application/json' });
+    .upload(storagePath, rawIsText ? (rawResponse as string) : JSON.stringify(rawResponse), {
+      contentType: rawIsText ? 'text/csv' : 'application/json',
+    });
 
   if (uploadError) {
     return { ok: false, status: 500, error: uploadError.message };
@@ -133,15 +196,26 @@ export async function persistPulledBilling(args: PersistPulledBillingArgs): Prom
   }
 
   const { error: insertRecordsError } = await adminClient.from('cost_records').insert(
-    rows.map((row) => ({
-      company_id: companyId,
-      cloud_provider: provider,
-      service_name: row.service_name,
-      usage_date: row.usage_date,
-      cost: row.cost,
-      account_id: null,
-      source_file_id: uploadedFile.id,
-    }))
+    rows.map((row) => {
+      const detail: Record<string, unknown> = {};
+      for (const column of DETAIL_COLUMNS) {
+        const value = row[column];
+        // Undefined means the provider has no such concept; null means it has
+        // one and this row is empty. Only the latter is worth writing.
+        if (value !== undefined) detail[column] = value;
+      }
+
+      return {
+        company_id: companyId,
+        cloud_provider: provider,
+        service_name: row.service_name,
+        usage_date: row.usage_date,
+        cost: row.cost,
+        account_id: row.account_id ?? null,
+        source_file_id: uploadedFile.id,
+        ...detail,
+      };
+    })
   );
 
   if (insertRecordsError) {

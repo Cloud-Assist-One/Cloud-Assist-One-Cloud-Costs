@@ -3,12 +3,24 @@ import { requireCompanyAccess } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { decryptCredentials } from '@/lib/cloudCredentialsCrypto';
 import { resolvePullDateRange } from '@/lib/billingPullDateRange';
-import { fetchAzureCostRows } from '@/lib/azureCostQuery';
+import { fetchAzureCostDetailsCsv } from '@/lib/azureCostDetails';
+import { parseCostFile } from '@/lib/parseCostFile';
 import { persistPulledBilling } from '@/lib/pullBillingPersist';
 import type { AzureCredentials } from '@/lib/azureCostQuery';
 
+// Generating a cost details report is asynchronous and Azure asks for waits of
+// up to a minute between polls. 300s is the ceiling on both Hobby and Pro.
+export const maxDuration = 300;
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : 'Unknown error.';
+}
+
+/** Turns an exclusive range end into the inclusive one the report expects. */
+function inclusiveEnd(exclusiveEnd: string): string {
+  const date = new Date(`${exclusiveEnd}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
 }
 
 // Cost Management is gated by its own RBAC role: a service principal with
@@ -85,24 +97,40 @@ export async function POST(request: NextRequest) {
 
   const { rangeStart, rangeEnd } = resolvePullDateRange(billingMonth, now);
 
-  let pulled: Awaited<ReturnType<typeof fetchAzureCostRows>>;
+  // The report's timePeriod end is inclusive, while resolvePullDateRange
+  // returns an exclusive end for the database range.
+  const reportEnd = inclusiveEnd(rangeEnd);
+
+  let report: Awaited<ReturnType<typeof fetchAzureCostDetailsCsv>>;
   try {
-    pulled = await fetchAzureCostRows(secrets, rangeStart, rangeEnd);
+    report = await fetchAzureCostDetailsCsv(secrets, rangeStart, reportEnd);
   } catch (err) {
     // Logged so a 403-vs-429 distinction is diagnosable in production; the
     // message carries no credentials (it is built from the response body).
-    console.error('Azure Cost Management pull failed:', err);
+    console.error('Azure Cost Details pull failed:', err);
     return NextResponse.json(
       { error: `Azure Cost Management: ${annotateAuthorizationError(errorMessage(err))}` },
       { status: 502 }
     );
   }
 
-  const { rows, rawPages } = pulled;
-
-  if (rows.length === 0) {
+  if (report.status === 'NoDataFound' || report.csv.trim() === '') {
     return NextResponse.json({ error: 'Azure Cost Management returned no cost data for this month.' }, { status: 502 });
   }
+
+  // The report is a CSV of the same shape the upload path already parses, so
+  // both routes produce identical rows and fill the same detail columns.
+  const parsed = parseCostFile(Buffer.from(report.csv, 'utf8'));
+
+  if (parsed.rows.length === 0) {
+    const detail = parsed.errors.length > 0 ? ` (${parsed.errors[0]})` : '';
+    return NextResponse.json(
+      { error: `Azure returned a cost report that could not be read${detail}.` },
+      { status: 502 }
+    );
+  }
+
+  const rows = parsed.rows;
 
   // Archiving happens inside the helper, deliberately after the Azure call
   // above has already succeeded — a failed pull must never cost the user
@@ -114,8 +142,8 @@ export async function POST(request: NextRequest) {
     billingMonth,
     archiveFirst,
     rows,
-    rawResponse: rawPages,
-    artifactSuffix: 'azure-cost-management-pull.json',
+    rawResponse: report.csv,
+    artifactSuffix: 'azure-cost-details-pull.csv',
     filename: `Azure Cost Management — ${credRow.label}`,
     uploadedBy: guard.userId,
     rangeStart,
