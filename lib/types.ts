@@ -275,6 +275,12 @@ export interface PullBillingSuccessResponse {
   status: 'processed';
   rowCount: number;
   newPeriodId?: string;
+  /**
+   * Set when the pull succeeded but not as configured — currently only when
+   * AWS refused to group by the connection's tag, so the data came back
+   * without billing codes.
+   */
+  warning?: string;
 }
 
 export interface AzureVmRow {

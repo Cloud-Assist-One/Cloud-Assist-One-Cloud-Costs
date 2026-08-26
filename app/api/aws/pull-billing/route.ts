@@ -6,6 +6,8 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { decryptCredentials } from '@/lib/cloudCredentialsCrypto';
 import { resolvePullDateRange } from '@/lib/billingPullDateRange';
 import { persistPulledBilling } from '@/lib/pullBillingPersist';
+import { readTagKey } from '@/lib/resourceTags';
+import { isTagGroupingRejection, mapCostGroupsToRows } from '@/lib/awsCostGroups';
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : 'Unknown error.';
@@ -50,7 +52,7 @@ export async function POST(request: NextRequest) {
 
   const { data: credRow, error: credError } = await adminClient
     .from('cloud_provider_credentials')
-    .select('label, encrypted_payload')
+    .select('label, encrypted_payload, metadata')
     .eq('company_id', companyId)
     .eq('provider', 'aws')
     .eq('id', credentialId)
@@ -75,37 +77,66 @@ export async function POST(request: NextRequest) {
     credentials: { accessKeyId: secrets.accessKeyId, secretAccessKey: secrets.secretAccessKey },
   });
 
-  const resultsByTime: NonNullable<GetCostAndUsageCommandOutput['ResultsByTime']> = [];
-  let nextPageToken: string | undefined;
-  try {
+  // The tag to carry through is the one already configured on this connection
+  // for the Resources and IAM Users grids. Blank means no tag grouping, which
+  // is exactly the request this route made before.
+  const tagKeyRead = readTagKey((credRow.metadata as Record<string, unknown> | null)?.tagKey);
+  const configuredTagKey = tagKeyRead.ok ? tagKeyRead.tagKey : '';
+
+  async function fetchCostGroups(tagKey: string) {
+    const collected: NonNullable<GetCostAndUsageCommandOutput['ResultsByTime']> = [];
+    let nextPageToken: string | undefined;
     do {
       const page: GetCostAndUsageCommandOutput = await ceClient.send(
         new GetCostAndUsageCommand({
           TimePeriod: { Start: rangeStart, End: rangeEnd },
           Granularity: 'DAILY',
           Metrics: ['UnblendedCost'],
-          GroupBy: [{ Type: 'DIMENSION', Key: 'SERVICE' }],
+          // Cost Explorer allows at most two groupings, so this is the whole
+          // budget: the service, and the billing-code tag.
+          GroupBy: tagKey
+            ? [
+                { Type: 'DIMENSION' as const, Key: 'SERVICE' },
+                { Type: 'TAG' as const, Key: tagKey },
+              ]
+            : [{ Type: 'DIMENSION' as const, Key: 'SERVICE' }],
           NextPageToken: nextPageToken,
         })
       );
-      resultsByTime.push(...(page.ResultsByTime ?? []));
+      collected.push(...(page.ResultsByTime ?? []));
       nextPageToken = page.NextPageToken;
     } while (nextPageToken);
-  } catch (err) {
-    return NextResponse.json({ error: `AWS Cost Explorer: ${errorMessage(err)}` }, { status: 502 });
+    return collected;
   }
 
-  const rows: { service_name: string; usage_date: string; cost: number }[] = [];
-  for (const result of resultsByTime) {
-    const usageDate = result.TimePeriod?.Start;
-    if (!usageDate) continue;
-    for (const group of result.Groups ?? []) {
-      const serviceName = group.Keys?.[0];
-      const amount = group.Metrics?.UnblendedCost?.Amount;
-      if (!serviceName || amount === undefined) continue;
-      rows.push({ service_name: serviceName, usage_date: usageDate, cost: Number(amount) });
+  let resultsByTime: NonNullable<GetCostAndUsageCommandOutput['ResultsByTime']> = [];
+  let effectiveTagKey = configuredTagKey;
+  let warning: string | undefined;
+
+  try {
+    resultsByTime = await fetchCostGroups(configuredTagKey);
+  } catch (err) {
+    // A tag has to be activated as a cost allocation tag in Billing before
+    // Cost Explorer will group by it. Falling back keeps the pull working for
+    // a connection that hasn't done that, but it must say so — silently
+    // dropping the tag would look like the resources simply weren't tagged.
+    if (isTagGroupingRejection(err, configuredTagKey)) {
+      try {
+        resultsByTime = await fetchCostGroups('');
+        effectiveTagKey = '';
+        warning =
+          `Pulled without the "${configuredTagKey}" tag: AWS rejected grouping by it. ` +
+          `Activate it as a cost allocation tag in Billing → Cost allocation tags, then re-pull. ` +
+          `Newly activated tags only apply to usage recorded after activation.`;
+      } catch (retryErr) {
+        return NextResponse.json({ error: `AWS Cost Explorer: ${errorMessage(retryErr)}` }, { status: 502 });
+      }
+    } else {
+      return NextResponse.json({ error: `AWS Cost Explorer: ${errorMessage(err)}` }, { status: 502 });
     }
   }
+
+  const rows = mapCostGroupsToRows(resultsByTime, effectiveTagKey);
 
   if (rows.length === 0) {
     return NextResponse.json({ error: 'AWS Cost Explorer returned no cost data for this month.' }, { status: 502 });
@@ -137,5 +168,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: persisted.error }, { status: persisted.status });
   }
 
-  return NextResponse.json(persisted.response);
+  return NextResponse.json(warning ? { ...persisted.response, warning } : persisted.response);
 }

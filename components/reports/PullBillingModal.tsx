@@ -41,6 +41,9 @@ export default function PullBillingModal({ companyId, provider, onClose, onPulle
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [rowCount, setRowCount] = useState<number | null>(null);
+  // Set when the pull worked but not as configured, e.g. AWS refused to group
+  // by the connection's tag so no billing codes came back.
+  const [warning, setWarning] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -85,6 +88,7 @@ export default function PullBillingModal({ companyId, provider, onClose, onPulle
         return;
       }
       setRowCount(body.rowCount);
+      setWarning(body.warning ?? null);
       setSubmitting(false);
       // Fire onPulled here, right as the pull succeeds, rather than waiting
       // for the "Done" button: the × close button also renders on this step,
@@ -205,6 +209,7 @@ export default function PullBillingModal({ companyId, provider, onClose, onPulle
             ) : (
               <>
                 <p role="status">Pulled {rowCount} rows.</p>
+                {warning && <p role="alert">{warning}</p>}
                 <div className={styles.actions}>
                   <button type="button" onClick={onClose}>
                     Done
