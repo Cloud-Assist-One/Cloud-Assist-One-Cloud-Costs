@@ -47,6 +47,15 @@ type TabKey =
 // the single-cloud-provider report tabs, not Compare/Line Items/Files/etc.
 const SINGLE_PROVIDER_TABS: TabKey[] = ['aws', 'azure', 'gcp', 'snowflake'];
 
+// A sentinel company-switcher value rather than a real company id: picking it
+// puts staff/admin in the admin tools instead of mirroring a client's portal.
+// It can never collide with a company, since companies are keyed by uuid.
+const ADMIN_PORTAL = '__admin_portal__';
+
+// The only tabs that exist in the admin portal. Everything else on the tab
+// strip is a view of one company's data and has no meaning without one.
+const ADMIN_TABS: TabKey[] = ['supportRequests', 'admin'];
+
 function greetingFor(hour: number): string {
   if (hour < 12) return 'Good morning';
   if (hour < 18) return 'Good afternoon';
@@ -70,9 +79,13 @@ interface AppShellProps {
 
 export default function AppShell({ userId, role, companyId, userEmail }: AppShellProps) {
   const canManage = role === 'staff' || role === 'admin';
-  const [activeTab, setActiveTab] = useState<TabKey>('aws');
+  // Staff and admin land in the admin portal: signing in to work on the
+  // product shouldn't drop you inside some client's report.
+  const [activeTab, setActiveTab] = useState<TabKey>(canManage ? 'supportRequests' : 'aws');
   const [companies, setCompanies] = useState<Company[]>([]);
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(companyId);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(
+    canManage ? ADMIN_PORTAL : companyId
+  );
   const [activePeriodId, setActivePeriodId] = useState<string | null>(null);
   const [viewingPeriodId, setViewingPeriodId] = useState<string | null>(null);
   const [lineItemsFilter, setLineItemsFilter] = useState<string[] | undefined>(undefined);
@@ -108,7 +121,23 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
     };
   }, [role]);
 
-  const effectiveCompanyId = canManage ? selectedCompanyId : companyId;
+  const isAdminPortal = canManage && selectedCompanyId === ADMIN_PORTAL;
+  // The admin portal is deliberately company-less, so every company-scoped
+  // effect and panel below sees null and skips its work.
+  const effectiveCompanyId = canManage ? (isAdminPortal ? null : selectedCompanyId) : companyId;
+
+  // Switching between the admin portal and a client's portal changes which
+  // tabs exist, so the current tab has to move if it just disappeared. Done
+  // here rather than in an effect: an effect would render the missing tab
+  // once before correcting it.
+  function handleCompanyChange(value: string) {
+    setSelectedCompanyId(value);
+    const toAdminPortal = value === ADMIN_PORTAL;
+    setActiveTab((prev) => {
+      if (toAdminPortal) return ADMIN_TABS.includes(prev) ? prev : 'supportRequests';
+      return ADMIN_TABS.includes(prev) ? 'aws' : prev;
+    });
+  }
 
   // Switching companies always resets back to that company's active period —
   // never carries over "viewing an archived period" from the previous company.
@@ -225,8 +254,9 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
             <select
               id="company-switcher"
               value={selectedCompanyId ?? ''}
-              onChange={(e) => setSelectedCompanyId(e.target.value)}
+              onChange={(e) => handleCompanyChange(e.target.value)}
             >
+              <option value={ADMIN_PORTAL}>Admin Portal</option>
               {companies.map((company) => (
                 <option key={company.id} value={company.id}>
                   {company.name}
@@ -242,7 +272,7 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
         )}
         <div className={styles.identity}>
           <span className={styles.greeting}>
-            {greeting ? `${greeting},` : ''} {companyName ?? ''}
+            {greeting ? `${greeting},` : ''} {isAdminPortal ? 'Admin Portal' : companyName ?? ''}
           </span>
           <span className={styles.userEmail}>{userEmail}</span>
         </div>
@@ -258,20 +288,30 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
       </div>
 
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TabKey)} className={`mb-6 print-hidden`}>
+        {/* The two modes are mutually exclusive: the admin portal shows only
+            admin tools, and mirroring a client's portal shows only what that
+            client sees. */}
         <TabsList>
-          <TabsTrigger value="aws">{CLOUD_PROVIDER_LABELS.aws}</TabsTrigger>
-          <TabsTrigger value="azure">{CLOUD_PROVIDER_LABELS.azure}</TabsTrigger>
-          <TabsTrigger value="gcp">{CLOUD_PROVIDER_LABELS.gcp}</TabsTrigger>
-          <TabsTrigger value="snowflake">{CLOUD_PROVIDER_LABELS.snowflake}</TabsTrigger>
-          <TabsTrigger value="compare">Compare</TabsTrigger>
-          <TabsTrigger value="lineItems">Line Items</TabsTrigger>
-          <TabsTrigger value="files">Uploaded Files</TabsTrigger>
-          <TabsTrigger value="notes">Notes & Follow-ups</TabsTrigger>
-          <TabsTrigger value="support">Support</TabsTrigger>
-          <TabsTrigger value="archive">Archive</TabsTrigger>
-          <TabsTrigger value="settings">Settings</TabsTrigger>
-          {canManage && <TabsTrigger value="supportRequests">Support Requests</TabsTrigger>}
-          {canManage && <TabsTrigger value="admin">Admin</TabsTrigger>}
+          {isAdminPortal ? (
+            <>
+              <TabsTrigger value="supportRequests">Support Requests</TabsTrigger>
+              <TabsTrigger value="admin">Admin</TabsTrigger>
+            </>
+          ) : (
+            <>
+              <TabsTrigger value="aws">{CLOUD_PROVIDER_LABELS.aws}</TabsTrigger>
+              <TabsTrigger value="azure">{CLOUD_PROVIDER_LABELS.azure}</TabsTrigger>
+              <TabsTrigger value="gcp">{CLOUD_PROVIDER_LABELS.gcp}</TabsTrigger>
+              <TabsTrigger value="snowflake">{CLOUD_PROVIDER_LABELS.snowflake}</TabsTrigger>
+              <TabsTrigger value="compare">Compare</TabsTrigger>
+              <TabsTrigger value="lineItems">Line Items</TabsTrigger>
+              <TabsTrigger value="files">Uploaded Files</TabsTrigger>
+              <TabsTrigger value="notes">Notes & Follow-ups</TabsTrigger>
+              <TabsTrigger value="support">Support</TabsTrigger>
+              <TabsTrigger value="archive">Archive</TabsTrigger>
+              <TabsTrigger value="settings">Settings</TabsTrigger>
+            </>
+          )}
         </TabsList>
       </Tabs>
 
