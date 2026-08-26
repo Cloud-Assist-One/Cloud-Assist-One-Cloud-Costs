@@ -6,6 +6,7 @@ export interface Company {
   id: string;
   name: string;
   created_at: string;
+  subscription_tier: string;
 }
 
 export type BillingPeriodStatus = 'active' | 'archived';

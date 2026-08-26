@@ -2,6 +2,7 @@
 
 import { useState, FormEvent } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import MarketingHeader from './MarketingHeader';
@@ -106,6 +107,10 @@ export default function LoginForm() {
           <button type="button" className={styles.linkButton} onClick={handleResetPassword}>
             Forgot password?
           </button>
+
+          <Link href="/signup" className={styles.tryIt}>
+            Try It — start a free account
+          </Link>
         </form>
       </div>
     </div>

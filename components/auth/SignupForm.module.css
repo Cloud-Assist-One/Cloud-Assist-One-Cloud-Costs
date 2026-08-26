@@ -41,11 +41,6 @@
   max-width: 24rem;
 }
 
-.form h1 {
-  font-size: 1.5rem;
-  margin-bottom: 0.5rem;
-}
-
 .form label {
   font-weight: 600;
 }
@@ -67,7 +62,8 @@
 
 .status {
   color: var(--color-fg);
-  font-size: 0.875rem;
+  font-size: 0.95rem;
+  text-align: center;
 }
 
 .submit {
@@ -84,34 +80,4 @@
 .submit:disabled {
   opacity: 0.7;
   cursor: not-allowed;
-}
-
-.linkButton {
-  background: none;
-  border: none;
-  color: var(--color-accent);
-  text-decoration: underline;
-  cursor: pointer;
-  font: inherit;
-  padding: 0;
-  align-self: flex-start;
-}
-
-/* Secondary to the Sign in button -- a bordered pill rather than the solid
-   accent fill, so it clearly reads as the lower-commitment path. */
-.tryIt {
-  align-self: center;
-  margin-top: 0.5rem;
-  padding: 0.6rem 1.5rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-pill);
-  color: var(--color-fg);
-  font-weight: 600;
-  text-decoration: none;
-  text-align: center;
-}
-
-.tryIt:hover {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
 }

@@ -4,12 +4,16 @@ import AdminCompanies from './AdminCompanies';
 
 const listCompanies = jest.fn();
 const insertCompany = jest.fn();
+const updateCompany = jest.fn();
 
 jest.mock('@/lib/supabase/client', () => ({
   createClient: () => ({
     from: () => ({
       select: () => ({ order: (...args: unknown[]) => listCompanies(...args) }),
       insert: (...args: unknown[]) => insertCompany(...args),
+      update: (...updateArgs: unknown[]) => ({
+        eq: (...eqArgs: unknown[]) => updateCompany(...updateArgs, ...eqArgs),
+      }),
     }),
   }),
 }));
@@ -17,9 +21,10 @@ jest.mock('@/lib/supabase/client', () => ({
 describe('AdminCompanies', () => {
   beforeEach(() => {
     listCompanies.mockReset().mockResolvedValue({
-      data: [{ id: 'c1', name: 'Acme Corp', created_at: '2026-07-01T00:00:00.000Z' }],
+      data: [{ id: 'c1', name: 'Acme Corp', created_at: '2026-07-01T00:00:00.000Z', subscription_tier: 'free' }],
     });
     insertCompany.mockReset().mockReturnValue(Promise.resolve({ error: null }));
+    updateCompany.mockReset().mockResolvedValue({ error: null });
     global.fetch = jest.fn();
   });
 
@@ -37,6 +42,44 @@ describe('AdminCompanies', () => {
     await user.click(screen.getByRole('button', { name: /create company/i }));
 
     await waitFor(() => expect(insertCompany).toHaveBeenCalledWith(expect.objectContaining({ name: 'Globex' })));
+  });
+
+  it('shows a tier dropdown defaulting to Free when creating a company', async () => {
+    render(<AdminCompanies />);
+    await screen.findByText('Acme Corp');
+
+    expect(screen.getByLabelText('Subscription tier')).toHaveValue('free');
+  });
+
+  it('creates a new company with the selected tier', async () => {
+    const user = userEvent.setup();
+    render(<AdminCompanies />);
+
+    await screen.findByText('Acme Corp');
+    await user.type(screen.getByLabelText(/company name/i), 'Globex');
+    await user.selectOptions(screen.getByLabelText('Subscription tier'), 'subscription_20');
+    await user.click(screen.getByRole('button', { name: /create company/i }));
+
+    await waitFor(() =>
+      expect(insertCompany).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Globex', subscription_tier: 'subscription_20' })
+      )
+    );
+  });
+
+  it("changes an existing company's tier and saves it", async () => {
+    const user = userEvent.setup();
+    render(<AdminCompanies />);
+
+    await screen.findByText('Acme Corp');
+    const tierSelect = screen.getByLabelText(/subscription tier for acme corp/i);
+    expect(tierSelect).toHaveValue('free');
+
+    await user.selectOptions(tierSelect, 'subscription_4');
+
+    await waitFor(() =>
+      expect(updateCompany).toHaveBeenCalledWith({ subscription_tier: 'subscription_4' }, 'id', 'c1')
+    );
   });
 
   it('does not show a Delete button for a non-admin', async () => {

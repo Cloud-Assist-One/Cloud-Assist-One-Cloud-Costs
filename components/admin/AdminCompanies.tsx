@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Company } from '@/lib/types';
+import { SUBSCRIPTION_TIERS, SUBSCRIPTION_TIER_LABELS, isSubscriptionTier, type SubscriptionTier } from '@/lib/subscriptionTiers';
 import styles from './AdminCompanies.module.css';
 
 interface AdminCompaniesProps {
@@ -12,11 +13,13 @@ interface AdminCompaniesProps {
 export default function AdminCompanies({ isAdmin = false }: AdminCompaniesProps) {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [name, setName] = useState('');
+  const [tier, setTier] = useState<SubscriptionTier>('free');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmText, setConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [savingTierId, setSavingTierId] = useState<string | null>(null);
 
   const fetchCompanies = useCallback(async () => {
     const supabase = createClient();
@@ -51,12 +54,31 @@ export default function AdminCompanies({ isAdmin = false }: AdminCompaniesProps)
     if (!name.trim()) return;
     setError(null);
     const supabase = createClient();
-    const { error: insertError } = await supabase.from('companies').insert({ name: name.trim() });
+    const { error: insertError } = await supabase
+      .from('companies')
+      .insert({ name: name.trim(), subscription_tier: tier });
     if (insertError) {
       setError(insertError.message ?? 'Could not create the company.');
       return;
     }
     setName('');
+    setTier('free');
+    loadCompanies();
+  }
+
+  async function handleTierChange(company: Company, newTier: string) {
+    setError(null);
+    setSavingTierId(company.id);
+    const supabase = createClient();
+    const { error: updateError } = await supabase
+      .from('companies')
+      .update({ subscription_tier: newTier })
+      .eq('id', company.id);
+    setSavingTierId(null);
+    if (updateError) {
+      setError(updateError.message ?? 'Could not update the subscription tier.');
+      return;
+    }
     loadCompanies();
   }
 
@@ -93,6 +115,20 @@ export default function AdminCompanies({ isAdmin = false }: AdminCompaniesProps)
       <div className={styles.addForm}>
         <label htmlFor="new-company-name">Company name</label>
         <input id="new-company-name" value={name} onChange={(e) => setName(e.target.value)} />
+
+        <label htmlFor="new-company-tier">Subscription tier</label>
+        <select
+          id="new-company-tier"
+          value={tier}
+          onChange={(e) => setTier(e.target.value as SubscriptionTier)}
+        >
+          {SUBSCRIPTION_TIERS.map((t) => (
+            <option key={t} value={t}>
+              {SUBSCRIPTION_TIER_LABELS[t]}
+            </option>
+          ))}
+        </select>
+
         <button type="button" onClick={handleCreate}>
           Create company
         </button>
@@ -109,6 +145,24 @@ export default function AdminCompanies({ isAdmin = false }: AdminCompaniesProps)
           {companies.map((company) => (
             <li key={company.id} className={styles.companyRow}>
               <span>{company.name}</span>
+              <span className={styles.tierControl}>
+                <label htmlFor={`tier-${company.id}`} className={styles.visuallyHidden}>
+                  Subscription tier for {company.name}
+                </label>
+                <select
+                  id={`tier-${company.id}`}
+                  value={isSubscriptionTier(company.subscription_tier) ? company.subscription_tier : 'free'}
+                  disabled={savingTierId === company.id}
+                  onChange={(e) => handleTierChange(company, e.target.value)}
+                >
+                  {SUBSCRIPTION_TIERS.map((t) => (
+                    <option key={t} value={t}>
+                      {SUBSCRIPTION_TIER_LABELS[t]}
+                    </option>
+                  ))}
+                </select>
+                {savingTierId === company.id && <span>Saving…</span>}
+              </span>
               {isAdmin &&
                 (deletingId === company.id ? (
                   <div className={styles.confirmDelete}>
