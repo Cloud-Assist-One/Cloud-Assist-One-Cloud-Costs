@@ -47,6 +47,10 @@ jest.mock('./../settings/SettingsTab', () => ({
   __esModule: true,
   default: () => <div>settings-tab-content</div>,
 }));
+jest.mock('./../support/SupportRequestsTab', () => ({
+  __esModule: true,
+  default: () => <div>support-requests-content</div>,
+}));
 jest.mock('./../reports/AwsResourcesTab', () => ({
   __esModule: true,
   default: () => <div>aws-resources-tab-content</div>,
@@ -232,11 +236,17 @@ describe('AppShell', () => {
     const user = userEvent.setup();
     render(<AppShell userId="staff-1" role="staff" companyId={null} userEmail="staff@example.com" />);
 
+    // Staff start in the admin portal, so reaching a client's Notes means
+    // mirroring that company first.
+    await screen.findByRole('option', { name: 'Acme Corp' });
+    await user.selectOptions(screen.getByLabelText(/viewing company/i), 'c1');
+
     await screen.findByText('report-tab-content for aws');
     await user.click(screen.getByRole('tab', { name: /notes/i }));
     expect(await screen.findByText('notes-feed-content isStaff=true')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('tab', { name: /admin/i }));
+    await user.selectOptions(screen.getByLabelText(/viewing company/i), '__admin_portal__');
+    await user.click(screen.getByRole('tab', { name: /^admin$/i }));
     // The three admin screens are now sub-tabs, so only Companies shows first
     // and the others must be reachable rather than stacked below it.
     expect(await screen.findByText('admin-companies-content')).toBeInTheDocument();
@@ -261,9 +271,88 @@ describe('AppShell', () => {
     render(<AppShell userId="admin-1" role="admin" companyId={null} userEmail="admin@example.com" />);
 
     expect(await screen.findByLabelText(/viewing company/i)).toBeInTheDocument();
-    await screen.findByText('report-tab-content for aws');
-    await user.click(screen.getByRole('tab', { name: /admin/i }));
+    await user.click(screen.getByRole('tab', { name: /^admin$/i }));
     expect(await screen.findByText('admin-companies-content')).toBeInTheDocument();
+  });
+
+  it('starts staff in the Admin Portal, showing only the admin tabs', async () => {
+    listCompanies.mockResolvedValueOnce({ data: [{ id: 'c1', name: 'Acme Corp', created_at: '2026-07-01T00:00:00.000Z' }] });
+    render(<AppShell userId="staff-1" role="staff" companyId={null} userEmail="staff@example.com" />);
+
+    expect(await screen.findByRole('tab', { name: /support requests/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /^admin$/i })).toBeInTheDocument();
+
+    // Nothing company-scoped belongs here -- that is the whole point of the mode.
+    expect(screen.queryByRole('tab', { name: /amazon|aws/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /compare/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /line items/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /uploaded files/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /archive/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /settings/i })).not.toBeInTheDocument();
+  });
+
+  it('hides the admin tabs while mirroring a client, and restores them on the way back', async () => {
+    listCompanies.mockResolvedValueOnce({ data: [{ id: 'c1', name: 'Acme Corp', created_at: '2026-07-01T00:00:00.000Z' }] });
+    const user = userEvent.setup();
+    render(<AppShell userId="admin-1" role="admin" companyId={null} userEmail="admin@example.com" />);
+
+    await screen.findByRole('option', { name: 'Acme Corp' });
+    await user.selectOptions(screen.getByLabelText(/viewing company/i), 'c1');
+
+    // Mirroring shows the client's portal, so the admin tools must not be
+    // sitting alongside it.
+    expect(await screen.findByText('report-tab-content for aws')).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /support requests/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /^admin$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /settings/i })).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText(/viewing company/i), '__admin_portal__');
+
+    expect(await screen.findByRole('tab', { name: /support requests/i })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /settings/i })).not.toBeInTheDocument();
+  });
+
+  it('leaves a client portal tab behind when switching into the Admin Portal', async () => {
+    listCompanies.mockResolvedValueOnce({ data: [{ id: 'c1', name: 'Acme Corp', created_at: '2026-07-01T00:00:00.000Z' }] });
+    const user = userEvent.setup();
+    render(<AppShell userId="admin-1" role="admin" companyId={null} userEmail="admin@example.com" />);
+
+    await screen.findByRole('option', { name: 'Acme Corp' });
+    await user.selectOptions(screen.getByLabelText(/viewing company/i), 'c1');
+    await screen.findByText('report-tab-content for aws');
+    await user.click(screen.getByRole('tab', { name: /settings/i }));
+    expect(await screen.findByText('settings-tab-content')).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText(/viewing company/i), '__admin_portal__');
+
+    // Settings no longer exists in this mode, so staying on it would render a
+    // tab that isn't in the strip.
+    expect(await screen.findByText('support-requests-content')).toBeInTheDocument();
+    expect(screen.queryByText('settings-tab-content')).not.toBeInTheDocument();
+  });
+
+  it('returns to a report tab when leaving the Admin Portal from an admin tab', async () => {
+    listCompanies.mockResolvedValueOnce({ data: [{ id: 'c1', name: 'Acme Corp', created_at: '2026-07-01T00:00:00.000Z' }] });
+    const user = userEvent.setup();
+    render(<AppShell userId="admin-1" role="admin" companyId={null} userEmail="admin@example.com" />);
+
+    await screen.findByRole('option', { name: 'Acme Corp' });
+    await user.click(screen.getByRole('tab', { name: /^admin$/i }));
+    expect(await screen.findByText('admin-companies-content')).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText(/viewing company/i), 'c1');
+
+    expect(await screen.findByText('report-tab-content for aws')).toBeInTheDocument();
+    expect(screen.queryByText('admin-companies-content')).not.toBeInTheDocument();
+  });
+
+  it('names the Admin Portal in the greeting instead of leaving it blank', async () => {
+    listCompanies.mockResolvedValueOnce({ data: [{ id: 'c1', name: 'Acme Corp', created_at: '2026-07-01T00:00:00.000Z' }] });
+    render(<AppShell userId="admin-1" role="admin" companyId={null} userEmail="admin@example.com" />);
+
+    // Matched with the greeting attached, so this can't pass on the dropdown
+    // option that also reads "Admin Portal".
+    expect(await screen.findByText(/Good (morning|afternoon|evening), Admin Portal/)).toBeInTheDocument();
   });
 
   it('shows the Archive tab and switches to it', async () => {
@@ -326,6 +415,9 @@ describe('AppShell', () => {
     });
     const user = userEvent.setup();
     render(<AppShell userId="staff-1" role="staff" companyId={null} userEmail="staff@example.com" />);
+
+    await screen.findByRole('option', { name: 'Acme Corp' });
+    await user.selectOptions(screen.getByLabelText(/viewing company/i), 'c1');
 
     await screen.findByText('report-tab-content for aws');
     await user.click(screen.getByRole('tab', { name: /archive/i }));
