@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import LineItemsTab from './LineItemsTab';
+import LineItemsTab, { formatQuantity, formatTags, isBillingCodeTag } from './LineItemsTab';
 
 const fetchPage = jest.fn();
 const fetchReferenced = jest.fn();
@@ -99,7 +99,7 @@ describe('LineItemsTab', () => {
     expect(fetchPage.mock.calls[1][2]).toEqual({ column: 'region', direction: 'desc' });
   });
 
-  it('renders line-item detail columns, showing — for null fields and tags as key=value pairs', async () => {
+  it('renders line-item detail columns, showing — for null fields and only the billing code tag', async () => {
     fetchPage.mockResolvedValueOnce({
       rows: [
         {
@@ -134,7 +134,7 @@ describe('LineItemsTab', () => {
           effective_price: null,
           currency: null,
           charge_type: null,
-          tags: { Environment: 'production', CostCenter: '1234' },
+          tags: { Environment: 'production', 'Billing Code': 'CC-1234' },
         },
       ],
       totalCount: 1,
@@ -147,7 +147,9 @@ describe('LineItemsTab', () => {
     expect(screen.getByText('us-east-1')).toBeInTheDocument();
     expect(screen.getByText('24')).toBeInTheDocument();
     expect(screen.getByText('Hrs')).toBeInTheDocument();
-    expect(screen.getByText('Environment=production, CostCenter=1234')).toBeInTheDocument();
+    // Only the billing code is shown; the other tags stay out of the grid.
+    expect(screen.getByText('CC-1234')).toBeInTheDocument();
+    expect(screen.queryByText(/Environment/)).not.toBeInTheDocument();
 
     // Null line-item fields render as an em dash, not blank.
     expect(screen.getAllByText('—').length).toBeGreaterThan(0);
@@ -192,6 +194,61 @@ describe('LineItemsTab', () => {
     // The ones that carry the detail people actually sort by stay.
     expect(screen.getByRole('columnheader', { name: 'Region' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Unit Price' })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: 'Tags' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Billing Code' })).toBeInTheDocument();
+
+    expect(screen.queryByRole('columnheader', { name: 'Resource Group' })).not.toBeInTheDocument();
+  });
+});
+
+describe('formatQuantity', () => {
+  it('caps a long float at eight decimals', () => {
+    expect(formatQuantity(0.000277777777777778)).toBe('0.00027778');
+  });
+
+  it('leaves whole numbers and short decimals alone', () => {
+    expect(formatQuantity(24)).toBe('24');
+    expect(formatQuantity(1.5)).toBe('1.5');
+  });
+
+  it('never renders a tiny usage as plain zero', () => {
+    // Rounding 1e-12 to eight decimals gives 0, which would read as no usage
+    // at all rather than a very small amount.
+    expect(formatQuantity(0.000000000001)).toBe('<0.00000001');
+  });
+
+  it('renders a missing quantity as an em dash', () => {
+    expect(formatQuantity(null)).toBe('—');
+  });
+});
+
+describe('isBillingCodeTag', () => {
+  it.each(['Billing Code', 'billing code', 'BillingCode', 'billing_code', 'billing-code', 'BILLING CODE', 'billingCode'])(
+    'matches %s',
+    (key) => {
+      expect(isBillingCodeTag(key)).toBe(true);
+    }
+  );
+
+  it.each(['billing', 'code', 'billing codes', 'cost centre', 'billingcodex'])('does not match %s', (key) => {
+    expect(isBillingCodeTag(key)).toBe(false);
+  });
+});
+
+describe('formatTags', () => {
+  it('shows only the billing code, whatever the other tags are', () => {
+    expect(formatTags({ env: 'prod', 'Billing Code': 'CC-1234', owner: 'platform' })).toBe('CC-1234');
+  });
+
+  it('shows an em dash when no tag is a billing code', () => {
+    expect(formatTags({ env: 'prod', owner: 'platform' })).toBe('—');
+  });
+
+  it('shows an em dash when there are no tags at all', () => {
+    expect(formatTags(null)).toBe('—');
+    expect(formatTags({})).toBe('—');
+  });
+
+  it('joins the values when a resource is tagged twice under different spellings', () => {
+    expect(formatTags({ 'Billing Code': 'CC-1', billing_code: 'CC-2' })).toBe('CC-1, CC-2');
   });
 });
