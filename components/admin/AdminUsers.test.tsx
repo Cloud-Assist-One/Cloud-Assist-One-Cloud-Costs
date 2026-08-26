@@ -20,30 +20,16 @@ describe('AdminUsers', () => {
     });
   });
 
-  it('lists existing users with their role and company', async () => {
-    (global.fetch as jest.Mock).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        users: [{ id: 'u1', email: 'client@example.com', role: 'client', company_id: 'c1', created_at: '2026-07-01T00:00:00.000Z' }],
-      }),
-    });
-
-    render(<AdminUsers />);
-
-    expect(await screen.findByText('client@example.com')).toBeInTheDocument();
-    expect(screen.getAllByText('Acme Corp').length).toBeGreaterThan(0);
-  });
-
   it('creates a new client user tied to a company', async () => {
-    (global.fetch as jest.Mock)
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ users: [] }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'u2', email: 'new@example.com', role: 'client', companyId: 'c1' }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ users: [{ id: 'u2', email: 'new@example.com', role: 'client', company_id: 'c1' }] }) });
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'u2', email: 'new@example.com', role: 'client', companyId: 'c1' }),
+    });
 
     const user = userEvent.setup();
     render(<AdminUsers />);
 
-    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/api/admin/users'));
+    await screen.findByRole('option', { name: 'Acme Corp' });
 
     await user.type(screen.getByLabelText(/email/i), 'new@example.com');
     await user.type(screen.getByLabelText(/^password/i), 'correct-horse-battery');
@@ -51,50 +37,56 @@ describe('AdminUsers', () => {
     await user.click(screen.getByRole('button', { name: /create user/i }));
 
     await waitFor(() =>
-      expect(global.fetch).toHaveBeenCalledWith(
-        '/api/admin/users',
-        expect.objectContaining({ method: 'POST' })
-      )
+      expect(global.fetch).toHaveBeenCalledWith('/api/admin/users', expect.objectContaining({ method: 'POST' }))
     );
   });
 
-  it('deletes a user after confirmation and refreshes the list', async () => {
-    (global.fetch as jest.Mock)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          users: [{ id: 'u1', email: 'client@example.com', role: 'client', company_id: 'c1', created_at: '2026-07-01T00:00:00.000Z' }],
-        }),
-      })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ deleted: true }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ users: [] }) });
+  it('confirms the new account by name, since the list of accounts lives elsewhere now', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'u2', email: 'new@example.com', role: 'client' }),
+    });
 
-    const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
     const user = userEvent.setup();
     render(<AdminUsers />);
 
-    await screen.findByText('client@example.com');
-    await user.click(screen.getByRole('button', { name: /delete/i }));
+    await screen.findByRole('option', { name: 'Acme Corp' });
+    await user.type(screen.getByLabelText(/email/i), 'new@example.com');
+    await user.type(screen.getByLabelText(/^password/i), 'correct-horse-battery');
+    await user.click(screen.getByRole('button', { name: /create user/i }));
 
-    expect(confirmSpy).toHaveBeenCalled();
-    await waitFor(() =>
-      expect(global.fetch).toHaveBeenCalledWith('/api/admin/users/u1', expect.objectContaining({ method: 'DELETE' }))
-    );
-    await waitFor(() => expect(screen.getByText('No users yet.')).toBeInTheDocument());
+    expect(await screen.findByRole('status')).toHaveTextContent('new@example.com');
+    // Cleared fields alone would be ambiguous, so the form must not look
+    // merely reset -- it has to say what happened.
+    expect(screen.getByLabelText(/email/i)).toHaveValue('');
+  });
 
-    confirmSpy.mockRestore();
+  it('reports a failed create rather than clearing the form', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: false,
+      json: async () => ({ error: 'A user with this email already exists.' }),
+    });
+
+    const user = userEvent.setup();
+    render(<AdminUsers />);
+
+    await screen.findByRole('option', { name: 'Acme Corp' });
+    await user.type(screen.getByLabelText(/email/i), 'taken@example.com');
+    await user.type(screen.getByLabelText(/^password/i), 'correct-horse-battery');
+    await user.click(screen.getByRole('button', { name: /create user/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('already exists');
+    expect(screen.getByLabelText(/email/i)).toHaveValue('taken@example.com');
   });
 
   it('does not offer the Admin role option to a non-admin', async () => {
-    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => ({ users: [] }) });
     render(<AdminUsers />);
 
-    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/api/admin/users'));
+    await screen.findByRole('option', { name: 'Acme Corp' });
     expect(screen.queryByRole('option', { name: 'Admin' })).not.toBeInTheDocument();
   });
 
   it('refreshes the company list on demand without discarding the current selection', async () => {
-    (global.fetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => ({ users: [] }) });
     listCompanies.mockResolvedValueOnce({
       data: [
         { id: 'c1', name: 'Acme Corp', created_at: '2026-07-01T00:00:00.000Z' },
@@ -104,7 +96,7 @@ describe('AdminUsers', () => {
     const user = userEvent.setup();
     render(<AdminUsers />);
 
-    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/api/admin/users'));
+    await screen.findByRole('option', { name: 'Globex' });
     await user.selectOptions(screen.getByLabelText(/company/i), 'c2');
 
     listCompanies.mockResolvedValueOnce({
@@ -121,20 +113,15 @@ describe('AdminUsers', () => {
   });
 
   it('lets an admin create another admin account', async () => {
-    (global.fetch as jest.Mock)
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ users: [] }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'u3', email: 'newadmin@example.com', role: 'admin' }) })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          users: [{ id: 'u3', email: 'newadmin@example.com', role: 'admin', company_id: null, created_at: '2026-07-01T00:00:00.000Z' }],
-        }),
-      });
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'u3', email: 'newadmin@example.com', role: 'admin' }),
+    });
 
     const user = userEvent.setup();
     render(<AdminUsers isAdmin />);
 
-    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/api/admin/users'));
+    await screen.findByRole('option', { name: 'Acme Corp' });
 
     await user.type(screen.getByLabelText(/email/i), 'newadmin@example.com');
     await user.type(screen.getByLabelText(/^password/i), 'correct-horse-battery');
@@ -146,7 +133,12 @@ describe('AdminUsers', () => {
         '/api/admin/users',
         expect.objectContaining({
           method: 'POST',
-          body: JSON.stringify({ email: 'newadmin@example.com', password: 'correct-horse-battery', role: 'admin', companyId: undefined }),
+          body: JSON.stringify({
+            email: 'newadmin@example.com',
+            password: 'correct-horse-battery',
+            role: 'admin',
+            companyId: undefined,
+          }),
         })
       )
     );

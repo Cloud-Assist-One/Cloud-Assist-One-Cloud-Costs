@@ -11,7 +11,7 @@ const LINKS = [
   { label: 'Why Us', href: `${MARKETING_SITE}/#why-us` },
   { label: 'Process', href: `${MARKETING_SITE}/process.html` },
   { label: 'Clients', href: `${MARKETING_SITE}/clients.html` },
-  { label: 'Contact', href: `${MARKETING_SITE}/#contact` },
+  { label: 'Contact', href: `${MARKETING_SITE}/contact.html` },
 ];
 
 export default function MarketingHeader() {
@@ -28,10 +28,10 @@ export default function MarketingHeader() {
               {link.label}
             </a>
           ))}
-          <a
-            className={styles.cta}
-            href="mailto:info@cloudassistone.com?subject=Getting%20Started%20with%20Cloud%20Assist%20One"
-          >
+          {/* Points at the marketing site's contact form, which replaced the
+              mailto CTA there -- this header mirrors that site's nav, so it
+              must not be the last place still opening a mail client. */}
+          <a className={styles.cta} href={`${MARKETING_SITE}/contact.html`}>
             Get Started
           </a>
         </nav>
