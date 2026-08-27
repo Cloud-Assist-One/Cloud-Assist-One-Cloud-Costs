@@ -279,3 +279,47 @@ export function workspacesWithCostlyLogSettings(
     findings
   );
 }
+
+// Advisor's Cost category is broader than this check. It also returns
+// unassociated public IPs and unattached disks -- both of which this tab
+// already detects with its own rules -- and reserved-instance advice, which is
+// deferred commitment coverage. Scoping to virtual machines is what keeps one
+// piece of waste from appearing twice with two different cost figures.
+const RIGHTSIZING_IMPACTED_FIELD = 'microsoft.compute/virtualmachines';
+
+export interface AdvisorRecommendationInput {
+  id: string;
+  category: string;
+  impactedField: string;
+  impactedValue: string;
+  problem: string;
+  savingsAmount: number | null;
+  savingsCurrency: string | null;
+}
+
+export function advisorRightsizingRecommendations(
+  recommendations: readonly AdvisorRecommendationInput[]
+): CheckResult {
+  const findings: Finding[] = recommendations
+    .filter(
+      (rec) =>
+        rec.category === 'Cost' && rec.impactedField.toLowerCase() === RIGHTSIZING_IMPACTED_FIELD
+    )
+    .map((rec) => {
+      // The saving goes in the detail, not monthlyCost: that column carries what
+      // the resource actually cost per the billing join.
+      const saving =
+        rec.savingsAmount !== null
+          ? ` Estimated saving ${rec.savingsAmount.toFixed(2)} ${rec.savingsCurrency ?? ''}`.trimEnd() + '/month.'
+          : '';
+
+      return leak(
+        rec.id,
+        rec.impactedValue,
+        null,
+        `Azure Advisor: ${rec.problem} — ${rec.impactedValue}.${saving}`
+      );
+    });
+
+  return okCheck('advisor-rightsizing', 'Underutilized virtual machines', 'builtin', findings);
+}

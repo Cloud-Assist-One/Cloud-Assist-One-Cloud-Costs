@@ -8,6 +8,7 @@ import {
   orphanedNetworkInterfaces,
   storageAccountsWithoutLifecycle,
   workspacesWithCostlyLogSettings,
+  advisorRightsizingRecommendations,
 } from './costLeakage';
 
 describe('unattachedDisks', () => {
@@ -280,5 +281,75 @@ describe('workspacesWithCostlyLogSettings', () => {
     const result = workspacesWithCostlyLogSettings([workspace({ retentionInDays: 30 })]);
 
     expect(result.findings).toEqual([]);
+  });
+});
+
+describe('advisorRightsizingRecommendations', () => {
+  function rec(overrides: Partial<Record<string, unknown>> = {}) {
+    return {
+      id: '/subscriptions/s1/recommendations/r1',
+      category: 'Cost',
+      impactedField: 'Microsoft.Compute/virtualMachines',
+      impactedValue: 'vm-web-3',
+      problem: 'Right-size or shutdown underutilized virtual machines',
+      savingsAmount: 92.4,
+      savingsCurrency: 'USD',
+      ...overrides,
+    };
+  }
+
+  it('flags a virtual machine rightsizing recommendation', () => {
+    const result = advisorRightsizingRecommendations([rec()]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].resourceName).toBe('vm-web-3');
+  });
+
+  it('states the estimated saving in the detail', () => {
+    const result = advisorRightsizingRecommendations([rec()]);
+
+    expect(result.findings[0].detail).toContain('92.40');
+  });
+
+  // Same rule as the AWS side: monthlyCost is the billing join, not a forecast.
+  it('leaves monthlyCost null rather than putting the projected saving in it', () => {
+    const result = advisorRightsizingRecommendations([rec()]);
+
+    expect(result.findings[0].monthlyCost).toBeNull();
+  });
+
+  // This tab already reports unassociated public IPs with its own rule. Showing
+  // Advisor's copy too would report one piece of waste twice, with two figures.
+  it('excludes a recommendation about a resource type this tab already covers', () => {
+    const result = advisorRightsizingRecommendations([
+      rec({ impactedField: 'Microsoft.Network/publicIPAddresses', impactedValue: 'ip-1' }),
+    ]);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  it('excludes reserved-instance advice, which is deferred commitment coverage', () => {
+    const result = advisorRightsizingRecommendations([
+      rec({ impactedField: 'Microsoft.Subscription', problem: 'Buy virtual machine reserved instances to save money' }),
+    ]);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  it('excludes a non-cost recommendation', () => {
+    const result = advisorRightsizingRecommendations([rec({ category: 'HighAvailability' })]);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  it('omits the saving when Advisor did not provide one', () => {
+    const result = advisorRightsizingRecommendations([rec({ savingsAmount: null })]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].detail).not.toContain('saving');
+  });
+
+  it('reports nothing for an empty recommendation list', () => {
+    expect(advisorRightsizingRecommendations([]).findings).toEqual([]);
   });
 });
