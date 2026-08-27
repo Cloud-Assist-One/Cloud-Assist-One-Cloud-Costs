@@ -226,6 +226,16 @@ describe('idleNatGateways', () => {
 
     expect(result.findings).toEqual([]);
   });
+
+  it('uses the ARN as the resource id so the finding can be priced, and the gateway id as the name', () => {
+    const result = idleNatGateways(
+      [{ natGatewayId: 'nat-1', arn: 'arn:nat-1', vpcId: 'vpc-empty', region: 'us-east-1' }],
+      new Set(['vpc-busy'])
+    );
+
+    expect(result.findings[0].resourceId).toBe('arn:nat-1');
+    expect(result.findings[0].resourceName).toBe('nat-1');
+  });
 });
 
 describe('stoppedRdsInstances', () => {

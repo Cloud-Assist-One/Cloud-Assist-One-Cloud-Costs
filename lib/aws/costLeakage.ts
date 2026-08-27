@@ -193,7 +193,7 @@ export function idleNatGateways(
     .filter((gateway) => gateway.vpcId && !vpcIdsWithRunningInstances.has(gateway.vpcId))
     .map((gateway) =>
       leak(
-        gateway.natGatewayId,
+        gateway.arn,
         gateway.natGatewayId,
         gateway.region,
         `NAT gateway sits in ${gateway.vpcId}, a VPC with no running instances, but bills hourly regardless of traffic.`
