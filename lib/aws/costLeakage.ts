@@ -307,7 +307,7 @@ export function staleMultipartUploads(
   for (const bucket of buckets) {
     if (bucket.staleCount === 0 || !bucket.oldestInitiated) continue;
 
-    const days = Math.floor((now.getTime() - new Date(bucket.oldestInitiated).getTime()) / 86_400_000);
+    const days = daysBetween(bucket.oldestInitiated, now);
 
     findings.push(
       leak(
