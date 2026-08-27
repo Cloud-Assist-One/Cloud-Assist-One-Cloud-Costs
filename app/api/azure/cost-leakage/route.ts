@@ -27,6 +27,11 @@ import {
 } from '@/lib/azure/costLeakage';
 import type { CheckResult, FindingsResponse } from '@/lib/types';
 
+// This route runs eight checks strictly sequentially, several of them
+// paginated ARM list calls or per-resource fan-outs. The default 15s would
+// cut it off mid-run. Matches the Azure Cost Details route.
+export const maxDuration = 300;
+
 // Matches the cap the resources route uses, for the same throttling reason.
 // Caps every per-resource fan-out in this route -- the VM instance-view
 // lookups below and the per-storage-account management-policy lookups --
@@ -322,10 +327,20 @@ export async function GET(request: NextRequest) {
       const advisor = new AdvisorManagementClient(credential, subscriptionId);
 
       const rows = [];
-      for await (const rec of advisor.recommendations.list()) {
+      // Pushing the category filter server-side (rather than pulling every
+      // category and filtering in-process) means the rule's own in-process
+      // Cost check below is a redundant guard, not the only line of defense.
+      for await (const rec of advisor.recommendations.list({ filter: "Category eq 'Cost'" })) {
         const savings = Number(rec.extendedProperties?.savingsAmount);
         rows.push({
-          id: rec.id ?? '',
+          // rec.id is the recommendation's own ARM id (.../Microsoft.Advisor/
+          // recommendations/{guid}) -- its last path segment is the guid, not
+          // a resource identifier, so it can never join to a cost_records row.
+          // resourceMetadata.resourceId is the ARM id of the VM (or other
+          // resource) the recommendation is actually about; rec.id is kept
+          // only as a last-resort fallback so a finding never comes back with
+          // an empty resourceId.
+          id: rec.resourceMetadata?.resourceId ?? rec.id ?? '',
           category: rec.category ?? '',
           impactedField: rec.impactedField ?? '',
           impactedValue: rec.impactedValue ?? '',

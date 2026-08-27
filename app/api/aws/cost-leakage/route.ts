@@ -25,7 +25,7 @@ import { ComputeOptimizerClient, GetEC2InstanceRecommendationsCommand } from '@a
 import { requireCompanyAccess } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { decryptCredentials } from '@/lib/cloudCredentialsCrypto';
-import { collectPages } from '@/lib/awsPagination';
+import { collectPages, MAX_PAGES } from '@/lib/awsPagination';
 import { mapWithConcurrency } from '@/lib/concurrency';
 import { unavailableCheck } from '@/lib/findings';
 import { fetchCostsForResources, lookupCost } from '@/lib/findingCosts';
@@ -46,6 +46,12 @@ import {
   type MultipartUploadBucketInput,
 } from '@/lib/aws/costLeakage';
 import type { CheckResult, FindingsResponse } from '@/lib/types';
+
+// This route makes up to ~400 extra S3 calls plus paginated log-group and
+// recommendation pulls, all run strictly sequentially, on top of the checks
+// shared with the resources route. The default 15s would cut it off well
+// before that finishes. Matches the Azure Cost Details route.
+export const maxDuration = 300;
 
 // Matches the cap the resources route uses, for the same throttling reason.
 // Caps every per-resource fan-out in this route -- load balancer target
@@ -100,9 +106,18 @@ const REQUIRED_PERMISSIONS: Record<string, string> = {
     'elasticloadbalancing:DescribeLoadBalancers, DescribeTargetGroups, and DescribeTargetHealth',
   'idle-nat-gateways': 'ec2:DescribeNatGateways (and DescribeInstances, to cross-reference busy VPCs)',
   'stopped-rds-instances': 'rds:DescribeDBInstances',
-  'buckets-without-lifecycle': 's3:GetLifecycleConfiguration',
-  'stale-multipart-uploads': 's3:ListBucketMultipartUploads',
+  // Both S3 checks share one ListBuckets call before either runs its own
+  // per-bucket lookup (GetLifecycleConfiguration / ListBucketMultipartUploads).
+  // A denial on that shared call surfaces as this check's own error, so
+  // s3:ListAllMyBuckets has to be named here too or the hint points at the
+  // wrong permission.
+  'buckets-without-lifecycle': 's3:GetLifecycleConfiguration (and s3:ListAllMyBuckets, to list the buckets themselves)',
+  'stale-multipart-uploads': 's3:ListBucketMultipartUploads (and s3:ListAllMyBuckets, to list the buckets themselves)',
   'log-groups-without-retention': 'logs:DescribeLogGroups',
+  // Deliberately no entry for 'over-provisioned-instances': Compute
+  // Optimizer's failure mode is the account not being enrolled, not a
+  // denied IAM action (see the OptInRequiredException handling below), so a
+  // permission hint here would misdirect rather than help.
 };
 
 // The AWS-managed SecurityAudit policy grants every permission in
@@ -379,6 +394,13 @@ export async function GET(request: NextRequest) {
 
   const scannedBuckets = allBuckets.slice(0, MAX_BUCKETS_SCANNED);
 
+  // Both S3 checks stamp every bucket with the credential's own region, but a
+  // bucket can live elsewhere (that mismatch is exactly why the s3 client
+  // above sets followRegionRedirects). ListBucketsCommand's response does
+  // carry a per-bucket BucketRegion field, but the SDK only populates it when
+  // the request itself carries at least one parameter -- this route's
+  // ListBucketsCommand({}) call has none, so it comes back undefined and
+  // there is no free per-bucket region to use instead.
   checks.push(
     await runCheck('buckets-without-lifecycle', 'Buckets with no lifecycle policy', async () => {
       if (bucketListError) throw new Error(`Could not list buckets: ${bucketListError}`);
@@ -411,17 +433,29 @@ export async function GET(request: NextRequest) {
       const rows = await mapWithConcurrency(scannedBuckets, TARGET_LOOKUP_CONCURRENCY, async (name) => {
         const row: MultipartUploadBucketInput = { name, region, oldestInitiated: null, staleCount: 0, lookupError: null };
         try {
-          const uploads = await collectPages(
-            (token) => s3.send(new ListMultipartUploadsCommand({ Bucket: name, KeyMarker: token })),
-            (page) => page.Uploads ?? [],
-            (page) => page.NextKeyMarker
-          );
-          for (const upload of uploads) {
-            const initiated = upload.Initiated?.getTime();
-            if (initiated === undefined || initiated > staleBefore) continue;
-            row.staleCount += 1;
-            const iso = new Date(initiated).toISOString();
-            if (!row.oldestInitiated || iso < row.oldestInitiated) row.oldestInitiated = iso;
+          // ListMultipartUploads pages on a pair of markers, not the single
+          // token collectPages expects: AWS requires echoing NextUploadIdMarker
+          // back as UploadIdMarker alongside KeyMarker, or a continuation
+          // resumes at keys strictly greater than the boundary key and skips
+          // that key's remaining uploads -- exactly the retried-upload-key
+          // case this check exists to catch. Looped locally rather than
+          // shoehorning a two-part marker into collectPages's single token.
+          let keyMarker: string | undefined;
+          let uploadIdMarker: string | undefined;
+          for (let page = 0; page < MAX_PAGES; page++) {
+            const response = await s3.send(
+              new ListMultipartUploadsCommand({ Bucket: name, KeyMarker: keyMarker, UploadIdMarker: uploadIdMarker })
+            );
+            for (const upload of response.Uploads ?? []) {
+              const initiated = upload.Initiated?.getTime();
+              if (initiated === undefined || initiated > staleBefore) continue;
+              row.staleCount += 1;
+              const iso = new Date(initiated).toISOString();
+              if (!row.oldestInitiated || iso < row.oldestInitiated) row.oldestInitiated = iso;
+            }
+            if (!response.IsTruncated) break;
+            keyMarker = response.NextKeyMarker;
+            uploadIdMarker = response.NextUploadIdMarker;
           }
         } catch (err) {
           // s3:ListBucketMultipartUploads is a distinct IAM action from
@@ -451,7 +485,12 @@ export async function GET(request: NextRequest) {
       return logGroupsWithoutRetention(
         groups.map((group) => ({
           name: group.logGroupName ?? '',
-          arn: group.arn ?? group.logGroupName ?? '',
+          // The SDK's own doc comment on this field is explicit: "This
+          // version of the ARN includes a trailing :* after the log group
+          // name." Left in place, the billing join's bareId() would extract
+          // "<name>:*" instead of the bare log group name and never match a
+          // cost_records row, blanking this whole section's monthlyCost.
+          arn: (group.arn ?? group.logGroupName ?? '').replace(/:\*$/, ''),
           retentionInDays: group.retentionInDays ?? null,
           storedBytes: group.storedBytes ?? null,
           region,
