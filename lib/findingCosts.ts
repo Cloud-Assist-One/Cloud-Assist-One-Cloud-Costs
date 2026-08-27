@@ -27,13 +27,21 @@ function bareId(id: string): string {
   return afterColon;
 }
 
-// Supabase/PostgREST's .or() filter syntax uses ',' '.' '(' ')' as
-// structural characters. An id containing any of them can't be safely
-// interpolated into an .or() term, so it's skipped rather than risking a
-// malformed filter (which PostgREST would reject, failing the whole query
-// for every other resource in the chunk too). Cloud resource ids do not
-// normally contain these characters.
+// Supabase/PostgREST's .or() filter syntax uses ',' '(' ')' as structural
+// characters. An id containing any of them can't be safely interpolated
+// into an .or() term, so it's skipped rather than risking a malformed
+// filter (which PostgREST would reject, failing the whole query for every
+// other resource in the chunk too). Cloud resource ids do not normally
+// contain these characters.
 const UNSAFE_OR_CHARS = /[,()]/;
+
+// '_' and '%' are LIKE/ILIKE wildcards, not literal characters, and Azure
+// resource names permit '_'. A bare id containing either would make the
+// ilike.%/${bare} suffix term match more than intended (e.g. "my_disk"
+// matching a billing row for "my-disk"), so the ilike term is dropped for
+// that id while the exact-match eq terms -- which are not wildcard-parsed
+// -- still apply.
+const LIKE_WILDCARD_CHARS = /[_%]/;
 
 /**
  * Bills-back the resources a leakage rule flagged.
@@ -41,10 +49,12 @@ const UNSAFE_OR_CHARS = /[,()]/;
  * Billing rows are not spelled consistently: an uploaded Cost and Usage
  * Report writes a resource's full ARN, while other exports (and the ids
  * this route synthesizes, which can't include the account-ID segment of a
- * real ARN) write just the bare id. So each candidate id is matched three
- * ways: exact full id, exact bare id, and "ends with /bareId" (to catch a
- * billing row that stored the full ARN while the finding only carries the
- * bare id, or vice versa). Azure's Cost Management export also lowercases
+ * real ARN) write just the bare id. So each candidate id is matched up to
+ * three ways: exact full id, exact bare id, and "ends with /bareId" (to
+ * catch a billing row that stored the full ARN while the finding only
+ * carries the bare id, or vice versa) -- the third only when the bare id
+ * has no LIKE wildcard character, see LIKE_WILDCARD_CHARS below. Azure's
+ * Cost Management export also lowercases
  * resource IDs while the ARM SDK returns them cased, so matching is
  * case-insensitive throughout (ilike for the suffix; eq relies on the
  * caller pre-lowercasing everywhere applicable — see the keying below).
@@ -53,6 +63,7 @@ export async function fetchCostsForResources(
   supabase: SupabaseClient,
   periodId: string | null,
   cloudProvider: CloudProvider,
+  companyId: string,
   resourceIds: readonly string[]
 ): Promise<ResourceCostMap> {
   const costs: ResourceCostMap = new Map();
@@ -67,7 +78,13 @@ export async function fetchCostsForResources(
       // Skip defensively: an id with a comma or parenthesis would corrupt
       // the shared .or() string for the whole batch, not just itself.
       if (UNSAFE_OR_CHARS.test(id) || UNSAFE_OR_CHARS.test(bare)) continue;
-      terms.push(`resource_id.eq.${id}`, `resource_id.eq.${bare}`, `resource_id.ilike.%/${bare}`);
+      terms.push(`resource_id.eq.${id}`, `resource_id.eq.${bare}`);
+      // Omit the wildcard-unsafe suffix term rather than let '_'/'%' in the
+      // bare id match unintended rows -- the two eq terms above still catch
+      // an exact match either way.
+      if (!LIKE_WILDCARD_CHARS.test(bare)) {
+        terms.push(`resource_id.ilike.%/${bare}`);
+      }
     }
 
     if (terms.length === 0) continue;
@@ -77,15 +94,24 @@ export async function fetchCostsForResources(
       .select('resource_id, cost')
       .eq('period_id', periodId)
       .eq('cloud_provider', cloudProvider)
+      // Scopes the join to the caller's own company so a client cannot pass
+      // another company's periodId and have that company's billed costs
+      // joined onto their findings. periodId arrives as an unvalidated query
+      // parameter and this route runs on the service-role client, so RLS
+      // does not enforce this -- it has to be explicit here.
+      .eq('company_id', companyId)
       .or(terms.join(','));
 
     if (error) throw new Error(error.message);
 
-    for (const row of (data ?? []) as { resource_id: string | null; cost: number | null }[]) {
+    for (const row of (data ?? []) as { resource_id: string | null; cost: number }[]) {
       if (!row.resource_id) continue;
+      const amount = Number(row.cost);
+      // A non-numeric value would otherwise become NaN here and propagate
+      // all the way to the rendered $NaN; skip the row instead.
+      if (!Number.isFinite(amount)) continue;
       const fullKey = row.resource_id.toLowerCase();
       const bareKey = bareId(row.resource_id).toLowerCase();
-      const amount = Number(row.cost ?? 0);
       // Index under both spellings so lookupCost can hit on either the
       // finding's full id or its bare suffix.
       costs.set(fullKey, (costs.get(fullKey) ?? 0) + amount);
