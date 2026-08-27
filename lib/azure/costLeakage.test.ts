@@ -6,6 +6,8 @@ import {
   emptyAppServicePlans,
   emptyBackendPoolLoadBalancers,
   orphanedNetworkInterfaces,
+  storageAccountsWithoutLifecycle,
+  workspacesWithCostlyLogSettings,
 } from './costLeakage';
 
 describe('unattachedDisks', () => {
@@ -200,6 +202,82 @@ describe('orphanedNetworkInterfaces', () => {
     const result = orphanedNetworkInterfaces([
       { id: '/subscriptions/s1/nics/nic-2', name: 'nic-2', hasVirtualMachine: true, location: 'eastus' },
     ]);
+
+    expect(result.findings).toEqual([]);
+  });
+});
+
+describe('storageAccountsWithoutLifecycle', () => {
+  it('flags an account with no management policy', () => {
+    const result = storageAccountsWithoutLifecycle([
+      { id: '/subscriptions/s1/storage/sa1', name: 'sa1', location: 'eastus', hasLifecyclePolicy: false, lookupError: null },
+    ]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].resourceName).toBe('sa1');
+  });
+
+  it('ignores an account that has one', () => {
+    const result = storageAccountsWithoutLifecycle([
+      { id: '/subscriptions/s1/storage/sa2', name: 'sa2', location: 'eastus', hasLifecyclePolicy: true, lookupError: null },
+    ]);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  // Unknown is not clean — the same rule the AWS bucket check follows.
+  it('reports an account whose policy could not be read', () => {
+    const result = storageAccountsWithoutLifecycle([
+      { id: '/subscriptions/s1/storage/sa3', name: 'sa3', location: 'eastus', hasLifecyclePolicy: false, lookupError: 'Forbidden' },
+    ]);
+
+    expect(result.findings[0].detail).toContain('could not be read');
+    expect(result.findings[0].detail).toContain('Forbidden');
+  });
+});
+
+describe('workspacesWithCostlyLogSettings', () => {
+  function workspace(overrides: Partial<Record<string, unknown>> = {}) {
+    return {
+      id: '/subscriptions/s1/workspaces/law-prod',
+      name: 'law-prod',
+      location: 'eastus',
+      retentionInDays: 30,
+      dailyQuotaGb: 5,
+      ...overrides,
+    };
+  }
+
+  it('flags retention above the free allowance', () => {
+    const result = workspacesWithCostlyLogSettings([workspace({ retentionInDays: 180 })]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].detail).toContain('180 days');
+  });
+
+  it('flags a workspace with no daily ingestion cap', () => {
+    const result = workspacesWithCostlyLogSettings([workspace({ dailyQuotaGb: null })]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].detail).toContain('no daily ingestion cap');
+  });
+
+  it('reports both reasons in one finding when both apply', () => {
+    const result = workspacesWithCostlyLogSettings([workspace({ retentionInDays: 365, dailyQuotaGb: null })]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].detail).toContain('365 days');
+    expect(result.findings[0].detail).toContain('no daily ingestion cap');
+  });
+
+  it('ignores a workspace at the free retention with a cap set', () => {
+    const result = workspacesWithCostlyLogSettings([workspace()]);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  it('treats the free allowance itself as fine, not costly', () => {
+    const result = workspacesWithCostlyLogSettings([workspace({ retentionInDays: 30 })]);
 
     expect(result.findings).toEqual([]);
   });
