@@ -12,7 +12,7 @@ Findings are computed live on every visit, exactly like the Resources tab. Nothi
 
 - **Native-first, built-in fallback.** Security Checks calls AWS Security Hub (`GetFindings`) and Azure Defender for Cloud (assessments) first. When those services are not enabled on the account — the common case for small customers, since both cost money — the route falls back to a built-in rule set written against the SDKs the project already uses. Each check reports which source produced it so the customer can see the difference.
 - **A permissions error must never look like a clean bill of health.** Every check carries a `status` of `'ok'` or `'unavailable'`. A denied `securityhub:GetFindings` or a missing `Security Reader` role renders as a visible warning on that section, never as an empty findings list.
-- **Cost Leakage shows real dollars, not estimates.** Each leaked resource is matched against `cost_records.resource_id` for the active period and shows that resource's actual billed cost. No pricing API, no hardcoded rate table.
+- **Cost Leakage shows real dollars where a price is available, not estimates.** Each leaked resource is matched against `cost_records.resource_id` for the active period and, when matched, shows that resource's actual billed cost — never a pricing API and never a hardcoded rate table. See **Cost join** below for when a resource_id is available to match against in the first place.
 - **Rules are pure functions.** All detection logic lives in `lib/` modules that take already-fetched SDK payloads and return findings. They are unit-tested against fixtures with no cloud account and no network.
 
 ## Non-goals
@@ -73,13 +73,17 @@ export type FindingsResponse =
 | `components/reports/FindingsTab.tsx` | Shared tab. Props: `companyId`, `periodId`, `provider: 'aws' \| 'azure'`, `kind: 'security-checks' \| 'cost-leakage'`. Owns the connection picker, fetch, refresh, loading/error/not-connected states. Fetches `/api/{provider}/{kind}`. |
 | `components/reports/FindingsTab.module.css` | Reuses the header/account-picker layout from `AwsResourcesTab.module.css`. |
 | `components/reports/FindingsGrid.tsx` | One `<section>` per `CheckResult`, severity badge per row, findings sorted critical → low. An `unavailable` check renders its reason in place of the table. Cost column present only when `kind === 'cost-leakage'`. |
+| `components/reports/FindingsGrid.module.css` | Styles for `FindingsGrid`. |
 | `app/api/aws/security-checks/route.ts` | `GET ?companyId=&credentialId=` |
 | `app/api/aws/cost-leakage/route.ts` | `GET ?companyId=&credentialId=&periodId=` |
 | `app/api/azure/security-checks/route.ts` | `GET ?companyId=&credentialId=` |
 | `app/api/azure/cost-leakage/route.ts` | `GET ?companyId=&credentialId=&periodId=` |
-| `lib/aws/securityChecks.ts` | Built-in AWS rules + Security Hub finding normalization |
+| `lib/findings.ts` | Shared severity ordering and check builders used by all four rule modules. |
+| `lib/aws/securityChecks.ts` | Built-in AWS security rules |
+| `lib/aws/securityHub.ts` | Security Hub error classification and finding normalization |
 | `lib/aws/costLeakage.ts` | AWS orphan rules |
-| `lib/azure/securityChecks.ts` | Built-in Azure rules + Defender assessment normalization |
+| `lib/azure/securityChecks.ts` | Built-in Azure security rules |
+| `lib/azure/defender.ts` | Defender for Cloud error classification and assessment normalization |
 | `lib/azure/costLeakage.ts` | Azure orphan rules |
 | `lib/findingCosts.ts` | `resource_id` → cost map for a period; case-insensitive matching |
 | `components/shell/AppShell.tsx` | Sub-tab unions widened; two new `TabsTrigger`s per provider |
@@ -152,9 +156,11 @@ Distinguishing case 2 from case 3 by exception type is the subtle part of this f
 
 ## Cost join
 
-`lib/findingCosts.ts` runs one Supabase query per cost-leakage request: `cost_records` filtered by `period_id` and `cloud_provider`, selecting `resource_id, cost`, summed into a `Map`. AWS billing rows carry ARNs and Azure rows carry full resource IDs, matching the `resourceId` the rules emit — but casing is inconsistent across both providers' exports, so keys are lowercased on both sides.
+`lib/findingCosts.ts` queries only the resource IDs the rules actually flagged, matching `.in('resource_id', …)` against both the original and lowercased spelling of each ID, chunked at 200 IDs per query. Scanning every line item in a period would exceed Supabase's default row cap and require paging through six figures of rows to price a handful of findings.
 
 An unmatched resource gets `monthlyCost: null` and renders as `—`. It must not render as `$0.00`: a resource absent from the last billing pull is unknown, not free, and the two mean very different things to someone deciding what to delete. When no period is active, the join is skipped entirely and every finding carries `null`.
+
+**`resource_id` is only populated by uploaded cost files.** The in-app AWS billing pull (`app/api/aws/pull-billing/route.ts`) asks Cost Explorer to group results by `SERVICE` and, optionally, a billing-code `TAG` — it never requests or records a per-resource ID. The in-app Azure billing pull (`lib/azureCostQuery.ts`) groups by a single dimension, `MeterCategory`, for the same reason: neither in-app pull has a resource ID to write. `resource_id` is populated only when a customer uploads a Cost and Usage Report (AWS) or a Cost Management export (Azure), via `lib/parseCostFile.ts`, which reads it from a `Resource ID` / `ResourceId` / `LineItem/ResourceId` header. Practically, this means the monthly cost column is only populated for customers who upload cost files; customers who rely solely on the in-app pull will see `—` on every finding, in both Security Checks and Cost Leakage. The findings themselves are unaffected — the rules run identically either way — only the price tag next to them is missing.
 
 ## Error handling
 
@@ -167,7 +173,7 @@ Per-resource lookups that fan out (S3 bucket policy checks, per-server SQL firew
 These routes need read permissions the stored credentials may not have today. This is expected to be the most common support question the feature generates, so the `unavailableReason` text must name the specific missing permission rather than echoing a raw SDK error.
 
 - **AWS** — `securityhub:GetFindings`, `ec2:DescribeSecurityGroups`, `DescribeVolumes`, `DescribeAddresses`, `DescribeSnapshots`, `DescribeNatGateways`, `iam:GetAccountSummary`, `ListUsers`, `ListAccessKeys`, `ListMFADevices`, `GetLoginProfile`, `s3:GetBucketPolicyStatus`, `GetBucketAcl`, `GetPublicAccessBlock`, `elasticloadbalancing:DescribeTargetHealth`, `rds:DescribeDBInstances`. The AWS-managed `SecurityAudit` policy covers all of these.
-- **Azure** — `Security Reader` on the subscription for Defender assessments, on top of the `Reader` role the Resources tab already requires. Graph `User.Read.All` is already needed by the Users tab and is reused for the MFA check.
+- **Azure** — `Security Reader` on the subscription for Defender assessments, on top of the `Reader` role the Resources tab already requires. Graph `User.Read.All` (already granted for the Users tab) lists the users, but reading which MFA methods each has registered additionally requires the `UserAuthenticationMethod.Read.All` application permission, granted with admin consent. Without it, only the MFA check is unavailable; every other Azure check still runs.
 
 A subscription whose service principal holds only `Reader` will show several Azure sections as unavailable on first run. That is correct behavior, and the reason text should make the fix obvious.
 
