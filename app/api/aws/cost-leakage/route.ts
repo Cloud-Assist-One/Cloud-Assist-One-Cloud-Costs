@@ -14,6 +14,14 @@ import {
   DescribeTargetHealthCommand,
 } from '@aws-sdk/client-elastic-load-balancing-v2';
 import { RDSClient, DescribeDBInstancesCommand } from '@aws-sdk/client-rds';
+import {
+  S3Client,
+  ListBucketsCommand,
+  GetBucketLifecycleConfigurationCommand,
+  ListMultipartUploadsCommand,
+} from '@aws-sdk/client-s3';
+import { CloudWatchLogsClient, DescribeLogGroupsCommand } from '@aws-sdk/client-cloudwatch-logs';
+import { ComputeOptimizerClient, GetEC2InstanceRecommendationsCommand } from '@aws-sdk/client-compute-optimizer';
 import { requireCompanyAccess } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { decryptCredentials } from '@/lib/cloudCredentialsCrypto';
@@ -29,11 +37,38 @@ import {
   emptyLoadBalancers,
   idleNatGateways,
   stoppedRdsInstances,
+  bucketsWithoutLifecycle,
+  staleMultipartUploads,
+  logGroupsWithoutRetention,
+  overProvisionedInstances,
+  MULTIPART_UPLOAD_STALE_DAYS,
+  type BucketLifecycleInput,
+  type MultipartUploadBucketInput,
 } from '@/lib/aws/costLeakage';
 import type { CheckResult, FindingsResponse } from '@/lib/types';
 
 // Matches the cap the resources route uses, for the same throttling reason.
+// Caps every per-resource fan-out in this route -- load balancer target
+// lookups and the per-bucket S3 lookups below -- not just the check it was
+// first written for.
 const TARGET_LOOKUP_CONCURRENCY = 8;
+
+// Two checks fan out per bucket. An account with a thousand buckets would
+// otherwise make two thousand calls inside the 300-second budget, so the scan
+// is bounded and the shortfall is reported as its own finding.
+const MAX_BUCKETS_SCANNED = 200;
+
+// Compute Optimizer's Finding enum serializes on the wire as single-word
+// PascalCase ("Overprovisioned", "Underprovisioned", "Optimized",
+// "NotOptimized"), not the SCREAMING_SNAKE_CASE the rule filters on
+// ("OVER_PROVISIONED", ...). Mapped here so the wire-format quirk stays
+// local to this fetch rather than leaking into the rule.
+const COMPUTE_OPTIMIZER_FINDING_LABELS: Record<string, string> = {
+  Overprovisioned: 'OVER_PROVISIONED',
+  Underprovisioned: 'UNDER_PROVISIONED',
+  Optimized: 'OPTIMIZED',
+  NotOptimized: 'NOT_OPTIMIZED',
+};
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : 'Unknown error.';
@@ -57,6 +92,9 @@ const REQUIRED_PERMISSIONS: Record<string, string> = {
     'elasticloadbalancing:DescribeLoadBalancers, DescribeTargetGroups, and DescribeTargetHealth',
   'idle-nat-gateways': 'ec2:DescribeNatGateways (and DescribeInstances, to cross-reference busy VPCs)',
   'stopped-rds-instances': 'rds:DescribeDBInstances',
+  'buckets-without-lifecycle': 's3:GetLifecycleConfiguration',
+  'stale-multipart-uploads': 's3:ListBucketMultipartUploads',
+  'log-groups-without-retention': 'logs:DescribeLogGroups',
 };
 
 // The AWS-managed SecurityAudit policy grants every permission in
@@ -128,6 +166,10 @@ export async function GET(request: NextRequest) {
   const ec2 = new EC2Client(clientConfig);
   const elb = new ElasticLoadBalancingV2Client(clientConfig);
   const rds = new RDSClient(clientConfig);
+  // Bucket lookups are region-specific, and a bucket can live outside the
+  // credential's configured region -- following the redirect keeps a
+  // mismatched region from surfacing as a spurious lookup error.
+  const s3 = new S3Client({ ...clientConfig, followRegionRedirects: true });
 
   // Instances are read once and reused by two checks: the stopped-instance
   // rule, and the NAT gateway rule's "does this VPC run anything" question.
@@ -313,6 +355,132 @@ export async function GET(request: NextRequest) {
           region,
         }))
       );
+    })
+  );
+
+  // Both S3 checks walk the same bucket list; listing once and capping here
+  // keeps the two checks consistent about which buckets they examined.
+  let allBuckets: string[] = [];
+  let bucketListError: string | null = null;
+  try {
+    const listed = await s3.send(new ListBucketsCommand({}));
+    allBuckets = (listed.Buckets ?? []).map((bucket) => bucket.Name ?? '').filter(Boolean);
+  } catch (err) {
+    bucketListError = errorMessage(err);
+  }
+
+  const scannedBuckets = allBuckets.slice(0, MAX_BUCKETS_SCANNED);
+
+  checks.push(
+    await runCheck('buckets-without-lifecycle', 'Buckets with no lifecycle policy', async () => {
+      if (bucketListError) throw new Error(`Could not list buckets: ${bucketListError}`);
+
+      const rows = await mapWithConcurrency(scannedBuckets, TARGET_LOOKUP_CONCURRENCY, async (name) => {
+        const row: BucketLifecycleInput = { name, region, hasLifecyclePolicy: false, lookupError: null };
+        try {
+          const config = await s3.send(new GetBucketLifecycleConfigurationCommand({ Bucket: name }));
+          row.hasLifecyclePolicy = (config.Rules ?? []).length > 0;
+        } catch (err) {
+          // NoSuchLifecycleConfiguration IS the finding — a bucket with no
+          // policy throws rather than returning an empty list. Anything else
+          // leaves the bucket unknown, which the rule reports separately.
+          const errName = err instanceof Error ? err.name : '';
+          if (errName !== 'NoSuchLifecycleConfiguration') row.lookupError = errorMessage(err);
+        }
+        return row;
+      });
+
+      return bucketsWithoutLifecycle(rows, scannedBuckets.length, allBuckets.length);
+    })
+  );
+
+  checks.push(
+    await runCheck('stale-multipart-uploads', 'Incomplete multipart uploads', async () => {
+      if (bucketListError) throw new Error(`Could not list buckets: ${bucketListError}`);
+
+      const staleBefore = Date.now() - MULTIPART_UPLOAD_STALE_DAYS * 86_400_000;
+
+      const rows = await mapWithConcurrency(scannedBuckets, TARGET_LOOKUP_CONCURRENCY, async (name) => {
+        const row: MultipartUploadBucketInput = { name, region, oldestInitiated: null, staleCount: 0 };
+        try {
+          const uploads = await collectPages(
+            (token) => s3.send(new ListMultipartUploadsCommand({ Bucket: name, KeyMarker: token })),
+            (page) => page.Uploads ?? [],
+            (page) => page.NextKeyMarker
+          );
+          for (const upload of uploads) {
+            const initiated = upload.Initiated?.getTime();
+            if (initiated === undefined || initiated > staleBefore) continue;
+            row.staleCount += 1;
+            const iso = new Date(initiated).toISOString();
+            if (!row.oldestInitiated || iso < row.oldestInitiated) row.oldestInitiated = iso;
+          }
+        } catch {
+          // A bucket whose uploads cannot be listed contributes nothing rather
+          // than failing the whole check; the lifecycle check above already
+          // surfaces a denied bucket.
+        }
+        return row;
+      });
+
+      return staleMultipartUploads(rows, new Date(), scannedBuckets.length, allBuckets.length);
+    })
+  );
+
+  checks.push(
+    await runCheck('log-groups-without-retention', 'Log groups that never expire', async () => {
+      const logs = new CloudWatchLogsClient(clientConfig);
+      const groups = await collectPages(
+        (token) => logs.send(new DescribeLogGroupsCommand({ nextToken: token })),
+        (page) => page.logGroups ?? [],
+        (page) => page.nextToken
+      );
+
+      return logGroupsWithoutRetention(
+        groups.map((group) => ({
+          name: group.logGroupName ?? '',
+          arn: group.arn ?? group.logGroupName ?? '',
+          retentionInDays: group.retentionInDays ?? null,
+          storedBytes: group.storedBytes ?? null,
+          region,
+        }))
+      );
+    })
+  );
+
+  checks.push(
+    await runCheck('over-provisioned-instances', 'Over-provisioned instances', async () => {
+      const optimizer = new ComputeOptimizerClient(clientConfig);
+      try {
+        const recommendations = await collectPages(
+          (token) => optimizer.send(new GetEC2InstanceRecommendationsCommand({ nextToken: token })),
+          (page) => page.instanceRecommendations ?? [],
+          (page) => page.nextToken
+        );
+
+        return overProvisionedInstances(
+          recommendations.map((rec) => ({
+            instanceArn: rec.instanceArn ?? '',
+            instanceName: rec.instanceName ?? rec.instanceArn?.split('/').pop() ?? '',
+            finding: COMPUTE_OPTIMIZER_FINDING_LABELS[rec.finding ?? ''] ?? rec.finding ?? '',
+            currentInstanceType: rec.currentInstanceType ?? '',
+            recommendedInstanceType: rec.recommendationOptions?.[0]?.instanceType ?? null,
+            estimatedMonthlySavings:
+              rec.recommendationOptions?.[0]?.savingsOpportunity?.estimatedMonthlySavings?.value ?? null,
+            region,
+          }))
+        );
+      } catch (err) {
+        // Compute Optimizer is opt-in. Unlike Security Hub there is no built-in
+        // fallback here, so going quiet would read as "no over-provisioned
+        // instances" — the opposite conclusion.
+        if (err instanceof Error && err.name === 'OptInRequiredException') {
+          throw new Error(
+            'AWS Compute Optimizer is not enabled for this account. Enable it in the Compute Optimizer console to see rightsizing recommendations here.'
+          );
+        }
+        throw err;
+      }
     })
   );
 
