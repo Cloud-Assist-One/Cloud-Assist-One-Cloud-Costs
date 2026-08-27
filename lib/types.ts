@@ -445,6 +445,9 @@ export interface BillingFileSource {
   enabled: boolean;
   schedule_enabled: boolean;
   last_pulled_at: string | null;
+  /** The pull route writes this after every run; null until the first pull. */
+  last_pull_summary: BillingSourcePullResult | null;
+  created_by: string;
   created_at: string;
 }
 

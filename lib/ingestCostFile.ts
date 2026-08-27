@@ -59,6 +59,12 @@ export async function ingestCostFile({
     }
 
     if (rows.length === 0) {
+      // Deliberately not routed through markError() above: markError always
+      // returns errors: [message] (the joined string, wrapped in a new
+      // array), while this branch returns the raw `errors` array parseCostFile
+      // produced — which can be empty. The upload route's response body has
+      // always contained that raw array, so switching this to markError would
+      // change what callers see even though the row would still say 'error'.
       const message = errors.join(' ') || 'No valid rows found.';
       await adminClient
         .from('uploaded_files')
