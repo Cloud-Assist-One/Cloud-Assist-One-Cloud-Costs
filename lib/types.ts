@@ -405,3 +405,30 @@ export interface SupportRequest {
 export interface SupportRequestWithCompany extends SupportRequest {
   company_name: string;
 }
+
+export type FindingSeverity = 'critical' | 'high' | 'medium' | 'low';
+
+export interface Finding {
+  severity: FindingSeverity;
+  /** ARN (AWS) or full resource ID (Azure). Used for the billing cost join. */
+  resourceId: string;
+  resourceName: string;
+  region: string | null;
+  /** Why this resource tripped the check, in plain language. */
+  detail: string;
+  /** Cost-leakage tabs only. null means "not in the last billing pull", not "free". */
+  monthlyCost: number | null;
+}
+
+export interface CheckResult {
+  checkId: string;
+  title: string;
+  source: 'native' | 'builtin';
+  status: 'ok' | 'unavailable';
+  unavailableReason: string | null;
+  findings: Finding[];
+}
+
+export type FindingsResponse =
+  | { connected: false }
+  | { connected: true; fetchedAt: string; region: string | null; checks: CheckResult[] };
