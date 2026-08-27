@@ -54,11 +54,36 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : 'Unknown error.';
 }
 
+// AWS's raw SDK error text does not reliably name the missing permission
+// (and for a non-permission failure, there is nothing to name at all), so
+// each check's required action(s) are looked up here and appended rather
+// than relying on the SDK message alone. Mirrors the Azure routes'
+// permissionHint, which does the same for the service principal's role.
+const REQUIRED_PERMISSIONS: Record<string, string> = {
+  'open-security-groups': 'ec2:DescribeSecurityGroups',
+  'public-s3-buckets': 's3:ListBuckets, GetPublicAccessBlock, GetBucketPolicyStatus, and GetBucketAcl',
+  'root-access-keys': 'iam:GetAccountSummary and ListUsers',
+  'iam-users-without-mfa': 'iam:ListUsers, ListAccessKeys, ListMFADevices, and GetLoginProfile',
+  'stale-access-keys': 'iam:ListUsers and ListAccessKeys',
+  'inactive-iam-users': 'iam:ListUsers, ListAccessKeys, and GetLoginProfile',
+  'unencrypted-ebs-volumes': 'ec2:DescribeVolumes',
+  'public-rds-instances': 'rds:DescribeDBInstances',
+  'unencrypted-rds-storage': 'rds:DescribeDBInstances',
+};
+
+// The AWS-managed SecurityAudit policy grants every permission in
+// REQUIRED_PERMISSIONS above, so it is worth naming once as the fix.
+function withPermissionHint(checkId: string, message: string): string {
+  const actions = REQUIRED_PERMISSIONS[checkId];
+  if (!actions) return message;
+  return `${message} The credential needs ${actions}. The AWS-managed SecurityAudit policy covers this and every other permission these checks need.`;
+}
+
 async function runCheck(checkId: string, title: string, run: () => Promise<CheckResult>): Promise<CheckResult> {
   try {
     return await run();
   } catch (err) {
-    return unavailableCheck(checkId, title, 'builtin', errorMessage(err));
+    return unavailableCheck(checkId, title, 'builtin', withPermissionHint(checkId, errorMessage(err)));
   }
 }
 
@@ -301,10 +326,31 @@ export async function GET(request: NextRequest) {
     checks.push(staleAccessKeys(iamUsers, now));
     checks.push(inactiveIamUsers(iamUsers, now));
   } else {
-    const reason = `Could not read IAM users: ${iamUsersError}. The credential needs iam:ListUsers, ListAccessKeys, ListMFADevices and GetLoginProfile.`;
-    checks.push(unavailableCheck('iam-users-without-mfa', 'Console users without MFA', 'builtin', reason));
-    checks.push(unavailableCheck('stale-access-keys', 'Access keys older than 90 days', 'builtin', reason));
-    checks.push(unavailableCheck('inactive-iam-users', 'IAM users inactive over 90 days', 'builtin', reason));
+    const baseReason = `Could not read IAM users: ${iamUsersError}`;
+    checks.push(
+      unavailableCheck(
+        'iam-users-without-mfa',
+        'Console users without MFA',
+        'builtin',
+        withPermissionHint('iam-users-without-mfa', baseReason)
+      )
+    );
+    checks.push(
+      unavailableCheck(
+        'stale-access-keys',
+        'Access keys older than 90 days',
+        'builtin',
+        withPermissionHint('stale-access-keys', baseReason)
+      )
+    );
+    checks.push(
+      unavailableCheck(
+        'inactive-iam-users',
+        'IAM users inactive over 90 days',
+        'builtin',
+        withPermissionHint('inactive-iam-users', baseReason)
+      )
+    );
   }
 
   checks.push(
@@ -317,7 +363,13 @@ export async function GET(request: NextRequest) {
       return unencryptedVolumes(
         volumes.map((volume) => ({
           volumeId: volume.VolumeId ?? '',
-          arn: `arn:aws:ec2:${region}:volume/${volume.VolumeId ?? ''}`,
+          // Bare id, not a synthesized ARN: without an account-ID segment
+          // (this route has no STS/IAM dependency to discover it) the old
+          // `arn:aws:ec2:${region}:volume/${id}` form was malformed anyway,
+          // and it gave the same volume two different identities between
+          // this tab and Cost Leakage's bare-id form. Security findings
+          // have no cost join, so nothing here relies on ARN shape.
+          arn: volume.VolumeId ?? '',
           name: volume.Tags?.find((tag) => tag.Key === 'Name')?.Value ?? null,
           encrypted: Boolean(volume.Encrypted),
           region,
@@ -350,9 +402,23 @@ export async function GET(request: NextRequest) {
     checks.push(publicRdsInstances(rdsRows));
     checks.push(unencryptedRdsStorage(rdsRows));
   } else {
-    const reason = `Could not read RDS instances: ${rdsError}. The credential needs rds:DescribeDBInstances.`;
-    checks.push(unavailableCheck('public-rds-instances', 'Publicly accessible databases', 'builtin', reason));
-    checks.push(unavailableCheck('unencrypted-rds-storage', 'Unencrypted database storage', 'builtin', reason));
+    const baseReason = `Could not read RDS instances: ${rdsError}`;
+    checks.push(
+      unavailableCheck(
+        'public-rds-instances',
+        'Publicly accessible databases',
+        'builtin',
+        withPermissionHint('public-rds-instances', baseReason)
+      )
+    );
+    checks.push(
+      unavailableCheck(
+        'unencrypted-rds-storage',
+        'Unencrypted database storage',
+        'builtin',
+        withPermissionHint('unencrypted-rds-storage', baseReason)
+      )
+    );
   }
 
   return NextResponse.json({

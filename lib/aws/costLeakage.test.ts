@@ -26,7 +26,7 @@ describe('stoppedSince', () => {
 describe('unattachedVolumes', () => {
   it('flags a volume in the available state', () => {
     const result = unattachedVolumes([
-      { volumeId: 'vol-1', arn: 'arn:vol-1', name: 'scratch', state: 'available', sizeGiB: 200, region: 'us-east-1' },
+      { volumeId: 'vol-1', resourceId: 'arn:vol-1', name: 'scratch', state: 'available', sizeGiB: 200, region: 'us-east-1' },
     ]);
 
     expect(result.status).toBe('ok');
@@ -39,7 +39,7 @@ describe('unattachedVolumes', () => {
 
   it('ignores a volume that is in use', () => {
     const result = unattachedVolumes([
-      { volumeId: 'vol-2', arn: 'arn:vol-2', name: null, state: 'in-use', sizeGiB: 8, region: 'us-east-1' },
+      { volumeId: 'vol-2', resourceId: 'arn:vol-2', name: null, state: 'in-use', sizeGiB: 8, region: 'us-east-1' },
     ]);
 
     expect(result.findings).toEqual([]);
@@ -47,7 +47,7 @@ describe('unattachedVolumes', () => {
 
   it('falls back to the volume id when the volume has no Name tag', () => {
     const result = unattachedVolumes([
-      { volumeId: 'vol-3', arn: 'arn:vol-3', name: null, state: 'available', sizeGiB: 1, region: 'us-east-1' },
+      { volumeId: 'vol-3', resourceId: 'arn:vol-3', name: null, state: 'available', sizeGiB: 1, region: 'us-east-1' },
     ]);
 
     expect(result.findings[0].resourceName).toBe('vol-3');
@@ -81,7 +81,7 @@ describe('longStoppedInstances', () => {
       [
         {
           instanceId: 'i-1',
-          arn: 'arn:i-1',
+          resourceId: 'arn:i-1',
           name: 'old-worker',
           state: 'stopped',
           stateTransitionReason: 'User initiated (2026-06-01 09:00:00 GMT)',
@@ -100,7 +100,7 @@ describe('longStoppedInstances', () => {
       [
         {
           instanceId: 'i-2',
-          arn: 'arn:i-2',
+          resourceId: 'arn:i-2',
           name: null,
           state: 'stopped',
           stateTransitionReason: 'User initiated (2026-08-25 09:00:00 GMT)',
@@ -118,7 +118,7 @@ describe('longStoppedInstances', () => {
       [
         {
           instanceId: 'i-3',
-          arn: 'arn:i-3',
+          resourceId: 'arn:i-3',
           name: null,
           state: 'running',
           stateTransitionReason: null,
@@ -136,7 +136,7 @@ describe('longStoppedInstances', () => {
       [
         {
           instanceId: 'i-4',
-          arn: 'arn:i-4',
+          resourceId: 'arn:i-4',
           name: null,
           state: 'stopped',
           stateTransitionReason: null,
@@ -157,7 +157,7 @@ describe('orphanedSnapshots', () => {
       [
         {
           snapshotId: 'snap-1',
-          arn: 'arn:snap-1',
+          resourceId: 'arn:snap-1',
           volumeId: 'vol-deleted',
           sizeGiB: 50,
           startTime: '2026-01-01T00:00:00.000Z',
@@ -176,7 +176,7 @@ describe('orphanedSnapshots', () => {
       [
         {
           snapshotId: 'snap-2',
-          arn: 'arn:snap-2',
+          resourceId: 'arn:snap-2',
           volumeId: 'vol-alive',
           sizeGiB: 50,
           startTime: '2026-01-01T00:00:00.000Z',
@@ -210,7 +210,7 @@ describe('emptyLoadBalancers', () => {
 describe('idleNatGateways', () => {
   it('flags a gateway in a VPC with no running instances', () => {
     const result = idleNatGateways(
-      [{ natGatewayId: 'nat-1', arn: 'arn:nat-1', vpcId: 'vpc-empty', region: 'us-east-1' }],
+      [{ natGatewayId: 'nat-1', resourceId: 'arn:nat-1', vpcId: 'vpc-empty', region: 'us-east-1' }],
       new Set(['vpc-busy'])
     );
 
@@ -220,7 +220,7 @@ describe('idleNatGateways', () => {
 
   it('ignores a gateway in a VPC that still runs instances', () => {
     const result = idleNatGateways(
-      [{ natGatewayId: 'nat-2', arn: 'arn:nat-2', vpcId: 'vpc-busy', region: 'us-east-1' }],
+      [{ natGatewayId: 'nat-2', resourceId: 'arn:nat-2', vpcId: 'vpc-busy', region: 'us-east-1' }],
       new Set(['vpc-busy'])
     );
 
@@ -229,7 +229,7 @@ describe('idleNatGateways', () => {
 
   it('uses the ARN as the resource id so the finding can be priced, and the gateway id as the name', () => {
     const result = idleNatGateways(
-      [{ natGatewayId: 'nat-1', arn: 'arn:nat-1', vpcId: 'vpc-empty', region: 'us-east-1' }],
+      [{ natGatewayId: 'nat-1', resourceId: 'arn:nat-1', vpcId: 'vpc-empty', region: 'us-east-1' }],
       new Set(['vpc-busy'])
     );
 

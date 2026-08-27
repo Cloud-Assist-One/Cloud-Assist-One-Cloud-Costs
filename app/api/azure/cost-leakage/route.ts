@@ -253,7 +253,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const resourceIds = checks.flatMap((check) => check.findings.map((finding) => finding.resourceId));
-    const costs = await fetchCostsForResources(adminClient, periodId, 'azure', resourceIds);
+    const costs = await fetchCostsForResources(adminClient, periodId, 'azure', companyId, resourceIds);
     for (const check of checks) {
       for (const finding of check.findings) {
         finding.monthlyCost = lookupCost(costs, finding.resourceId);

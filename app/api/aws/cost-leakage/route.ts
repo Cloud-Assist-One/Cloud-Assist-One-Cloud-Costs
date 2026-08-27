@@ -43,6 +43,30 @@ function nameTag(tags: { Key?: string; Value?: string }[] | undefined): string |
   return tags?.find((tag) => tag.Key === 'Name')?.Value ?? null;
 }
 
+// AWS's raw SDK error text does not reliably name the missing permission,
+// so each check's required action(s) are looked up here and appended
+// rather than relying on the SDK message alone. Mirrors the Azure routes'
+// permissionHint, which does the same for the service principal's role,
+// and the AWS security-checks route's equivalent map.
+const REQUIRED_PERMISSIONS: Record<string, string> = {
+  'unattached-ebs-volumes': 'ec2:DescribeVolumes',
+  'unassociated-elastic-ips': 'ec2:DescribeAddresses',
+  'long-stopped-instances': 'ec2:DescribeInstances',
+  'orphaned-snapshots': 'ec2:DescribeSnapshots (and DescribeVolumes, to cross-reference existing volumes)',
+  'empty-load-balancers':
+    'elasticloadbalancing:DescribeLoadBalancers, DescribeTargetGroups, and DescribeTargetHealth',
+  'idle-nat-gateways': 'ec2:DescribeNatGateways (and DescribeInstances, to cross-reference busy VPCs)',
+  'stopped-rds-instances': 'rds:DescribeDBInstances',
+};
+
+// The AWS-managed SecurityAudit policy grants every permission in
+// REQUIRED_PERMISSIONS above, so it is worth naming once as the fix.
+function withPermissionHint(checkId: string, message: string): string {
+  const actions = REQUIRED_PERMISSIONS[checkId];
+  if (!actions) return message;
+  return `${message} The credential needs ${actions}. The AWS-managed SecurityAudit policy covers this and every other permission these checks need.`;
+}
+
 // Every check runs in isolation so one denied permission degrades one
 // section instead of blanking the tab.
 async function runCheck(
@@ -53,7 +77,7 @@ async function runCheck(
   try {
     return await run();
   } catch (err) {
-    return unavailableCheck(checkId, title, 'builtin', errorMessage(err));
+    return unavailableCheck(checkId, title, 'builtin', withPermissionHint(checkId, errorMessage(err)));
   }
 }
 
@@ -105,10 +129,12 @@ export async function GET(request: NextRequest) {
   const elb = new ElasticLoadBalancingV2Client(clientConfig);
   const rds = new RDSClient(clientConfig);
 
-  // Instances are read once and reused by three checks: the stopped-instance
-  // rule, the snapshot rule's volume cross-reference, and the NAT gateway
-  // rule's "does this VPC run anything" question.
-  const instances = await collectPages(
+  // Instances are read once and reused by two checks: the stopped-instance
+  // rule, and the NAT gateway rule's "does this VPC run anything" question.
+  // (The snapshot rule cross-references volumes, not instances -- see
+  // volumesPromise below.) Both fetches are independent multi-page pulls, so
+  // they are started together and awaited together rather than serially.
+  const instancesPromise = collectPages(
     (token) => ec2.send(new DescribeInstancesCommand({ NextToken: token })),
     (page) => page.Reservations?.flatMap((reservation) => reservation.Instances ?? []) ?? [],
     (page) => page.NextToken
@@ -118,23 +144,23 @@ export async function GET(request: NextRequest) {
     (token) => ec2.send(new DescribeVolumesCommand({ NextToken: token })),
     (page) => page.Volumes ?? [],
     (page) => page.NextToken
-  );
+  ).catch(() => null);
 
   const checks: CheckResult[] = [];
 
-  const volumeRows = await volumesPromise.catch(() => null);
+  const [instances, volumeRows] = await Promise.all([instancesPromise, volumesPromise]);
 
   checks.push(
     await runCheck('unattached-ebs-volumes', 'Unattached EBS volumes', async () => {
-      if (!volumeRows) throw new Error('Could not list EBS volumes. The credential needs ec2:DescribeVolumes.');
+      if (!volumeRows) throw new Error('Could not list EBS volumes.');
       return unattachedVolumes(
         volumeRows.map((volume) => ({
           volumeId: volume.VolumeId ?? '',
-          // A real ARN needs the account-ID segment, which this route has
-          // no STS/IAM dependency to discover. The bare id is emitted
-          // instead — lib/findingCosts matches it against billing rows
-          // spelled either as a full ARN or a bare id.
-          arn: volume.VolumeId ?? '',
+          // Not a real ARN: a real ARN needs the account-ID segment, which
+          // this route has no STS/IAM dependency to discover. The bare id
+          // is emitted instead — lib/findingCosts matches it against
+          // billing rows spelled either as a full ARN or a bare id.
+          resourceId: volume.VolumeId ?? '',
           name: nameTag(volume.Tags),
           state: volume.State ?? '',
           sizeGiB: volume.Size ?? null,
@@ -163,12 +189,12 @@ export async function GET(request: NextRequest) {
       'long-stopped-instances',
       'Instances stopped over 30 days',
       async () => {
-        if (!instances) throw new Error('Could not list EC2 instances. The credential needs ec2:DescribeInstances.');
+        if (!instances) throw new Error('Could not list EC2 instances.');
         return longStoppedInstances(
           instances.map((instance) => ({
             instanceId: instance.InstanceId ?? '',
             // Bare id, not a malformed ARN — see the volume mapping above.
-            arn: instance.InstanceId ?? '',
+            resourceId: instance.InstanceId ?? '',
             name: nameTag(instance.Tags),
             state: instance.State?.Name ?? '',
             stateTransitionReason: instance.StateTransitionReason ?? null,
@@ -195,7 +221,7 @@ export async function GET(request: NextRequest) {
         snapshots.map((snapshot) => ({
           snapshotId: snapshot.SnapshotId ?? '',
           // Bare id, not a malformed ARN — see the volume mapping above.
-          arn: snapshot.SnapshotId ?? '',
+          resourceId: snapshot.SnapshotId ?? '',
           volumeId: snapshot.VolumeId ?? null,
           sizeGiB: snapshot.VolumeSize ?? null,
           startTime: snapshot.StartTime?.toISOString() ?? null,
@@ -260,7 +286,7 @@ export async function GET(request: NextRequest) {
             natGatewayId: gateway.NatGatewayId ?? '',
             // NAT gateways have no ARN form at all, so both fields carry
             // the gateway id.
-            arn: gateway.NatGatewayId ?? '',
+            resourceId: gateway.NatGatewayId ?? '',
             vpcId: gateway.VpcId ?? null,
             region,
           })),
@@ -294,7 +320,7 @@ export async function GET(request: NextRequest) {
   // out findings that are correct on their own.
   try {
     const resourceIds = checks.flatMap((check) => check.findings.map((finding) => finding.resourceId));
-    const costs = await fetchCostsForResources(adminClient, periodId, 'aws', resourceIds);
+    const costs = await fetchCostsForResources(adminClient, periodId, 'aws', companyId, resourceIds);
     for (const check of checks) {
       for (const finding of check.findings) {
         finding.monthlyCost = lookupCost(costs, finding.resourceId);

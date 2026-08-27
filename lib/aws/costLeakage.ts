@@ -8,7 +8,10 @@ export const STOPPED_INSTANCE_DAYS = 30;
 
 export interface VolumeInput {
   volumeId: string;
-  arn: string;
+  // Not necessarily an ARN: this route has no STS/IAM dependency to
+  // discover the account-ID segment an EBS ARN requires, so it may carry
+  // just the bare volume id -- see the route for what it actually sends.
+  resourceId: string;
   name: string | null;
   state: string;
   sizeGiB: number | null;
@@ -24,7 +27,7 @@ export interface ElasticIpInput {
 
 export interface InstanceInput {
   instanceId: string;
-  arn: string;
+  resourceId: string;
   name: string | null;
   state: string;
   stateTransitionReason: string | null;
@@ -33,7 +36,7 @@ export interface InstanceInput {
 
 export interface SnapshotInput {
   snapshotId: string;
-  arn: string;
+  resourceId: string;
   volumeId: string | null;
   sizeGiB: number | null;
   startTime: string | null;
@@ -49,7 +52,7 @@ export interface LoadBalancerInput {
 
 export interface NatGatewayInput {
   natGatewayId: string;
-  arn: string;
+  resourceId: string;
   vpcId: string | null;
   region: string;
 }
@@ -88,7 +91,7 @@ export function unattachedVolumes(volumes: readonly VolumeInput[]): CheckResult 
     .filter((volume) => volume.state === 'available')
     .map((volume) =>
       leak(
-        volume.arn,
+        volume.resourceId,
         volume.name ?? volume.volumeId,
         volume.region,
         `Volume ${volume.volumeId} (${volume.sizeGiB ?? '?'} GiB) is not attached to any instance and bills for its full provisioned size.`
@@ -127,7 +130,7 @@ export function longStoppedInstances(instances: readonly InstanceInput[], now: D
     if (!since) {
       findings.push(
         leak(
-          instance.arn,
+          instance.resourceId,
           instance.name ?? instance.instanceId,
           instance.region,
           `Instance ${instance.instanceId} is stopped (for an unknown length of time) and its EBS volumes continue to bill.`
@@ -141,7 +144,7 @@ export function longStoppedInstances(instances: readonly InstanceInput[], now: D
 
     findings.push(
       leak(
-        instance.arn,
+        instance.resourceId,
         instance.name ?? instance.instanceId,
         instance.region,
         `Instance ${instance.instanceId} has been stopped for ${days} days and its EBS volumes continue to bill.`
@@ -160,7 +163,7 @@ export function orphanedSnapshots(
     .filter((snapshot) => snapshot.volumeId && !existingVolumeIds.has(snapshot.volumeId))
     .map((snapshot) =>
       leak(
-        snapshot.arn,
+        snapshot.resourceId,
         snapshot.snapshotId,
         snapshot.region,
         `Snapshot of ${snapshot.volumeId}, a volume that no longer exists (${snapshot.sizeGiB ?? '?'} GiB).`
@@ -193,7 +196,7 @@ export function idleNatGateways(
     .filter((gateway) => gateway.vpcId && !vpcIdsWithRunningInstances.has(gateway.vpcId))
     .map((gateway) =>
       leak(
-        gateway.arn,
+        gateway.resourceId,
         gateway.natGatewayId,
         gateway.region,
         `NAT gateway sits in ${gateway.vpcId}, a VPC with no running instances, but bills hourly regardless of traffic.`
