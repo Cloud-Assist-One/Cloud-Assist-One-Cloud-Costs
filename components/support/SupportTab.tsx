@@ -1,7 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
-import { SUPPORT_TOPICS } from '@/lib/supportTopics';
+import { SUPPORT_FORM_TOPICS } from '@/lib/supportTopics';
 import type { SupportRequest } from '@/lib/types';
 import SupportRequestsGrid from './SupportRequestsGrid';
 import styles from './Support.module.css';
@@ -145,7 +145,7 @@ export default function SupportTab({ companyId, userEmail }: SupportTabProps) {
 
         <fieldset className={styles.topics}>
           <legend>What do you need help with?</legend>
-          {SUPPORT_TOPICS.map((topic) => (
+          {SUPPORT_FORM_TOPICS.map((topic) => (
             <label key={topic} className={styles.checkboxRow}>
               <input type="checkbox" checked={selectedTopics.includes(topic)} onChange={() => toggleTopic(topic)} />
               <span>{topic}</span>

@@ -1,4 +1,13 @@
 import type { CheckResult, CloudProvider, Finding } from './types';
+import type { SupportTopic } from './supportTopics';
+
+export interface VerifyMessage {
+  subject: string;
+  body: string;
+}
+
+/** What a Verify action was raised from. */
+export type VerifyOrigin = 'security-checks' | 'cost-leakage' | 'resource';
 
 const PROVIDER_LABEL: Partial<Record<CloudProvider, string>> = {
   aws: 'AWS',
@@ -22,15 +31,24 @@ function mailto(subject: string, body: string): string {
  * "AWS", so the Azure tabs were emailing clients about an "AWS resource:
  * Virtual Machine".
  */
+export function buildResourceVerifyMessage(
+  provider: CloudProvider,
+  resourceType: string,
+  name: string
+): VerifyMessage {
+  return {
+    subject: `Verify ${providerLabel(provider)} resource: ${resourceType} ${name}`,
+    body: `Please verify this ${resourceType} "${name}" is valid and let me know what it is being used for.`,
+  };
+}
+
 export function resourceVerifyMailto(
   provider: CloudProvider,
   resourceType: string,
   name: string
 ): string {
-  return mailto(
-    `Verify ${providerLabel(provider)} resource: ${resourceType} ${name}`,
-    `Please verify this ${resourceType} "${name}" is valid and let me know what it is being used for.`
-  );
+  const { subject, body } = buildResourceVerifyMessage(provider, resourceType, name);
+  return mailto(subject, body);
 }
 
 /**
@@ -42,12 +60,12 @@ export function resourceVerifyMailto(
  * a security finding asks whether the exposure is deliberate, a leakage
  * finding asks whether the thing can go.
  */
-export function findingVerifyMailto(
+export function buildFindingVerifyMessage(
   provider: CloudProvider,
   kind: 'security-checks' | 'cost-leakage',
   check: CheckResult,
   finding: Finding
-): string {
+): VerifyMessage {
   const label = providerLabel(provider);
   const isLeakage = kind === 'cost-leakage';
 
@@ -84,5 +102,24 @@ export function findingVerifyMailto(
     isLeakage ? 'Is this still needed, or can it be deleted?' : 'Is this intentional? If not, can it be restricted?'
   );
 
-  return mailto(subject, lines.join('\n'));
+  return { subject, body: lines.join('\n') };
+}
+
+export function findingVerifyMailto(
+  provider: CloudProvider,
+  kind: 'security-checks' | 'cost-leakage',
+  check: CheckResult,
+  finding: Finding
+): string {
+  const { subject, body } = buildFindingVerifyMessage(provider, kind, check, finding);
+  return mailto(subject, body);
+}
+
+// A finding-raised ticket carries its own topic so staff can tell it from one
+// a client typed. A resource row has no finding behind it, so it files under
+// the ordinary support topic rather than inventing a third finding topic.
+export function ticketTopicFor(origin: VerifyOrigin): SupportTopic {
+  if (origin === 'security-checks') return 'Security finding';
+  if (origin === 'cost-leakage') return 'Cost leakage';
+  return 'Technical cloud support';
 }

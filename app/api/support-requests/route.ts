@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireCompanyAccess, requireStaff } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { isSupportTopic } from '@/lib/supportTopics';
+import { resolveSubmitterIdentity } from '@/lib/supportIdentity';
 import { sendEmail } from '@/lib/sendEmail';
 import { buildSupportRequestEmail } from '@/lib/supportRequestEmail';
 import type { SupportRequestWithCompany } from '@/lib/types';
@@ -22,7 +23,7 @@ function cleanText(value: unknown, limit: number): string | null {
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { companyId, firstName, email, phone, phoneExt, topics, details } = body as {
+  const { companyId, firstName, email, phone, phoneExt, topics, details, origin } = body as {
     companyId?: string;
     firstName?: string;
     email?: string;
@@ -30,19 +31,27 @@ export async function POST(request: NextRequest) {
     phoneExt?: string;
     topics?: unknown;
     details?: string;
+    origin?: string;
   };
+
+  // A ticket raised by the Verify button on a grid row has no form behind it,
+  // so its submitter comes from the session below rather than from the body.
+  // Without this marker the form's own validation is unchanged.
+  const isPortalRaised = origin === 'portal';
 
   if (typeof companyId !== 'string' || !companyId) {
     return NextResponse.json({ error: 'Missing companyId.' }, { status: 400 });
   }
 
-  const cleanFirstName = cleanText(firstName, MAX_TEXT);
-  const cleanEmail = cleanText(email, MAX_TEXT);
-  if (!cleanFirstName) {
-    return NextResponse.json({ error: 'First name is required.' }, { status: 400 });
-  }
-  if (!cleanEmail || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(cleanEmail)) {
-    return NextResponse.json({ error: 'A valid email address is required.' }, { status: 400 });
+  let cleanFirstName = cleanText(firstName, MAX_TEXT);
+  let cleanEmail = cleanText(email, MAX_TEXT);
+  if (!isPortalRaised) {
+    if (!cleanFirstName) {
+      return NextResponse.json({ error: 'First name is required.' }, { status: 400 });
+    }
+    if (!cleanEmail || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(cleanEmail)) {
+      return NextResponse.json({ error: 'A valid email address is required.' }, { status: 400 });
+    }
   }
 
   // Only the known checkbox labels are accepted, so the stored topics always
@@ -58,6 +67,36 @@ export async function POST(request: NextRequest) {
   }
 
   const adminClient = createAdminClient();
+
+  // Identity for a portal-raised ticket is read from the signed-in user, so a
+  // caller cannot file a ticket under someone else's name.
+  if (isPortalRaised) {
+    const { data: profile } = await adminClient
+      .from('profiles')
+      .select('first_name')
+      .eq('id', guard.userId)
+      .maybeSingle();
+    const { data: authUser } = await adminClient.auth.admin.getUserById(guard.userId);
+
+    const identity = resolveSubmitterIdentity(
+      (profile?.first_name as string | null) ?? null,
+      authUser?.user?.email ?? null
+    );
+    if (!identity.email) {
+      return NextResponse.json(
+        { error: 'Your account has no email address on file, so a ticket cannot be raised.' },
+        { status: 400 }
+      );
+    }
+    cleanFirstName = identity.firstName;
+    cleanEmail = identity.email;
+  }
+  // Both branches above set these, but narrowing them here keeps the insert
+  // honest rather than asserting non-null at the call site.
+  if (!cleanFirstName || !cleanEmail) {
+    return NextResponse.json({ error: 'A name and email address are required.' }, { status: 400 });
+  }
+
   const { data, error } = await adminClient
     .from('support_requests')
     .insert({

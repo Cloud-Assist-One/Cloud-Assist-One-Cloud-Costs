@@ -1,4 +1,10 @@
-import { resourceVerifyMailto, findingVerifyMailto } from './verifyEmail';
+import {
+  resourceVerifyMailto,
+  findingVerifyMailto,
+  buildFindingVerifyMessage,
+  buildResourceVerifyMessage,
+  ticketTopicFor,
+} from './verifyEmail';
 import type { CheckResult, Finding } from './types';
 
 // Reading a mailto: assertion is unbearable percent-encoded, so every test
@@ -159,5 +165,41 @@ describe('findingVerifyMailto for cost leakage', () => {
     const { body } = parts(findingVerifyMailto('aws', 'cost-leakage', leakCheck, leak));
 
     expect(body).not.toContain('Severity:');
+  });
+});
+
+describe('buildFindingVerifyMessage', () => {
+  it('returns the same body the mailto carries, so a ticket and an email read identically', () => {
+    const message = buildFindingVerifyMessage('aws', 'security-checks', check(), finding());
+    const { subject, body } = parts(findingVerifyMailto('aws', 'security-checks', check(), finding()));
+
+    expect(message.subject).toBe(subject);
+    expect(message.body).toBe(body);
+  });
+});
+
+describe('buildResourceVerifyMessage', () => {
+  it('returns the same body the resource mailto carries', () => {
+    const message = buildResourceVerifyMessage('azure', 'Virtual Machine', 'web-vm-1');
+    const { subject, body } = parts(resourceVerifyMailto('azure', 'Virtual Machine', 'web-vm-1'));
+
+    expect(message.subject).toBe(subject);
+    expect(message.body).toBe(body);
+  });
+});
+
+describe('ticketTopicFor', () => {
+  it('files a security finding under its own topic', () => {
+    expect(ticketTopicFor('security-checks')).toBe('Security finding');
+  });
+
+  it('files a leakage finding under its own topic', () => {
+    expect(ticketTopicFor('cost-leakage')).toBe('Cost leakage');
+  });
+
+  // A resource row has no finding behind it, so it belongs under the
+  // ordinary support topic rather than inventing a third finding topic.
+  it('files a resource row under technical cloud support', () => {
+    expect(ticketTopicFor('resource')).toBe('Technical cloud support');
   });
 });
