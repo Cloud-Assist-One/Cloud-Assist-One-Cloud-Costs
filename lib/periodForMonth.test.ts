@@ -1,7 +1,7 @@
 import { periodForMonth } from './periodForMonth';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-function makeClient(existingArchive: { id: string } | null) {
+function makeClient(existingArchive: { id: string } | null, updateError: { message: string } | null = null) {
   const maybeSingle = jest.fn().mockResolvedValue({ data: existingArchive, error: null });
   const select = jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
@@ -10,7 +10,7 @@ function makeClient(existingArchive: { id: string } | null) {
   });
   const insertSingle = jest.fn().mockResolvedValue({ data: { id: 'new-archived' }, error: null });
   const insert = jest.fn().mockReturnValue({ select: () => ({ single: insertSingle }) });
-  const update = jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) });
+  const update = jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: updateError }) });
 
   const client = { from: jest.fn(() => ({ select, insert, update })) };
   return { client: client as unknown as SupabaseClient, insert, update };
@@ -61,5 +61,16 @@ describe('periodForMonth', () => {
     await periodForMonth(client, 'company-1', '2026-06-01', 'active-1', false);
 
     expect(insert.mock.calls[0][0].archived_at).toEqual(expect.any(String));
+  });
+
+  // Unchecked, a failed stamp leaves the active period silently unstamped
+  // with nothing reporting it. Throwing lets the pull route's per-run
+  // try/catch report this run as failed instead.
+  it('throws when stamping the active period fails, rather than leaving it silently unstamped', async () => {
+    const { client } = makeClient(null, { message: 'connection reset' });
+
+    await expect(periodForMonth(client, 'company-1', '2026-08-01', 'active-1', true)).rejects.toThrow(
+      'connection reset'
+    );
   });
 });

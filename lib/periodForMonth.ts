@@ -26,8 +26,13 @@ export async function periodForMonth(
 ): Promise<PeriodTarget> {
   if (isLatestMonth) {
     // A freshly created active period has no billing month until something
-    // lands in it.
-    await adminClient.from('billing_periods').update({ billing_month: month }).eq('id', activePeriodId);
+    // lands in it. Unchecked, a failed update leaves the period unstamped
+    // with nothing reporting it — check it and throw, so the caller's
+    // per-run try/catch reports this run as failed instead.
+    const { error } = await adminClient.from('billing_periods').update({ billing_month: month }).eq('id', activePeriodId);
+    if (error) {
+      throw new Error(`Could not stamp the active period with ${month}: ${error.message}`);
+    }
     return { periodId: activePeriodId, kind: 'active' };
   }
 
