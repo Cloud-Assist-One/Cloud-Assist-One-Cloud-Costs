@@ -1,7 +1,9 @@
 'use client';
 
-import type { CheckResult, Finding, FindingSeverity } from '@/lib/types';
+import type { CheckResult, CloudProvider, Finding, FindingSeverity } from '@/lib/types';
 import { SEVERITY_ORDER } from '@/lib/findings';
+import { findingVerifyMailto } from '@/lib/verifyEmail';
+import VerifyButton from './VerifyButton';
 import styles from './FindingsGrid.module.css';
 
 const SEVERITY_CLASS: Record<FindingSeverity, string> = {
@@ -46,9 +48,11 @@ function bySeverityRank(a: CheckResult, b: CheckResult): number {
 export default function FindingsGrid({
   checks,
   kind,
+  provider,
 }: {
   checks: CheckResult[];
   kind: 'security-checks' | 'cost-leakage';
+  provider: CloudProvider;
 }) {
   const isLeakage = kind === 'cost-leakage';
   // Cost-leakage sections stay in the route's push order -- severity is not
@@ -88,6 +92,7 @@ export default function FindingsGrid({
                       <th>Region</th>
                       {isLeakage ? <th className={styles.numeric}>Monthly cost</th> : <th>Severity</th>}
                       <th>Detail</th>
+                      <th className={styles.verifyCell}>Verify</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -103,6 +108,12 @@ export default function FindingsGrid({
                           </td>
                         )}
                         <td className={styles.detailCell}>{row.detail}</td>
+                        <td className={styles.verifyCell}>
+                          <VerifyButton
+                            href={findingVerifyMailto(provider, kind, check, row)}
+                            label={`Email to verify this finding, ${row.resourceName}`}
+                          />
+                        </td>
                       </tr>
                     ))}
                   </tbody>

@@ -161,7 +161,7 @@ export default function FindingsTab({ companyId, periodId, provider, kind }: Fin
         </p>
       )}
 
-      <FindingsGrid checks={response.checks} kind={kind} />
+      <FindingsGrid checks={response.checks} kind={kind} provider={provider} />
     </div>
   );
 }

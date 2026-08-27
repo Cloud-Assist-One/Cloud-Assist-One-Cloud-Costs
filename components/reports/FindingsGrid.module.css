@@ -138,3 +138,8 @@
   flex-direction: column;
   gap: 1.25rem;
 }
+
+.verifyCell {
+  width: 1%;
+  text-align: center;
+}
