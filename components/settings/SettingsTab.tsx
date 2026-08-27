@@ -8,6 +8,7 @@ import AwsCredentialsPanel from './AwsCredentialsPanel';
 import AzureCredentialsPanel from './AzureCredentialsPanel';
 import GcpCredentialsPanel from './GcpCredentialsPanel';
 import SnowflakeCredentialsPanel from './SnowflakeCredentialsPanel';
+import BillingFileSourcesPanel from './BillingFileSourcesPanel';
 import styles from './SettingsTab.module.css';
 
 interface SettingsTabProps {
@@ -81,6 +82,8 @@ export default function SettingsTab({ companyId }: SettingsTabProps) {
         limitMessage={limitMessage}
         onConnectionsChanged={() => setReloadToken((token) => token + 1)}
       />
+
+      <BillingFileSourcesPanel companyId={companyId} />
     </div>
   );
 }
