@@ -118,12 +118,12 @@ describe('CostReportTab', () => {
     expect(await screen.findByText(/no cost data for this period/i)).toBeInTheDocument();
   });
 
-  it('shows a Pull Billing button for AWS that opens the modal', async () => {
+  it('shows a Quick Pull button for AWS that opens the modal', async () => {
     loadRecords.mockResolvedValueOnce({ data: [] });
 
     render(<CostReportTab companyId="company-1" cloudProvider="aws" periodId="period-1" />);
 
-    const button = await screen.findByRole('button', { name: /pull billing/i });
+    const button = await screen.findByRole('button', { name: /quick pull/i });
     await userEvent.click(button);
 
     expect(screen.getByText('pull-billing-modal-content')).toBeInTheDocument();
@@ -134,19 +134,19 @@ describe('CostReportTab', () => {
 
     render(<CostReportTab companyId="company-1" cloudProvider="aws" periodId="period-1" />);
 
-    await userEvent.click(await screen.findByRole('button', { name: /pull billing/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /quick pull/i }));
     expect(screen.getByText('pull-billing-modal-content')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'close-modal' }));
     expect(screen.queryByText('pull-billing-modal-content')).not.toBeInTheDocument();
   });
 
-  it('shows a Pull Billing button for Azure, which also has a billing API', async () => {
+  it('shows a Quick Pull button for Azure, which also has a billing API', async () => {
     loadRecords.mockResolvedValueOnce({ data: [] });
 
     render(<CostReportTab companyId="company-1" cloudProvider="azure" periodId="period-1" />);
 
-    expect(await screen.findByRole('button', { name: /pull billing/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /quick pull/i })).toBeInTheDocument();
   });
 
   it.each(['gcp', 'snowflake'] as const)(
@@ -180,7 +180,7 @@ describe('CostReportTab', () => {
     render(<CostReportTab companyId="company-1" cloudProvider="aws" periodId="period-1" />);
     await screen.findByText(/no cost data for this period/i);
 
-    await userEvent.click(screen.getByRole('button', { name: /pull billing/i }));
+    await userEvent.click(screen.getByRole('button', { name: /quick pull/i }));
     await userEvent.click(screen.getByRole('button', { name: 'simulate-pulled' }));
 
     // Single record's per-service total and grand total both render "$20.00",
@@ -195,7 +195,7 @@ describe('CostReportTab', () => {
     render(<CostReportTab companyId="company-1" cloudProvider="aws" periodId="period-1" />);
     await screen.findByText(/no cost data for this period/i);
 
-    await userEvent.click(screen.getByRole('button', { name: /pull billing/i }));
+    await userEvent.click(screen.getByRole('button', { name: /quick pull/i }));
     expect(screen.getByText('pull-billing-modal-content')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'simulate-pulled' }));
@@ -222,7 +222,7 @@ describe('CostReportTab', () => {
     );
     await screen.findByText(/no cost data for this period/i);
 
-    await userEvent.click(screen.getByRole('button', { name: /pull billing/i }));
+    await userEvent.click(screen.getByRole('button', { name: /quick pull/i }));
     await userEvent.click(screen.getByRole('button', { name: 'simulate-pulled-with-archive' }));
 
     expect(onPeriodArchived).toHaveBeenCalledWith('period-2');

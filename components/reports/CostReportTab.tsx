@@ -7,6 +7,7 @@ import type { CloudProvider, CostRecord } from '@/lib/types';
 import { aggregateByDate, aggregateByService, totalCost } from '@/lib/reportAggregation';
 import { formatBillingMonth } from '@/lib/cloudProvider';
 import PullBillingModal from './PullBillingModal';
+import PullBillingFromBucketModal from './PullBillingFromBucketModal';
 import styles from './CostReportTab.module.css';
 
 interface CostReportTabProps {
@@ -35,6 +36,7 @@ export default function CostReportTab({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showPullBillingModal, setShowPullBillingModal] = useState(false);
+  const [showBucketPullModal, setShowBucketPullModal] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -124,6 +126,14 @@ export default function CostReportTab({
     [onPeriodArchived]
   );
 
+  // PullBillingFromBucketModal's onPulled carries no result — a bucket pull
+  // can touch several months/periods at once, unlike the single-period
+  // Quick Pull, so there's no single newPeriodId to report here. Reloading
+  // the current period's records is still correct either way.
+  const handleBucketPulled = useCallback(() => {
+    setRefreshKey((k) => k + 1);
+  }, []);
+
   const byDate = useMemo(() => aggregateByDate(records), [records]);
   const byService = useMemo(() => aggregateByService(records), [records]);
   const total = useMemo(() => totalCost(records), [records]);
@@ -137,9 +147,14 @@ export default function CostReportTab({
     <div className={styles.wrapper}>
       <div className={`${styles.actionsBar} print-hidden`}>
         {canPullBilling && !isReadOnly && (
-          <button type="button" onClick={() => setShowPullBillingModal(true)}>
-            Pull Billing
-          </button>
+          <>
+            <button type="button" onClick={() => setShowPullBillingModal(true)}>
+              Quick Pull
+            </button>
+            <button type="button" onClick={() => setShowBucketPullModal(true)}>
+              Pull Billing
+            </button>
+          </>
         )}
         <button type="button" onClick={() => window.print()}>
           Print
@@ -152,6 +167,14 @@ export default function CostReportTab({
           provider={cloudProvider}
           onClose={() => setShowPullBillingModal(false)}
           onPulled={handlePulled}
+        />
+      )}
+
+      {showBucketPullModal && (
+        <PullBillingFromBucketModal
+          companyId={companyId}
+          onClose={() => setShowBucketPullModal(false)}
+          onPulled={handleBucketPulled}
         />
       )}
 

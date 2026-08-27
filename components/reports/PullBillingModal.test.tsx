@@ -144,7 +144,7 @@ describe('PullBillingModal', () => {
 
     await screen.findByLabelText(/billing month/i);
     expect(global.fetch).toHaveBeenCalledWith('/api/settings/aws-credentials?companyId=company-1');
-    expect(screen.getByRole('heading', { name: /pull billing from amazon web services/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /quick pull from amazon web services/i })).toBeInTheDocument();
   });
 
   it('reads connections from the Azure endpoint and labels itself for Azure', async () => {
@@ -154,7 +154,7 @@ describe('PullBillingModal', () => {
 
     await screen.findByLabelText(/billing month/i);
     expect(global.fetch).toHaveBeenCalledWith('/api/settings/azure-credentials?companyId=company-1');
-    expect(screen.getByRole('heading', { name: /pull billing from microsoft azure/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /quick pull from microsoft azure/i })).toBeInTheDocument();
   });
 
   it('posts to the Azure pull-billing route when the provider is azure', async () => {

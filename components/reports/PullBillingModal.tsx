@@ -124,7 +124,7 @@ export default function PullBillingModal({ companyId, provider, onClose, onPulle
 
         {connections !== null && connections.length > 0 && step === 'form' && (
           <div className={styles.form}>
-            <h3>Pull Billing from {providerLabel}</h3>
+            <h3>Quick Pull from {providerLabel}</h3>
 
             <label htmlFor="pull-billing-month">Billing month</label>
             <select id="pull-billing-month" value={billingMonth} onChange={(e) => setBillingMonth(e.target.value)}>
