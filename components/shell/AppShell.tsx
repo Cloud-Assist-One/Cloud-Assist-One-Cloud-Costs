@@ -22,6 +22,7 @@ import AwsResourcesTab from '../reports/AwsResourcesTab';
 import AwsIamUsersTab from '../reports/AwsIamUsersTab';
 import AzureResourcesTab from '../reports/AzureResourcesTab';
 import AzureUsersTab from '../reports/AzureUsersTab';
+import FindingsTab from '../reports/FindingsTab';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import ThemeToggle from './ThemeToggle';
@@ -92,11 +93,12 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [companyName, setCompanyName] = useState<string | null>(null);
   const greeting = useSyncExternalStore(subscribeToClock, readLocalGreeting, readServerGreeting);
-  const [awsSubTab, setAwsSubTab] = useState<'overview' | 'resources' | 'iamUsers'>('overview');
+  const [awsSubTab, setAwsSubTab] = useState<'overview' | 'resources' | 'iamUsers' | 'costLeakage'>('overview');
   const [azureSubTab, setAzureSubTab] = useState<'overview' | 'resources' | 'users'>('overview');
   const [adminSubTab, setAdminSubTab] = useState<'companies' | 'users' | 'emails'>('companies');
   const isWideCloudView =
-    (activeTab === 'aws' && (awsSubTab === 'resources' || awsSubTab === 'iamUsers')) ||
+    (activeTab === 'aws' &&
+      (awsSubTab === 'resources' || awsSubTab === 'iamUsers' || awsSubTab === 'costLeakage')) ||
     (activeTab === 'azure' && (azureSubTab === 'resources' || azureSubTab === 'users'));
   const router = useRouter();
 
@@ -402,12 +404,15 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
                 <div className={styles.cloudSubTabs}>
                   <Tabs
                     value={awsSubTab}
-                    onValueChange={(value) => setAwsSubTab(value as 'overview' | 'resources' | 'iamUsers')}
+                    onValueChange={(value) =>
+                      setAwsSubTab(value as 'overview' | 'resources' | 'iamUsers' | 'costLeakage')
+                    }
                   >
                     <TabsList>
                       <TabsTrigger value="overview">Overview</TabsTrigger>
                       <TabsTrigger value="resources">Resources</TabsTrigger>
                       <TabsTrigger value="iamUsers">IAM Users</TabsTrigger>
+                      <TabsTrigger value="costLeakage">Cost Leakage</TabsTrigger>
                     </TabsList>
                   </Tabs>
                   {awsSubTab === 'overview' ? (
@@ -421,8 +426,15 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
                     />
                   ) : awsSubTab === 'resources' ? (
                     <AwsResourcesTab companyId={effectiveCompanyId} />
-                  ) : (
+                  ) : awsSubTab === 'iamUsers' ? (
                     <AwsIamUsersTab companyId={effectiveCompanyId} />
+                  ) : (
+                    <FindingsTab
+                      companyId={effectiveCompanyId}
+                      periodId={periodIdForReports}
+                      provider="aws"
+                      kind="cost-leakage"
+                    />
                   )}
                 </div>
               )}

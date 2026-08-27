@@ -67,6 +67,12 @@ jest.mock('./../reports/AzureUsersTab', () => ({
   __esModule: true,
   default: () => <div>azure-users-tab-content</div>,
 }));
+jest.mock('./../reports/FindingsTab', () => ({
+  __esModule: true,
+  default: ({ provider, kind }: { provider: string; kind: string }) => (
+    <div>findings-tab-content for {provider} {kind}</div>
+  ),
+}));
 
 const signOut = jest.fn();
 const listCompanies = jest.fn();
@@ -387,6 +393,18 @@ describe('AppShell', () => {
     await user.click(screen.getByRole('tab', { name: /iam users/i }));
     expect(await screen.findByText('aws-iam-users-tab-content')).toBeInTheDocument();
     expect(screen.queryByText('aws-resources-tab-content')).not.toBeInTheDocument();
+  });
+
+  it('shows a Cost Leakage sub-tab under AWS, defaulting to Overview', async () => {
+    const user = userEvent.setup();
+    render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);
+
+    expect(await screen.findByText('report-tab-content for aws')).toBeInTheDocument();
+    expect(screen.queryByText('findings-tab-content for aws cost-leakage')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: 'Cost Leakage' }));
+    expect(await screen.findByText('findings-tab-content for aws cost-leakage')).toBeInTheDocument();
+    expect(screen.queryByText('report-tab-content for aws')).not.toBeInTheDocument();
   });
 
   it('shows an Overview/Resources/Users sub-tab strip on the Azure tab, defaulting to Overview', async () => {
