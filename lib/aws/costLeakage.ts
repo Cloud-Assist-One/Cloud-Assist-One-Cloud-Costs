@@ -240,6 +240,8 @@ export interface MultipartUploadBucketInput {
   /** Oldest stale upload's initiation time, or null when there are none. */
   oldestInitiated: string | null;
   staleCount: number;
+  /** Set when the lookup failed for a reason other than "no uploads found". */
+  lookupError: string | null;
 }
 
 // The route caps how many buckets it will examine. A section reporting "3
@@ -305,6 +307,20 @@ export function staleMultipartUploads(
   const findings: Finding[] = [];
 
   for (const bucket of buckets) {
+    if (bucket.lookupError) {
+      // Unknown is not clean: saying nothing here would hide real waste behind
+      // a permissions gap.
+      findings.push(
+        leak(
+          `arn:aws:s3:::${bucket.name}`,
+          bucket.name,
+          bucket.region,
+          `Bucket ${bucket.name}'s incomplete multipart uploads could not be listed (${bucket.lookupError}), so whether any are stale is unknown.`
+        )
+      );
+      continue;
+    }
+
     if (bucket.staleCount === 0 || !bucket.oldestInitiated) continue;
 
     const days = daysBetween(bucket.oldestInitiated, now);

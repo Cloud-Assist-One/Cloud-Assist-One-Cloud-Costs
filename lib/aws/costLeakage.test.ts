@@ -321,7 +321,7 @@ describe('staleMultipartUploads', () => {
 
   it('flags a bucket with uploads older than the threshold', () => {
     const result = staleMultipartUploads(
-      [{ name: 'uploads', region: 'us-east-1', oldestInitiated: '2026-08-01T00:00:00.000Z', staleCount: 12 }],
+      [{ name: 'uploads', region: 'us-east-1', oldestInitiated: '2026-08-01T00:00:00.000Z', staleCount: 12, lookupError: null }],
       now
     );
 
@@ -332,7 +332,7 @@ describe('staleMultipartUploads', () => {
 
   it('ignores a bucket with no stale uploads', () => {
     const result = staleMultipartUploads(
-      [{ name: 'clean', region: 'us-east-1', oldestInitiated: null, staleCount: 0 }],
+      [{ name: 'clean', region: 'us-east-1', oldestInitiated: null, staleCount: 0, lookupError: null }],
       now
     );
 
@@ -342,11 +342,25 @@ describe('staleMultipartUploads', () => {
   // One bucket with 4,000 abandoned parts is one thing to go and fix.
   it('reports one finding per bucket rather than one per upload', () => {
     const result = staleMultipartUploads(
-      [{ name: 'busy', region: 'us-east-1', oldestInitiated: '2026-07-01T00:00:00.000Z', staleCount: 4000 }],
+      [{ name: 'busy', region: 'us-east-1', oldestInitiated: '2026-07-01T00:00:00.000Z', staleCount: 4000, lookupError: null }],
       now
     );
 
     expect(result.findings).toHaveLength(1);
+  });
+
+  // A denied bucket is unknown, not clean. Reporting it as having no stale
+  // uploads would hide real waste behind a permissions gap -- the same
+  // reasoning bucketsWithoutLifecycle applies to a denied lifecycle lookup.
+  it('reports a bucket whose incomplete uploads could not be listed, rather than assuming it has none', () => {
+    const result = staleMultipartUploads(
+      [{ name: 'locked', region: 'us-east-1', oldestInitiated: null, staleCount: 0, lookupError: 'Access Denied' }],
+      now
+    );
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].detail).toContain('could not be listed');
+    expect(result.findings[0].detail).toContain('Access Denied');
   });
 });
 

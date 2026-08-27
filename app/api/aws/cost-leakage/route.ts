@@ -58,11 +58,19 @@ const TARGET_LOOKUP_CONCURRENCY = 8;
 // is bounded and the shortfall is reported as its own finding.
 const MAX_BUCKETS_SCANNED = 200;
 
-// Compute Optimizer's Finding enum serializes on the wire as single-word
-// PascalCase ("Overprovisioned", "Underprovisioned", "Optimized",
+// Compute Optimizer's installed SDK enum serializes on the wire as
+// single-word PascalCase ("Overprovisioned", "Underprovisioned", "Optimized",
 // "NotOptimized"), not the SCREAMING_SNAKE_CASE the rule filters on
-// ("OVER_PROVISIONED", ...). Mapped here so the wire-format quirk stays
-// local to this fetch rather than leaking into the rule.
+// ("OVER_PROVISIONED", ...). AWS's own doc comment on this field contradicts
+// the SDK types and claims responses already arrive as OVER_PROVISIONED /
+// UNDER_PROVISIONED / OPTIMIZED -- that can't be settled without a live
+// enrolled account, so this map is deliberately permissive: an unmapped
+// value (e.g. an already-SCREAMING_SNAKE_CASE response) falls through
+// unchanged via the `?? rec.finding ?? ''` below, which the rule still
+// matches directly. That fallthrough is load-bearing, not defensive
+// noise -- accepting both spellings cannot produce a false positive, since
+// no other value normalizes to OVER_PROVISIONED, and removing it would
+// break whichever spelling AWS actually sends.
 const COMPUTE_OPTIMIZER_FINDING_LABELS: Record<string, string> = {
   Overprovisioned: 'OVER_PROVISIONED',
   Underprovisioned: 'UNDER_PROVISIONED',
@@ -401,7 +409,7 @@ export async function GET(request: NextRequest) {
       const staleBefore = Date.now() - MULTIPART_UPLOAD_STALE_DAYS * 86_400_000;
 
       const rows = await mapWithConcurrency(scannedBuckets, TARGET_LOOKUP_CONCURRENCY, async (name) => {
-        const row: MultipartUploadBucketInput = { name, region, oldestInitiated: null, staleCount: 0 };
+        const row: MultipartUploadBucketInput = { name, region, oldestInitiated: null, staleCount: 0, lookupError: null };
         try {
           const uploads = await collectPages(
             (token) => s3.send(new ListMultipartUploadsCommand({ Bucket: name, KeyMarker: token })),
@@ -415,10 +423,14 @@ export async function GET(request: NextRequest) {
             const iso = new Date(initiated).toISOString();
             if (!row.oldestInitiated || iso < row.oldestInitiated) row.oldestInitiated = iso;
           }
-        } catch {
-          // A bucket whose uploads cannot be listed contributes nothing rather
-          // than failing the whole check; the lifecycle check above already
-          // surfaces a denied bucket.
+        } catch (err) {
+          // s3:ListBucketMultipartUploads is a distinct IAM action from
+          // s3:GetLifecycleConfiguration, so a bucket policy can deny this
+          // lookup while the lifecycle check above succeeds for the same
+          // bucket. Unknown is not clean: leaving lookupError unset here
+          // would render this bucket as "no stale uploads" instead of
+          // "could not be checked".
+          row.lookupError = errorMessage(err);
         }
         return row;
       });
