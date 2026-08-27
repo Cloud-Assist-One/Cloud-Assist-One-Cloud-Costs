@@ -40,19 +40,15 @@ describe('PullBillingFromBucketModal', () => {
     expect((global.fetch as jest.Mock).mock.calls.some((call) => call[1]?.method === 'POST')).toBe(false);
   });
 
-  // CORRECTION applied here per task instructions: the confirmation copy
-  // mentions "archive" more than once (archived period, Archive tab, existing
-  // archive replaced), so a single findByText(/archive/i) would throw on an
-  // ambiguous match. findAllByText proves the archiving consequence is named
-  // at least once; the separate "replaced" assertion proves the same-month
-  // replacement consequence is named too. Both consequences must still hold.
   it('names both consequences of archiving, including the replacement', async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => sources });
 
     renderModal();
 
-    const archiveMentions = await screen.findAllByText(/archive/i);
-    expect(archiveMentions.length).toBeGreaterThan(0);
+    // Two assertions, each matching a phrase unique to one paragraph: a single
+    // /archive/i match is satisfied by the replacement sentence alone, which
+    // would leave this green even if the first consequence went missing.
+    expect(await screen.findByText(/stays readable under the archive tab/i)).toBeInTheDocument();
     expect(screen.getByText(/replaced/i)).toBeInTheDocument();
   });
 
