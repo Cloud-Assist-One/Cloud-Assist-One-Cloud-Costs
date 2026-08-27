@@ -6,6 +6,10 @@ Cost spreadsheets reach the portal one way today: a person picks a file in the b
 
 This adds a second ingestion path: point a company at a bucket or container, and have the portal discover the exports in it, pull the ones it has not already ingested, and process them through the same parser and the same tables as an upload.
 
+**The two pull paths are renamed to say what they are.** The existing Cost Explorer / Cost Management pull becomes **Quick Pull** — it is fast and needs no bucket, but groups by service and tag only. The new bucket pull becomes **Pull Billing**, because it is the one that brings in the real billing detail.
+
+That difference is not cosmetic. The Quick Pull's grouped API responses carry no per-resource identity, so `cost_records.resource_id` is null for everything it writes — which is why the Cost Leakage tab shows no cost against its findings for pull-only customers. A Cost and Usage Report does carry `lineItem/ResourceId`, and `lib/parseCostFile.ts:71` already maps it. So Pull Billing populates the column Quick Pull cannot, and the cost figures on Cost Leakage start working for any customer using it.
+
 **It syncs every month it finds, not just the current one.** A bucket holding a year of exports produces a year of populated periods, which is what makes "onboard a new client" a single action rather than twelve manual uploads.
 
 This supersedes the earlier draft at `~/.claude/plans/virtual-sprouting-quiche.md` in two respects, both settled deliberately: that draft imported only the active period's month and skipped the rest, and it assumed a bucket holds one file per month. Neither survives contact with a real Cost and Usage Report bucket.
@@ -17,12 +21,12 @@ This supersedes the earlier draft at `~/.claude/plans/virtual-sprouting-quiche.m
 - **A re-run is a no-op.** Ingesting the same run twice must be impossible, including under a race between a manual pull and a future scheduled one.
 - **Nothing is dropped silently.** Every run in the bucket ends the pull as imported, skipped with a stated reason, or failed with a stated reason — including anything a safety cap excluded.
 - **The upload path and the bucket path share one implementation.** The ingestion half is extracted from the upload route rather than reimplemented.
+- **Pull Billing starts from a clean slate**, archiving the current period first so the newest month in the bucket becomes the active one — behind a confirmation, because it changes what the user is looking at.
 
 ## Non-goals
 
 - **No scheduling in this build.** A daily Vercel cron calling the same pull function is a thin follow-up, sketched at the end, but not built here.
 - **No changes to how a user archives a period.** The archive route and its RPC keep their current behaviour; this feature creates archived periods directly for historical months, which is a different operation.
-- **The active period is never auto-archived or rolled forward** — see Period assignment.
 - **No GCP or Snowflake sources.** The table carries a `cloud_provider` column with those values allowed, but only AWS and Azure stores are implemented.
 - **No editing a source after creation.** Create and delete only; changing a bucket means deleting the source and adding it again.
 
@@ -44,15 +48,25 @@ Gzip needs no dependency — Node's built-in `zlib` handles it.
 
 A period holds exactly one billing month; `checkBillingMonthMatches` enforces that across providers. Archived periods already carry a `billing_month`, and `app/api/periods/archive/route.ts` already enforces one archive per month. So "a period per month" is the model the app already runs, and a sync fills it rather than fighting it.
 
-For each distinct month discovered:
+### Archive first, behind a confirmation
 
-1. If the **active period already has a billing month**, that month's runs go into the active period.
-2. If the active period has **no billing month yet**, the **latest** month found becomes its month and goes there.
-3. **Every other month** goes into an archived period for that month — reused if one exists, created if not.
+Pull Billing begins by archiving the current active period, so the months it imports can be placed cleanly rather than worked around. Because that changes what the user is looking at the moment they click, it is gated by a confirm dialog with OK and Cancel, and the dialog states plainly what will happen.
 
-**Rule 3 applies even to a month newer than the active period's.** Rolling the active period forward would archive work someone may be mid-review on, and the pull result gives them no way to undo it. Filing a newer month as archived is mildly surprising but harmless and reversible; silently retiring the active period is neither.
+The dialog must name the two consequences, not just ask:
 
-Creating an archived period is a plain insert (`status: 'archived'`, `billing_month`, `archived_at`) — the `archive_billing_period` RPC only ever archives the *active* period and is not involved.
+- the current period will be archived and its data will remain readable under the Archive tab;
+- **if an archived period already exists for the same month, it is replaced** — that is the existing behaviour of `archive/route.ts`, and doing it automatically without saying so would destroy data the user did not know was at risk.
+
+**An active period with no data is not archived.** There is nothing to preserve, and archiving it would leave an empty archived period with no billing month cluttering the Archive tab.
+
+### Where each month lands
+
+After the archive, for each distinct month discovered:
+
+1. The **latest** month becomes the active period's month and imports there.
+2. **Every earlier month** goes into an archived period for that month — reused if one exists, created if not.
+
+Creating an archived period is a plain insert (`status: 'archived'`, `billing_month`, `archived_at`). The `archive_billing_period` RPC only ever archives the *active* period, so it is used for the archive-first step and not for the historical months.
 
 ### Strengthening the one-archive-per-month rule
 
@@ -186,7 +200,7 @@ Returns a per-run report:
 
 A pull must fail loudly rather than run for five minutes and time out mid-import. Three caps, each reported rather than silently applied:
 
-- **runs per pull** — 24, so a first sync covers two years
+- **runs per pull** — 12, one year. Anything older is available from the provider's own console, and importing it would fill the Archive tab with periods nobody reviews
 - **parts per run** — 200, comfortably above a large CUR month
 - **total bytes per pull** — 500 MB decompressed, sized to stay inside the 300-second budget
 
@@ -194,11 +208,28 @@ Anything a cap excludes appears in the report as `skipped` with a reason naming 
 
 ## UI
 
+### The two buttons
+
+`components/reports/CostReportTab.tsx:141` currently renders one **Pull Billing** button opening `PullBillingModal`. That becomes two:
+
+- **Quick Pull** — the existing modal and route, unchanged apart from its label and heading. Still the fast path when nobody has configured a bucket.
+- **Pull Billing** — the new bucket pull. Disabled with an explanatory tooltip when the company has no billing file source configured, rather than hidden, so it is discoverable before it is usable.
+
+The rename is label-only: `/api/{provider}/pull-billing` keeps its path, since renaming a working route earns nothing and breaks anything pointing at it.
+
+### The confirmation
+
+Clicking **Pull Billing** opens a confirm dialog before anything is fetched. It states what will happen in the user's terms — the current period is archived and stays readable under the Archive tab; if an archived period already exists for that same month it is replaced; and the newest month found in the bucket becomes the new active period. OK proceeds; Cancel does nothing at all, having touched neither the bucket nor the database.
+
+When the active period holds no data, the dialog says so and offers to proceed without archiving, since there is nothing to preserve.
+
+### The result
+
+The per-run report, grouped by month, is what people will actually read: *"August 2026 — imported into the active period, 41 parts, 128,400 rows"*, *"March 2026 — imported into an archived period"*, *"January 2026 — failed: manifest unreadable"*, *"January 2025 — skipped: older than the 12-month limit"*.
+
+### Settings
+
 **`components/settings/BillingFileSourcesPanel.tsx`**, beside `ConnectionsPanel` in the Settings tab. Lists sources with label, bucket/container, prefix and last pull. The add form picks an existing connection from a dropdown, then bucket/container, optional prefix, and a label. Delete uses the confirm-then-act shape `ArchiveTab` already uses.
-
-A **Pull from bucket** button on each source, and the same action in `components/reports/PullBillingModal.tsx` so both pull paths sit together.
-
-The result renders the per-run report grouped by month, because that is what people will actually read: *"August 2026 — imported into the active period, 41 parts, 128,400 rows"*, *"March 2026 — imported into an archived period"*, *"January 2026 — failed: manifest unreadable"*.
 
 ## Files
 
@@ -208,7 +239,9 @@ The result renders the per-run report grouped by month, because that is what peo
 - `lib/ingestCostFile.ts` (+ test) — extracted from the upload route.
 - `app/api/upload/route.ts` — refactored to call `ingestCostFile`; its tests unchanged.
 - `app/api/settings/billing-file-sources/route.ts`, `app/api/billing-sources/[sourceId]/pull/route.ts`.
-- `components/settings/BillingFileSourcesPanel.tsx` (+ `.module.css`, `.test.tsx`); `components/reports/PullBillingModal.tsx` gains the bucket-pull action.
+- `components/settings/BillingFileSourcesPanel.tsx` (+ `.module.css`, `.test.tsx`).
+- `components/reports/PullBillingFromBucketModal.tsx` (+ `.module.css`, `.test.tsx`) — the confirmation and the per-run report.
+- `components/reports/PullBillingModal.tsx`, `components/reports/CostReportTab.tsx` — relabelled to Quick Pull, second button added.
 - `components/settings/SettingsTab.tsx` — renders the new panel.
 - `lib/types.ts` — `BillingFileSource`, `ExportRun`, `BillingSourcePullResult`.
 - `package.json` — add `@azure/storage-blob`.
@@ -229,4 +262,6 @@ The most likely cause of a first pull failing:
 - `npm test`, `npx tsc --noEmit`, `npm run lint`, `npm run build` — checking the build's exit code directly rather than through a pipeline that can swallow it.
 - **Unit tests**: `exportDiscovery` against fixture listings — a CUR tree with two assemblies for one month, a CUR run split across parts, an Azure folder of daily snapshots, a loose-files bucket, and an empty listing. `deriveBillingMonth` including a month-straddling file and an empty parse. `periodForMonth` for all three assignment rules, including a month newer than the active one. `ingestCostFile` for insert, replace-existing-range, and parse failure. Both object stores against faked clients.
 - **The upload route's existing tests must pass unchanged** after the extraction.
+- **The archive-first step**: that Cancel touches nothing; that OK archives a period with data and skips archiving an empty one; that the newest bucket month becomes the new active period; and that archiving over an existing same-month archive replaces it, which the dialog warned about.
+- **The 12-month cap**: a bucket holding 18 months imports 12 and reports the other 6 as skipped for age, rather than silently stopping.
 - **Live, and the part mocks cannot cover**: a source against a real bucket holding at least two months. Confirm the newest month lands in the active period and the older ones in archived periods; that a re-run reports everything already ingested; that overwriting an export changes its etag and re-imports it; and that the Line Items tab shows the imported rows with their detail columns populated. Then confirm a bucket with no permissions produces the named-role message rather than a raw SDK error.
