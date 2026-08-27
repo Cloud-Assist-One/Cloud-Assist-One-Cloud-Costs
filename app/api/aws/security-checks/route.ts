@@ -18,6 +18,7 @@ import {
   GetBucketAclCommand,
 } from '@aws-sdk/client-s3';
 import { RDSClient, DescribeDBInstancesCommand } from '@aws-sdk/client-rds';
+import { ACMClient, ListCertificatesCommand } from '@aws-sdk/client-acm';
 import { requireCompanyAccess } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { decryptCredentials } from '@/lib/cloudCredentialsCrypto';
@@ -35,6 +36,7 @@ import {
   inactiveIamUsers,
   unencryptedVolumes,
   unencryptedRdsStorage,
+  expiringCertificates,
   type IamUserInput,
   type RdsSecurityInput,
 } from '@/lib/aws/securityChecks';
@@ -420,6 +422,29 @@ export async function GET(request: NextRequest) {
       )
     );
   }
+
+  checks.push(
+    await runCheck('expiring-certificates', 'Certificates expiring or expired', async () => {
+      const acm = new ACMClient(clientConfig);
+      // ListCertificates returns NotAfter and InUse on the summary, so this
+      // needs no per-certificate DescribeCertificate call.
+      const certificates = await collectPages(
+        (token) => acm.send(new ListCertificatesCommand({ NextToken: token })),
+        (page) => page.CertificateSummaryList ?? [],
+        (page) => page.NextToken
+      );
+      return expiringCertificates(
+        certificates.map((certificate) => ({
+          arn: certificate.CertificateArn ?? '',
+          domainName: certificate.DomainName ?? certificate.CertificateArn ?? '',
+          notAfter: certificate.NotAfter?.toISOString() ?? null,
+          inUse: certificate.InUse === true,
+          region,
+        })),
+        new Date()
+      );
+    })
+  );
 
   return NextResponse.json({
     connected: true,

@@ -5,6 +5,8 @@ import { NetworkManagementClient } from '@azure/arm-network';
 import { SqlManagementClient } from '@azure/arm-sql';
 import { StorageManagementClient } from '@azure/arm-storage';
 import { WebSiteManagementClient } from '@azure/arm-appservice';
+import { KeyVaultManagementClient } from '@azure/arm-keyvault';
+import { CertificateClient } from '@azure/keyvault-certificates';
 import { Client } from '@microsoft/microsoft-graph-client';
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials';
 import { requireCompanyAccess } from '@/lib/admin-guard';
@@ -22,6 +24,8 @@ import {
   insecureStorageTransport,
   appServiceNotHttpsOnly,
   normalizeNsgRule,
+  expiringKeyVaultCertificates,
+  type KeyVaultCertificateInput,
   type SqlServerInput,
   type StorageAccountInput,
 } from '@/lib/azure/securityChecks';
@@ -324,6 +328,50 @@ export async function GET(request: NextRequest) {
       'Entra users without MFA',
       'builtin',
       `${checks[mfaCheckIndex].unavailableReason} Reading registered MFA methods needs the Microsoft Graph application permission UserAuthenticationMethod.Read.All, granted with admin consent — this is a separate grant from the User.Read.All permission the Users tab uses.`
+    );
+  }
+
+  checks.push(
+    await runCheck('expiring-certificates', 'Certificates expiring or expired', async () => {
+      const keyVault = new KeyVaultManagementClient(credential, subscriptionId);
+      const vaults = [];
+      for await (const vault of keyVault.vaults.listBySubscription()) {
+        if (vault.name) vaults.push(vault.name);
+      }
+
+      // One data-plane client per vault: certificate metadata is not exposed by
+      // the management plane. Capped for the same throttling reason as the
+      // other fan-outs here.
+      const perVault = await mapWithConcurrency(vaults, AZURE_LOOKUP_CONCURRENCY, async (vaultName) => {
+        const client = new CertificateClient(`https://${vaultName}.vault.azure.net`, credential);
+        const rows: KeyVaultCertificateInput[] = [];
+        for await (const properties of client.listPropertiesOfCertificates()) {
+          rows.push({
+            id: properties.id ?? `${vaultName}/${properties.name}`,
+            name: properties.name ?? properties.id?.split('/').pop() ?? '(unnamed)',
+            vaultName,
+            expiresOn: properties.expiresOn?.toISOString() ?? null,
+            enabled: properties.enabled !== false,
+          });
+        }
+        return rows;
+      });
+
+      return expiringKeyVaultCertificates(perVault.flat(), new Date());
+    })
+  );
+
+  // Reading certificate metadata is a Key Vault DATA-plane operation, which the
+  // subscription's Reader role does not grant -- the same trap as Storage Blob
+  // Data Reader and the Graph MFA permission. Naming the role is the difference
+  // between a fixable message and an opaque 403.
+  const certCheckIndex = checks.findIndex((check) => check.checkId === 'expiring-certificates');
+  if (certCheckIndex >= 0 && checks[certCheckIndex].status === 'unavailable') {
+    checks[certCheckIndex] = unavailableCheck(
+      'expiring-certificates',
+      'Certificates expiring or expired',
+      'builtin',
+      `${checks[certCheckIndex].unavailableReason} Reading certificate metadata needs a Key Vault data-plane role on each vault -- Key Vault Reader plus Key Vault Certificate User -- which the subscription's Reader and Security Reader roles do not include.`
     );
   }
 

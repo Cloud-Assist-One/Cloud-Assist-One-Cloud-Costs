@@ -8,6 +8,7 @@ import {
   inactiveIamUsers,
   unencryptedVolumes,
   unencryptedRdsStorage,
+  expiringCertificates,
 } from './securityChecks';
 
 describe('openSecurityGroups', () => {
@@ -370,6 +371,76 @@ describe('unencryptedRdsStorage', () => {
       { arn: 'arn:db-4', identifier: 'modern', publiclyAccessible: false, storageEncrypted: true, region: 'us-east-1' },
     ]);
 
+    expect(result.findings).toEqual([]);
+  });
+});
+
+describe('expiringCertificates', () => {
+  const now = new Date('2026-08-27T00:00:00.000Z');
+
+  function cert(overrides: Partial<Record<string, unknown>> = {}) {
+    return {
+      arn: 'arn:aws:acm:us-east-1:123:certificate/abc',
+      domainName: 'example.com',
+      notAfter: '2026-12-01T00:00:00.000Z',
+      inUse: true,
+      region: 'us-east-1',
+      ...overrides,
+    };
+  }
+
+  it('flags an already-expired certificate as critical', () => {
+    const result = expiringCertificates([cert({ notAfter: '2026-08-01T00:00:00.000Z' })], now);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].severity).toBe('critical');
+    expect(result.findings[0].detail).toContain('expired');
+  });
+
+  it('flags a certificate expiring within 30 days as high', () => {
+    const result = expiringCertificates([cert({ notAfter: '2026-09-10T00:00:00.000Z' })], now);
+
+    expect(result.findings[0].severity).toBe('high');
+    expect(result.findings[0].detail).toContain('14 days');
+  });
+
+  it('flags a certificate expiring within 90 days as medium', () => {
+    const result = expiringCertificates([cert({ notAfter: '2026-10-20T00:00:00.000Z' })], now);
+
+    expect(result.findings[0].severity).toBe('medium');
+  });
+
+  // A cert 200 days out is not actionable, and listing it buries the ones that are.
+  it('ignores a certificate expiring beyond 90 days', () => {
+    const result = expiringCertificates([cert({ notAfter: '2027-06-01T00:00:00.000Z' })], now);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  it('treats the 30-day boundary as high, not medium', () => {
+    const result = expiringCertificates([cert({ notAfter: '2026-09-26T00:00:00.000Z' })], now);
+
+    expect(result.findings[0].severity).toBe('high');
+  });
+
+  // Absent data is not evidence of a problem — same rule as inactive IAM users.
+  it('ignores a certificate with no expiry date rather than guessing', () => {
+    const result = expiringCertificates([cert({ notAfter: null })], now);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  it('names the domain and says whether the certificate is in use', () => {
+    const result = expiringCertificates([cert({ notAfter: '2026-09-10T00:00:00.000Z', inUse: false })], now);
+
+    expect(result.findings[0].resourceName).toBe('example.com');
+    expect(result.findings[0].detail).toContain('not attached');
+  });
+
+  it('reports nothing for an account with no certificates', () => {
+    const result = expiringCertificates([], now);
+
+    expect(result.status).toBe('ok');
     expect(result.findings).toEqual([]);
   });
 });
