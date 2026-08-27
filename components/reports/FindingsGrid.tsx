@@ -2,7 +2,7 @@
 
 import type { CheckResult, CloudProvider, Finding, FindingSeverity } from '@/lib/types';
 import { SEVERITY_ORDER } from '@/lib/findings';
-import { findingVerifyMailto } from '@/lib/verifyEmail';
+import { buildFindingVerifyMessage, findingVerifyMailto, ticketTopicFor } from '@/lib/verifyEmail';
 import VerifyButton from './VerifyButton';
 import styles from './FindingsGrid.module.css';
 
@@ -49,10 +49,12 @@ export default function FindingsGrid({
   checks,
   kind,
   provider,
+  companyId,
 }: {
   checks: CheckResult[];
   kind: 'security-checks' | 'cost-leakage';
   provider: CloudProvider;
+  companyId: string;
 }) {
   const isLeakage = kind === 'cost-leakage';
   // Cost-leakage sections stay in the route's push order -- severity is not
@@ -111,7 +113,12 @@ export default function FindingsGrid({
                         <td className={styles.verifyCell}>
                           <VerifyButton
                             href={findingVerifyMailto(provider, kind, check, row)}
-                            label={`Email to verify this finding, ${row.resourceName}`}
+                            label={`Verify this finding, ${row.resourceName}`}
+                            ticket={{
+                              companyId,
+                              topic: ticketTopicFor(kind),
+                              details: buildFindingVerifyMessage(provider, kind, check, row).body,
+                            }}
                           />
                         </td>
                       </tr>

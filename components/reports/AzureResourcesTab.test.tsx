@@ -207,7 +207,9 @@ describe('AzureResourcesTab', () => {
     render(<AzureResourcesTab companyId="company-1" />);
 
     await screen.findByText('web-vm-1');
-    const verifyLink = screen.getByRole('link', { name: /email to verify this virtual machine, web-vm-1/i });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /verify this virtual machine, web-vm-1/i }));
+    const verifyLink = screen.getByRole('menuitem', { name: /^email$/i });
     const href = decodeURIComponent(verifyLink.getAttribute('href') ?? '');
     expect(href).toContain('mailto:?subject=Verify Azure resource: Virtual Machine web-vm-1');
   });

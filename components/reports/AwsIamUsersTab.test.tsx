@@ -93,7 +93,9 @@ describe('AwsIamUsersTab', () => {
     render(<AwsIamUsersTab companyId="company-1" />);
 
     await screen.findByText('jdoe');
-    const verifyLink = screen.getByRole('link', { name: /email to verify this iam user, jdoe/i });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /verify this iam user, jdoe/i }));
+    const verifyLink = screen.getByRole('menuitem', { name: /^email$/i });
     const href = decodeURIComponent(verifyLink.getAttribute('href') ?? '');
     expect(href).toContain('mailto:?subject=Verify AWS resource: IAM user jdoe');
     expect(href).toContain('Please verify this IAM user "jdoe" is valid and let me know what it is being used for.');

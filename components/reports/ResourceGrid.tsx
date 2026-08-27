@@ -2,7 +2,7 @@
 
 import type { AwsResourceResult, CloudProvider } from '@/lib/types';
 import { getResourceAgeColor } from '@/lib/resourceAge';
-import { resourceVerifyMailto } from '@/lib/verifyEmail';
+import { buildResourceVerifyMessage, resourceVerifyMailto, ticketTopicFor } from '@/lib/verifyEmail';
 import VerifyButton from './VerifyButton';
 import styles from './ResourceGrid.module.css';
 
@@ -41,6 +41,7 @@ export function ResourceGrid<T extends object>({
   getName,
   resourceType,
   provider,
+  companyId,
 }: {
   title: string;
   emptyLabel: string;
@@ -50,6 +51,7 @@ export function ResourceGrid<T extends object>({
   getName: (row: T) => string;
   resourceType: string;
   provider: CloudProvider;
+  companyId: string;
 }) {
   return (
     <section className={styles.section}>
@@ -91,7 +93,12 @@ export function ResourceGrid<T extends object>({
                     <td className={styles.verifyCell}>
                       <VerifyButton
                         href={resourceVerifyMailto(provider, resourceType, name)}
-                        label={`Email to verify this ${resourceType}, ${name}`}
+                        label={`Verify this ${resourceType}, ${name}`}
+                        ticket={{
+                          companyId,
+                          topic: ticketTopicFor('resource'),
+                          details: buildResourceVerifyMessage(provider, resourceType, name).body,
+                        }}
                       />
                     </td>
                   </tr>

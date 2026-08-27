@@ -155,6 +155,7 @@ export default function AzureResourcesTab({ companyId }: AzureResourcesTabProps)
         getName={(r) => r.name}
         resourceType="Virtual Machine"
         provider="azure"
+        companyId={companyId}
         columns={[
           { header: 'Name', render: (r) => r.name },
           { header: 'Size', render: (r) => r.vmSize ?? '—' },
@@ -173,6 +174,7 @@ export default function AzureResourcesTab({ companyId }: AzureResourcesTabProps)
         getName={(r) => r.name}
         resourceType="Function App"
         provider="azure"
+        companyId={companyId}
         columns={[
           { header: 'Name', render: (r) => r.name },
           { header: 'State', render: (r) => r.state ?? '—' },
@@ -191,6 +193,7 @@ export default function AzureResourcesTab({ companyId }: AzureResourcesTabProps)
         getName={(r) => r.name}
         resourceType="Container Group"
         provider="azure"
+        companyId={companyId}
         columns={[
           { header: 'Name', render: (r) => r.name },
           { header: 'Images', render: (r) => r.containerImages || '—' },
@@ -209,6 +212,7 @@ export default function AzureResourcesTab({ companyId }: AzureResourcesTabProps)
         getName={(r) => `${r.serverName}/${r.databaseName}`}
         resourceType="SQL Database"
         provider="azure"
+        companyId={companyId}
         columns={[
           { header: 'Server', render: (r) => r.serverName },
           { header: 'Database', render: (r) => r.databaseName },
@@ -227,6 +231,7 @@ export default function AzureResourcesTab({ companyId }: AzureResourcesTabProps)
         getName={(r) => r.name}
         resourceType="Cosmos DB account"
         provider="azure"
+        companyId={companyId}
         columns={[
           { header: 'Name', render: (r) => r.name },
           { header: 'Kind', render: (r) => r.kind ?? '—' },
@@ -245,6 +250,7 @@ export default function AzureResourcesTab({ companyId }: AzureResourcesTabProps)
         getName={(r) => r.name}
         resourceType="API Management service"
         provider="azure"
+        companyId={companyId}
         columns={[
           { header: 'Name', render: (r) => r.name },
           { header: 'SKU', render: (r) => r.skuName ?? '—' },
@@ -262,6 +268,7 @@ export default function AzureResourcesTab({ companyId }: AzureResourcesTabProps)
         getName={(r) => r.name}
         resourceType="Storage Account"
         provider="azure"
+        companyId={companyId}
         columns={[
           { header: 'Name', render: (r) => r.name },
           { header: 'Kind', render: (r) => r.kind ?? '—' },

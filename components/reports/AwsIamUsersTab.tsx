@@ -147,6 +147,7 @@ export default function AwsIamUsersTab({ companyId }: AwsIamUsersTabProps) {
         getName={(r) => r.userName}
         resourceType="IAM user"
         provider="aws"
+        companyId={companyId}
         columns={[
           { header: 'User name', render: (r) => r.userName },
           { header: 'User ID', render: (r) => r.userId },

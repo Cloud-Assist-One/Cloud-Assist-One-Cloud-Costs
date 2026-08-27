@@ -145,6 +145,7 @@ export default function AzureUsersTab({ companyId }: AzureUsersTabProps) {
         getName={(r) => r.displayName ?? r.userPrincipalName ?? r.id}
         resourceType="Azure AD user"
         provider="azure"
+        companyId={companyId}
         columns={[
           { header: 'Display name', render: (r) => r.displayName ?? '—' },
           { header: 'User principal name', render: (r) => r.userPrincipalName ?? '—' },

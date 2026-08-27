@@ -239,7 +239,9 @@ describe('AwsResourcesTab', () => {
     render(<AwsResourcesTab companyId="company-1" />);
 
     await screen.findByText('i-123');
-    const verifyLink = screen.getByRole('link', { name: /email to verify this ec2 instance, web-1/i });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /verify this ec2 instance, web-1/i }));
+    const verifyLink = screen.getByRole('menuitem', { name: /^email$/i });
     const href = decodeURIComponent(verifyLink.getAttribute('href') ?? '');
     expect(href).toContain('mailto:?subject=Verify AWS resource: EC2 instance web-1');
     expect(href).toContain('Please verify this EC2 instance "web-1" is valid and let me know what it is being used for.');

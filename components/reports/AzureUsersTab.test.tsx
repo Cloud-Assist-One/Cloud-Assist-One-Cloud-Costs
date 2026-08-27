@@ -98,7 +98,9 @@ describe('AzureUsersTab', () => {
 
     render(<AzureUsersTab companyId="company-1" />);
 
-    const verifyLink = await screen.findByRole('link', { name: /email to verify this azure ad user/i });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: /verify this azure ad user/i }));
+    const verifyLink = screen.getByRole('menuitem', { name: /^email$/i });
     const href = decodeURIComponent(verifyLink.getAttribute('href') ?? '');
     expect(href).toContain('Verify Azure resource: Azure AD user');
     expect(href).not.toContain('AWS');

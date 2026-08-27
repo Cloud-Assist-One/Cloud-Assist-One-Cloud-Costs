@@ -1,4 +1,5 @@
 import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import FindingsGrid from './FindingsGrid';
 import type { CheckResult, Finding } from '@/lib/types';
 
@@ -27,10 +28,11 @@ function check(overrides: Partial<CheckResult> = {}): CheckResult {
 }
 
 describe('FindingsGrid', () => {
-  it('renders a section per check with a count badge', () => {
+  it('renders a section per check with a count badge', async () => {
     render(
       <FindingsGrid
         provider="aws"
+        companyId="company-1"
         kind="security-checks"
         checks={[check({ checkId: 'a', title: 'Open security groups', findings: [finding(), finding()] })]}
       />
@@ -44,6 +46,7 @@ describe('FindingsGrid', () => {
     render(
       <FindingsGrid
         provider="aws"
+        companyId="company-1"
         kind="security-checks"
         checks={[
           check({
@@ -63,6 +66,7 @@ describe('FindingsGrid', () => {
     render(
       <FindingsGrid
         provider="aws"
+        companyId="company-1"
         kind="security-checks"
         checks={[check({ status: 'unavailable', unavailableReason: 'Access denied.', findings: [] })]}
       />
@@ -72,13 +76,15 @@ describe('FindingsGrid', () => {
   });
 
   it('says the check passed when it ran and found nothing', () => {
-    render(<FindingsGrid provider="aws" kind="security-checks" checks={[check({ findings: [] })]} />);
+    render(<FindingsGrid provider="aws"
+        companyId="company-1" kind="security-checks" checks={[check({ findings: [] })]} />);
 
     expect(screen.getByText(/no findings/i)).toBeInTheDocument();
   });
 
   it('shows a severity column for security checks', () => {
-    render(<FindingsGrid provider="aws" kind="security-checks" checks={[check({ findings: [finding({ severity: 'critical' })] })]} />);
+    render(<FindingsGrid provider="aws"
+        companyId="company-1" kind="security-checks" checks={[check({ findings: [finding({ severity: 'critical' })] })]} />);
 
     expect(screen.getByRole('columnheader', { name: /severity/i })).toBeInTheDocument();
     expect(screen.getByText('critical')).toBeInTheDocument();
@@ -89,6 +95,7 @@ describe('FindingsGrid', () => {
     render(
       <FindingsGrid
         provider="aws"
+        companyId="company-1"
         kind="cost-leakage"
         checks={[check({ title: 'Unattached EBS volumes', findings: [finding({ monthlyCost: 42.5 })] })]}
       />
@@ -100,7 +107,8 @@ describe('FindingsGrid', () => {
   });
 
   it('renders an unmatched cost as a dash, not as zero', () => {
-    render(<FindingsGrid provider="aws" kind="cost-leakage" checks={[check({ findings: [finding({ monthlyCost: null })] })]} />);
+    render(<FindingsGrid provider="aws"
+        companyId="company-1" kind="cost-leakage" checks={[check({ findings: [finding({ monthlyCost: null })] })]} />);
 
     expect(screen.getByText('—')).toBeInTheDocument();
     expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
@@ -110,6 +118,7 @@ describe('FindingsGrid', () => {
     render(
       <FindingsGrid
         provider="aws"
+        companyId="company-1"
         kind="cost-leakage"
         checks={[
           check({
@@ -132,7 +141,8 @@ describe('FindingsGrid', () => {
   });
 
   it('labels a check whose findings came from the provider native service', () => {
-    render(<FindingsGrid provider="aws" kind="security-checks" checks={[check({ source: 'native' })]} />);
+    render(<FindingsGrid provider="aws"
+        companyId="company-1" kind="security-checks" checks={[check({ source: 'native' })]} />);
 
     expect(screen.getByText(/security hub \/ defender/i)).toBeInTheDocument();
   });
@@ -141,6 +151,7 @@ describe('FindingsGrid', () => {
     render(
       <FindingsGrid
         provider="aws"
+        companyId="company-1"
         kind="security-checks"
         checks={[
           check({ checkId: 'medium-1', title: 'Medium check', findings: [finding({ severity: 'medium' })] }),
@@ -158,6 +169,7 @@ describe('FindingsGrid', () => {
     render(
       <FindingsGrid
         provider="aws"
+        companyId="company-1"
         kind="security-checks"
         checks={[
           check({ checkId: 'high-only', title: 'High only', findings: [finding({ severity: 'high' })] }),
@@ -178,6 +190,7 @@ describe('FindingsGrid', () => {
     render(
       <FindingsGrid
         provider="aws"
+        companyId="company-1"
         kind="security-checks"
         checks={[
           check({ checkId: 'critical-1', title: 'Critical check', findings: [finding({ severity: 'critical' })] }),
@@ -200,6 +213,7 @@ describe('FindingsGrid', () => {
     render(
       <FindingsGrid
         provider="aws"
+        companyId="company-1"
         kind="security-checks"
         checks={[
           check({ checkId: 'clean-1', title: 'Clean check', findings: [] }),
@@ -216,6 +230,7 @@ describe('FindingsGrid', () => {
     render(
       <FindingsGrid
         provider="aws"
+        companyId="company-1"
         kind="cost-leakage"
         checks={[
           check({ checkId: 'b', title: 'Second pushed' }),
@@ -233,22 +248,32 @@ describe('FindingsGrid', () => {
       return decodeURIComponent(link.getAttribute('href') ?? '');
     }
 
+    // The mailto now sits behind the Email item in the row's menu.
+    async function openMenu(rowName?: RegExp): Promise<HTMLElement> {
+      const user = userEvent.setup();
+      const triggers = screen.getAllByRole('button', { name: rowName ?? /verify this finding/i });
+      await user.click(triggers[0]);
+      return screen.getByRole('menuitem', { name: /^email$/i });
+    }
+
     it('renders one Verify link per finding row', () => {
       render(
         <FindingsGrid
           provider="aws"
+        companyId="company-1"
           kind="security-checks"
           checks={[check({ findings: [finding({ resourceName: 'one' }), finding({ resourceName: 'two' })] })]}
         />
       );
 
-      expect(screen.getAllByRole('link', { name: /verify/i })).toHaveLength(2);
+      expect(screen.getAllByRole('button', { name: /verify this finding/i })).toHaveLength(2);
     });
 
-    it('builds a mailto carrying the check title and the finding detail', () => {
+    it('builds a mailto carrying the check title and the finding detail', async () => {
       render(
         <FindingsGrid
           provider="aws"
+        companyId="company-1"
           kind="security-checks"
           checks={[
             check({
@@ -259,28 +284,31 @@ describe('FindingsGrid', () => {
         />
       );
 
-      const href = decodedHref(screen.getByRole('link', { name: /verify/i }));
+      const href = decodedHref(await openMenu());
       expect(href.startsWith('mailto:?')).toBe(true);
       expect(href).toContain('Security groups open to the internet');
       expect(href).toContain('Port 22 is open to the whole internet.');
     });
 
-    it('asks whether the exposure is intentional on security checks', () => {
-      render(<FindingsGrid provider="aws" kind="security-checks" checks={[check()]} />);
+    it('asks whether the exposure is intentional on security checks', async () => {
+      render(<FindingsGrid provider="aws"
+        companyId="company-1" kind="security-checks" checks={[check()]} />);
 
-      expect(decodedHref(screen.getByRole('link', { name: /verify/i }))).toContain('Is this intentional?');
+      expect(decodedHref(await openMenu())).toContain('Is this intentional?');
     });
 
-    it('asks whether the resource can be deleted on cost leakage', () => {
-      render(<FindingsGrid provider="aws" kind="cost-leakage" checks={[check()]} />);
+    it('asks whether the resource can be deleted on cost leakage', async () => {
+      render(<FindingsGrid provider="aws"
+        companyId="company-1" kind="cost-leakage" checks={[check()]} />);
 
-      expect(decodedHref(screen.getByRole('link', { name: /verify/i }))).toContain('can it be deleted?');
+      expect(decodedHref(await openMenu())).toContain('can it be deleted?');
     });
 
-    it('names the provider so an Azure finding does not say AWS', () => {
-      render(<FindingsGrid provider="azure" kind="security-checks" checks={[check()]} />);
+    it('names the provider so an Azure finding does not say AWS', async () => {
+      render(<FindingsGrid provider="azure"
+          companyId="company-1" kind="security-checks" checks={[check()]} />);
 
-      const href = decodedHref(screen.getByRole('link', { name: /verify/i }));
+      const href = decodedHref(await openMenu());
       expect(href).toContain('Azure');
       expect(href).not.toContain('AWS');
     });
@@ -289,12 +317,13 @@ describe('FindingsGrid', () => {
       render(
         <FindingsGrid
           provider="aws"
+        companyId="company-1"
           kind="security-checks"
           checks={[check({ findings: [finding({ resourceName: 'web-sg' })] })]}
         />
       );
 
-      expect(screen.getByRole('link', { name: /web-sg/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /verify this finding, web-sg/i })).toBeInTheDocument();
     });
 
     // A check that could not run has no rows, so there is nothing to ask
@@ -303,12 +332,13 @@ describe('FindingsGrid', () => {
       render(
         <FindingsGrid
           provider="aws"
+        companyId="company-1"
           kind="security-checks"
           checks={[check({ status: 'unavailable', unavailableReason: 'Access denied.', findings: [] })]}
         />
       );
 
-      expect(screen.queryByRole('link', { name: /verify/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /verify this finding/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('columnheader', { name: /verify/i })).not.toBeInTheDocument();
     });
   });
