@@ -9,6 +9,8 @@ import {
   storageAccountsWithoutLifecycle,
   workspacesWithCostlyLogSettings,
   advisorRightsizingRecommendations,
+  type LogAnalyticsWorkspaceInput,
+  type AdvisorRecommendationInput,
 } from './costLeakage';
 
 describe('unattachedDisks', () => {
@@ -238,7 +240,7 @@ describe('storageAccountsWithoutLifecycle', () => {
 });
 
 describe('workspacesWithCostlyLogSettings', () => {
-  function workspace(overrides: Partial<Record<string, unknown>> = {}) {
+  function workspace(overrides: Partial<LogAnalyticsWorkspaceInput> = {}): LogAnalyticsWorkspaceInput {
     return {
       id: '/subscriptions/s1/workspaces/law-prod',
       name: 'law-prod',
@@ -285,7 +287,7 @@ describe('workspacesWithCostlyLogSettings', () => {
 });
 
 describe('advisorRightsizingRecommendations', () => {
-  function rec(overrides: Partial<Record<string, unknown>> = {}) {
+  function rec(overrides: Partial<AdvisorRecommendationInput> = {}): AdvisorRecommendationInput {
     return {
       id: '/subscriptions/s1/recommendations/r1',
       category: 'Cost',
@@ -328,7 +330,13 @@ describe('advisorRightsizingRecommendations', () => {
     expect(result.findings).toEqual([]);
   });
 
-  it('excludes reserved-instance advice, which is deferred commitment coverage', () => {
+  // The rule filters on impactedField alone, not on problem text, so this
+  // only re-proves what the public-IP exclusion test above already proves:
+  // any impactedField other than the VM one is excluded. 'Microsoft.Subscription'
+  // is assumed as what a reserved-instance recommendation's impactedField
+  // looks like -- it is not observed from live Advisor data -- so this does
+  // not independently verify reserved-instance advice specifically is excluded.
+  it('excludes any recommendation whose impactedField is not virtual machines, using a reserved-instance-shaped example', () => {
     const result = advisorRightsizingRecommendations([
       rec({ impactedField: 'Microsoft.Subscription', problem: 'Buy virtual machine reserved instances to save money' }),
     ]);

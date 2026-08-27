@@ -11,7 +11,7 @@ import {
   staleMultipartUploads,
   logGroupsWithoutRetention,
   overProvisionedInstances,
-  MULTIPART_UPLOAD_STALE_DAYS,
+  type InstanceRecommendationInput,
 } from './costLeakage';
 
 describe('stoppedSince', () => {
@@ -365,9 +365,17 @@ describe('staleMultipartUploads', () => {
 });
 
 describe('logGroupsWithoutRetention', () => {
+  // CloudWatch's real DescribeLogGroups response carries a trailing ":*"
+  // after the log group name in this field ("This version of the ARN
+  // includes a trailing :* after the log group name" -- the SDK's own doc
+  // comment). The route strips that suffix before building this input, so
+  // these fixtures model the post-strip value the rule actually receives --
+  // the rule itself does no stripping and just passes the arn through.
+  const LOG_GROUP_ARN = 'arn:aws:logs:us-east-1:1:log-group:/aws/lambda/api';
+
   it('flags a log group that never expires', () => {
     const result = logGroupsWithoutRetention([
-      { name: '/aws/lambda/api', arn: 'arn:aws:logs:us-east-1:1:log-group:/aws/lambda/api', retentionInDays: null, storedBytes: 5_368_709_120, region: 'us-east-1' },
+      { name: '/aws/lambda/api', arn: LOG_GROUP_ARN, retentionInDays: null, storedBytes: 5_368_709_120, region: 'us-east-1' },
     ]);
 
     expect(result.findings).toHaveLength(1);
@@ -375,11 +383,20 @@ describe('logGroupsWithoutRetention', () => {
     expect(result.findings[0].detail).toContain('never expire');
   });
 
+  it('uses the stripped arn as the resource id, not a value still carrying CloudWatch\'s ":*" suffix', () => {
+    const result = logGroupsWithoutRetention([
+      { name: '/aws/lambda/api', arn: LOG_GROUP_ARN, retentionInDays: null, storedBytes: 5_368_709_120, region: 'us-east-1' },
+    ]);
+
+    expect(result.findings[0].resourceId).toBe(LOG_GROUP_ARN);
+    expect(result.findings[0].resourceId).not.toContain(':*');
+  });
+
   // The stored size is what turns "a setting nobody chose" into "this is
   // costing real money right now".
   it('states how much has already accumulated', () => {
     const result = logGroupsWithoutRetention([
-      { name: '/aws/lambda/api', arn: 'arn:log', retentionInDays: null, storedBytes: 5_368_709_120, region: 'us-east-1' },
+      { name: '/aws/lambda/api', arn: LOG_GROUP_ARN, retentionInDays: null, storedBytes: 5_368_709_120, region: 'us-east-1' },
     ]);
 
     expect(result.findings[0].detail).toContain('5.0 GB');
@@ -387,7 +404,7 @@ describe('logGroupsWithoutRetention', () => {
 
   it('ignores a log group with a retention period set', () => {
     const result = logGroupsWithoutRetention([
-      { name: '/aws/lambda/short', arn: 'arn:log', retentionInDays: 30, storedBytes: 1000, region: 'us-east-1' },
+      { name: '/aws/lambda/short', arn: 'arn:aws:logs:us-east-1:1:log-group:/aws/lambda/short', retentionInDays: 30, storedBytes: 1000, region: 'us-east-1' },
     ]);
 
     expect(result.findings).toEqual([]);
@@ -395,7 +412,7 @@ describe('logGroupsWithoutRetention', () => {
 
   it('handles a log group whose size is not reported', () => {
     const result = logGroupsWithoutRetention([
-      { name: '/aws/new', arn: 'arn:log', retentionInDays: null, storedBytes: null, region: 'us-east-1' },
+      { name: '/aws/new', arn: 'arn:aws:logs:us-east-1:1:log-group:/aws/new', retentionInDays: null, storedBytes: null, region: 'us-east-1' },
     ]);
 
     expect(result.findings).toHaveLength(1);
@@ -408,7 +425,7 @@ describe('logGroupsWithoutRetention', () => {
 });
 
 describe('overProvisionedInstances', () => {
-  function recommendation(overrides: Partial<Record<string, unknown>> = {}) {
+  function recommendation(overrides: Partial<InstanceRecommendationInput> = {}): InstanceRecommendationInput {
     return {
       instanceArn: 'arn:aws:ec2:us-east-1:1:instance/i-abc',
       instanceName: 'web-3',
