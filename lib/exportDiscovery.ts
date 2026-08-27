@@ -51,15 +51,17 @@ export async function discoverRuns(
       }
     }
 
-    if (bestByMonth.size > 0) {
-      return [...bestByMonth.entries()].map(([month, { object, manifest }]) => ({
-        key: object.key,
-        etag: object.etag,
-        parts: manifest.reportKeys,
-        month,
-        totalBytes: manifest.reportKeys.reduce((total, key) => total + (sizeByKey.get(key) ?? 0), 0),
-      }));
-    }
+    // Manifests are authoritative for this bucket. If none of them resolved,
+    // returning nothing is correct: the alternative is falling through to the
+    // folder branch, which would treat a single CUR part as a whole month and
+    // silently import a fraction of the month's cost.
+    return [...bestByMonth.entries()].map(([month, { object, manifest }]) => ({
+      key: object.key,
+      etag: object.etag,
+      parts: manifest.reportKeys,
+      month,
+      totalBytes: manifest.reportKeys.reduce((total, key) => total + (sizeByKey.get(key) ?? 0), 0),
+    }));
   }
 
   // --- Date-range folders: Azure's daily exports, and CUR without manifests ---

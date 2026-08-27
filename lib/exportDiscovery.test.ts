@@ -115,6 +115,23 @@ describe('discoverRuns for AWS', () => {
     expect(runs).toHaveLength(1);
     expect(runs[0].month).toBe('2026-08-01');
   });
+
+  // A narrow s3:GetObject policy can permit the report parts but not
+  // Manifest.json. Falling through to the folder branch would then treat one
+  // part as a whole month and silently import a fraction of its cost.
+  it('discovers nothing rather than mistaking a CUR part for a whole month when no manifest resolves', async () => {
+    const runs = await discoverRuns(
+      'aws',
+      [
+        obj('cur/report/20260801-20260901/aaa/Manifest.json'),
+        obj('cur/report/20260801-20260901/aaa/report-00001.csv.gz', { size: 4000 }),
+        obj('cur/report/20260801-20260901/aaa/report-00002.csv.gz', { size: 6000 }),
+      ],
+      noManifests
+    );
+
+    expect(runs).toEqual([]);
+  });
 });
 
 describe('discoverRuns for Azure', () => {
