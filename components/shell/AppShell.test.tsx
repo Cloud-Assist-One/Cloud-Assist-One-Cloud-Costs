@@ -407,6 +407,18 @@ describe('AppShell', () => {
     expect(screen.queryByText('report-tab-content for aws')).not.toBeInTheDocument();
   });
 
+  it('shows a Security Checks sub-tab under AWS, defaulting to Overview', async () => {
+    const user = userEvent.setup();
+    render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);
+
+    expect(await screen.findByText('report-tab-content for aws')).toBeInTheDocument();
+    expect(screen.queryByText('findings-tab-content for aws security-checks')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: 'Security Checks' }));
+    expect(await screen.findByText('findings-tab-content for aws security-checks')).toBeInTheDocument();
+    expect(screen.queryByText('report-tab-content for aws')).not.toBeInTheDocument();
+  });
+
   it('shows an Overview/Resources/Users sub-tab strip on the Azure tab, defaulting to Overview', async () => {
     const user = userEvent.setup();
     render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);

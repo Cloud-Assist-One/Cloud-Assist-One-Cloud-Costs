@@ -93,12 +93,17 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [companyName, setCompanyName] = useState<string | null>(null);
   const greeting = useSyncExternalStore(subscribeToClock, readLocalGreeting, readServerGreeting);
-  const [awsSubTab, setAwsSubTab] = useState<'overview' | 'resources' | 'iamUsers' | 'costLeakage'>('overview');
+  const [awsSubTab, setAwsSubTab] = useState<
+    'overview' | 'resources' | 'iamUsers' | 'securityChecks' | 'costLeakage'
+  >('overview');
   const [azureSubTab, setAzureSubTab] = useState<'overview' | 'resources' | 'users'>('overview');
   const [adminSubTab, setAdminSubTab] = useState<'companies' | 'users' | 'emails'>('companies');
   const isWideCloudView =
     (activeTab === 'aws' &&
-      (awsSubTab === 'resources' || awsSubTab === 'iamUsers' || awsSubTab === 'costLeakage')) ||
+      (awsSubTab === 'resources' ||
+        awsSubTab === 'iamUsers' ||
+        awsSubTab === 'securityChecks' ||
+        awsSubTab === 'costLeakage')) ||
     (activeTab === 'azure' && (azureSubTab === 'resources' || azureSubTab === 'users'));
   const router = useRouter();
 
@@ -405,13 +410,16 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
                   <Tabs
                     value={awsSubTab}
                     onValueChange={(value) =>
-                      setAwsSubTab(value as 'overview' | 'resources' | 'iamUsers' | 'costLeakage')
+                      setAwsSubTab(
+                        value as 'overview' | 'resources' | 'iamUsers' | 'securityChecks' | 'costLeakage'
+                      )
                     }
                   >
                     <TabsList>
                       <TabsTrigger value="overview">Overview</TabsTrigger>
                       <TabsTrigger value="resources">Resources</TabsTrigger>
                       <TabsTrigger value="iamUsers">IAM Users</TabsTrigger>
+                      <TabsTrigger value="securityChecks">Security Checks</TabsTrigger>
                       <TabsTrigger value="costLeakage">Cost Leakage</TabsTrigger>
                     </TabsList>
                   </Tabs>
@@ -428,6 +436,13 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
                     <AwsResourcesTab companyId={effectiveCompanyId} />
                   ) : awsSubTab === 'iamUsers' ? (
                     <AwsIamUsersTab companyId={effectiveCompanyId} />
+                  ) : awsSubTab === 'securityChecks' ? (
+                    <FindingsTab
+                      companyId={effectiveCompanyId}
+                      periodId={periodIdForReports}
+                      provider="aws"
+                      kind="security-checks"
+                    />
                   ) : (
                     <FindingsTab
                       companyId={effectiveCompanyId}
