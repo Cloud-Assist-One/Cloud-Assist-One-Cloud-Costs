@@ -143,6 +143,13 @@ describe('AppShell', () => {
     }
   });
 
+  it('names the product Cloud Assist One in the top bar', async () => {
+    render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);
+
+    expect(await screen.findByRole('heading', { name: 'Cloud Assist One', level: 1 })).toBeInTheDocument();
+    expect(screen.queryByText('Cloud Cost Assistant')).not.toBeInTheDocument();
+  });
+
   it('shows the AWS tab and the Uploaded Files tab for a client', async () => {
     render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);
 

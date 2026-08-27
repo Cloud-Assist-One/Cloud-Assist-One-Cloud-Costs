@@ -45,4 +45,19 @@ describe('buildSupportRequestEmail', () => {
     expect(text).toContain('Phone: Not provided');
     expect(text).toContain('Details: Not provided');
   });
+
+  it('names the portal as Cloud Assist One', () => {
+    const { text } = buildSupportRequestEmail({
+      companyName: 'Acme Corp',
+      firstName: 'Jane',
+      email: 'jane@example.com',
+      phone: null,
+      phoneExt: null,
+      topics: ['Technical cloud support'],
+      details: null,
+    });
+
+    expect(text).toContain('Cloud Assist One portal');
+    expect(text).not.toContain('Cloud Cost Assistant');
+  });
 });

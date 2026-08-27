@@ -57,7 +57,7 @@ export default function SignupForm() {
           <div className={styles.form}>
             <Image
               src="/cao-logo.png"
-              alt="Cloud Assist One — Cloud Cost Assistant"
+              alt="Cloud Assist One"
               width={925}
               height={875}
               className={styles.logo}
@@ -83,7 +83,7 @@ export default function SignupForm() {
               and for the form's own labelling. */}
           <Image
             src="/cao-logo.png"
-            alt="Cloud Assist One — Cloud Cost Assistant"
+            alt="Cloud Assist One"
             width={925}
             height={875}
             className={styles.logo}

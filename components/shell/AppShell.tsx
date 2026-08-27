@@ -251,15 +251,17 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
     <div className={`${styles.wrapper} ${activeTab === 'lineItems' ? styles.wrapperWide : ''}`}>
       <div className={`${styles.topBar} print-hidden`}>
         <div className={styles.brand}>
+          {/* Decorative: the <h1> beside it already carries the name, so an
+              alt would have screen readers announce "Cloud Assist One" twice. */}
           <Image
             src="/cao-logo.png"
-            alt="Cloud Assist One"
+            alt=""
             width={925}
             height={875}
             className={styles.logo}
             priority
           />
-          <h1>Cloud Cost Assistant</h1>
+          <h1>Cloud Assist One</h1>
         </div>
         {canManage && (
           <div className={styles.companySwitcher}>

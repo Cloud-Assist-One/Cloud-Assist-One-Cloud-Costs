@@ -14,7 +14,7 @@
   padding: 3rem 1.5rem;
 }
 
-/* Replaces the old "Cloud Cost Assistant" heading. Sized by height with
+/* Replaces the page heading the form used to carry. Sized by height with
    width:auto so the mark keeps its aspect ratio; the source is 925x875, so
    it renders downscaled and stays sharp on high-density screens. */
 .logo {

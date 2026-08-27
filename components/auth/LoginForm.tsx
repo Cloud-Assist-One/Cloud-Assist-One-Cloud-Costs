@@ -65,7 +65,7 @@ export default function LoginForm() {
               and for the form's own labelling. */}
           <Image
             src="/cao-logo.png"
-            alt="Cloud Assist One — Cloud Cost Assistant"
+            alt="Cloud Assist One"
             width={925}
             height={875}
             className={styles.logo}

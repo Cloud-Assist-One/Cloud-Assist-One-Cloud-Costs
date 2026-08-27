@@ -3,7 +3,7 @@ import { ThemeProvider } from 'next-themes';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Cloud Cost Assistant',
+  title: 'Cloud Assist One',
   description: 'AWS and Azure billing review for Cloud Assist One clients.',
 };
 

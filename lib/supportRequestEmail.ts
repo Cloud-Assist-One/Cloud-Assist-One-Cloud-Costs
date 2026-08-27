@@ -27,7 +27,7 @@ export function buildSupportRequestEmail(input: SupportRequestEmailInput): { sub
   const subject = `Support request from ${companyName} — ${firstName}`;
 
   const text = [
-    `A new support request was submitted in the Cloud Cost Assistant portal.`,
+    `A new support request was submitted in the Cloud Assist One portal.`,
     ``,
     `Company: ${companyName}`,
     `Name: ${firstName}`,
