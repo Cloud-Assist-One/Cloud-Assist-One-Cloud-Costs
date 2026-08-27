@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { SupportTopic } from '@/lib/supportTopics';
 import styles from './VerifyButton.module.css';
 
@@ -22,6 +23,33 @@ export interface VerifyTicket {
 
 type Status = 'idle' | 'sending' | 'sent' | 'failed';
 
+// The menu's own box, used to decide whether it fits below the button before
+// it has been measured. Kept in step with .menu in the stylesheet.
+const MENU_WIDTH = 160;
+const MENU_HEIGHT = 84;
+const GAP = 4;
+const VIEWPORT_MARGIN = 8;
+
+interface MenuPosition {
+  left: number;
+  top?: number;
+  bottom?: number;
+}
+
+// The grids put their tables in an overflow-x: auto container, which clips
+// and scrolls absolutely-positioned descendants. Anchoring to the viewport
+// instead — and rendering through a portal — is what lets the menu escape it,
+// along with the section card's border-radius.
+function positionFor(rect: DOMRect, viewportWidth: number, viewportHeight: number): MenuPosition {
+  const left = Math.max(VIEWPORT_MARGIN, Math.min(rect.right - MENU_WIDTH, viewportWidth - MENU_WIDTH - VIEWPORT_MARGIN));
+
+  // A row near the bottom of the window would otherwise open a menu that runs
+  // off the page, so it opens upward instead.
+  const fitsBelow = rect.bottom + GAP + MENU_HEIGHT + VIEWPORT_MARGIN <= viewportHeight;
+  if (fitsBelow) return { left, top: rect.bottom + GAP };
+  return { left, bottom: Math.max(VIEWPORT_MARGIN, viewportHeight - rect.top + GAP) };
+}
+
 /**
  * The per-row "ask someone about this" action, shared by the resource grids
  * and the findings grids so the icon and its behaviour cannot drift apart.
@@ -39,12 +67,24 @@ export default function VerifyButton({
   label: string;
   ticket: VerifyTicket;
 }) {
-  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<MenuPosition | null>(null);
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
-  const close = useCallback(() => setOpen(false), []);
+  const open = position !== null;
+  const close = useCallback(() => setPosition(null), []);
+
+  function toggle() {
+    if (open) {
+      close();
+      return;
+    }
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setPosition(positionFor(rect, window.innerWidth, window.innerHeight));
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -53,19 +93,33 @@ export default function VerifyButton({
       if (event.key === 'Escape') close();
     }
     function onPointerDown(event: MouseEvent) {
-      if (!containerRef.current?.contains(event.target as Node)) close();
+      const target = event.target as Node;
+      // The menu is portalled out of the wrapper, so it is no longer a DOM
+      // descendant — without this second check, using the menu would dismiss it.
+      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      close();
+    }
+    // A viewport-anchored menu does not follow its button, so it closes rather
+    // than being left stranded beside the wrong row. Captured, so scrolling an
+    // inner container counts too.
+    function onScroll() {
+      close();
     }
 
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('mousedown', onPointerDown);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
     return () => {
       document.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('mousedown', onPointerDown);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
     };
   }, [open, close]);
 
   async function fileTicket() {
-    setOpen(false);
+    close();
     setStatus('sending');
     setError(null);
     try {
@@ -98,30 +152,44 @@ export default function VerifyButton({
   }
 
   return (
-    <div className={styles.wrapper} ref={containerRef}>
+    <div className={styles.wrapper}>
       <button
         type="button"
+        ref={triggerRef}
         className={styles.verifyButton}
         aria-label={label}
         title={label}
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={status === 'sending'}
-        onClick={() => setOpen((wasOpen) => !wasOpen)}
+        onClick={toggle}
       >
         <InfoIcon />
       </button>
 
-      {open && (
-        <div className={styles.menu} role="menu">
-          <a role="menuitem" className={styles.menuItem} href={href} onClick={close}>
-            Email
-          </a>
-          <button type="button" role="menuitem" className={styles.menuItem} onClick={fileTicket}>
-            Support ticket
-          </button>
-        </div>
-      )}
+      {open &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            ref={menuRef}
+            className={styles.menu}
+            role="menu"
+            style={{
+              position: 'fixed',
+              left: position.left,
+              ...(position.top !== undefined ? { top: position.top } : {}),
+              ...(position.bottom !== undefined ? { bottom: position.bottom } : {}),
+            }}
+          >
+            <a role="menuitem" className={styles.menuItem} href={href} onClick={close}>
+              Email
+            </a>
+            <button type="button" role="menuitem" className={styles.menuItem} onClick={fileTicket}>
+              Support ticket
+            </button>
+          </div>,
+          document.body
+        )}
 
       {status === 'failed' && error && (
         <p role="alert" className={styles.error}>

@@ -145,3 +145,94 @@ describe('VerifyButton', () => {
     );
   });
 });
+
+describe('VerifyButton menu placement', () => {
+  beforeEach(() => {
+    global.fetch = jest.fn();
+  });
+
+  // The grid's scroll container is overflow-x: auto, which clips and scrolls
+  // absolutely-positioned descendants. The menu has to escape it entirely.
+  function renderInsideScrollContainer() {
+    const scroller = document.createElement('div');
+    scroller.style.overflowX = 'auto';
+    scroller.setAttribute('data-testid', 'scroller');
+    document.body.appendChild(scroller);
+
+    render(
+      <VerifyButton
+        href="mailto:?subject=x"
+        label="Verify this finding, web"
+        ticket={ticket}
+      />,
+      { container: scroller }
+    );
+    return scroller;
+  }
+
+  it('renders the menu outside the clipping scroll container', async () => {
+    const user = userEvent.setup();
+    const scroller = renderInsideScrollContainer();
+
+    await user.click(screen.getByRole('button', { name: /verify/i }));
+
+    const menu = screen.getByRole('menu');
+    expect(scroller.contains(menu)).toBe(false);
+    expect(document.body.contains(menu)).toBe(true);
+  });
+
+  it('positions the menu against the viewport so no ancestor can clip it', async () => {
+    const user = userEvent.setup();
+    renderInsideScrollContainer();
+
+    await user.click(screen.getByRole('button', { name: /verify/i }));
+
+    expect(screen.getByRole('menu')).toHaveStyle({ position: 'fixed' });
+  });
+
+  it('opens upward when the button sits near the bottom of the viewport', async () => {
+    const user = userEvent.setup();
+    render(<VerifyButton href="mailto:?subject=x" label="Verify this finding, web" ticket={ticket} />);
+
+    const trigger = screen.getByRole('button', { name: /verify/i });
+    // Near the bottom edge: a downward menu would run off the page.
+    jest.spyOn(trigger, 'getBoundingClientRect').mockReturnValue({
+      top: 740, bottom: 764, left: 500, right: 528, width: 28, height: 24, x: 500, y: 740,
+      toJSON: () => ({}),
+    } as DOMRect);
+    window.innerHeight = 768;
+
+    await user.click(trigger);
+
+    const menu = screen.getByRole('menu');
+    // Anchored by its bottom to just above the button, rather than below it.
+    expect(menu.style.bottom).not.toBe('');
+    expect(menu.style.top).toBe('');
+  });
+
+  // A fixed menu does not follow its button, so leaving it open while the
+  // page scrolls would strand it beside the wrong row.
+  it('closes when the page scrolls', async () => {
+    const user = userEvent.setup();
+    render(<VerifyButton href="mailto:?subject=x" label="Verify this finding, web" ticket={ticket} />);
+
+    await user.click(screen.getByRole('button', { name: /verify/i }));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    window.dispatchEvent(new Event('scroll'));
+
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+  });
+
+  // The menu is no longer a DOM descendant of the button's wrapper, so a
+  // naive outside-click check would dismiss it the instant it is used.
+  it('stays open when clicking inside the portalled menu', async () => {
+    const user = userEvent.setup();
+    renderInsideScrollContainer();
+
+    await user.click(screen.getByRole('button', { name: /verify/i }));
+    await user.click(screen.getByRole('menu'));
+
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+  });
+});
