@@ -432,3 +432,62 @@ export interface CheckResult {
 export type FindingsResponse =
   | { connected: false }
   | { connected: true; fetchedAt: string; region: string | null; checks: CheckResult[] };
+
+export interface BillingFileSource {
+  id: string;
+  company_id: string;
+  credential_id: string;
+  cloud_provider: CloudProvider;
+  /** S3 bucket name, or Azure "account/container". */
+  container: string;
+  prefix: string;
+  label: string;
+  enabled: boolean;
+  schedule_enabled: boolean;
+  last_pulled_at: string | null;
+  created_at: string;
+}
+
+/** One object in a bucket listing, provider-agnostic. */
+export interface RemoteObject {
+  key: string;
+  etag: string;
+  size: number;
+  lastModified: string | null;
+}
+
+/** The parts of an AWS Cost and Usage Report Manifest.json this code reads. */
+export interface CurManifest {
+  assemblyId: string;
+  reportKeys: string[];
+  /** Timestamps like "20260801T000000.000Z". */
+  billingPeriod: { start: string; end: string };
+}
+
+/** One import unit: a CUR run's parts, or a single Azure snapshot. */
+export interface ExportRun {
+  /** Identifies the run for dedupe: the manifest key, or the snapshot's own key. */
+  key: string;
+  etag: string;
+  /** Every object to download and parse, in order. */
+  parts: string[];
+  /** First day of the month when the layout states it; null means derive from contents. */
+  month: string | null;
+  totalBytes: number;
+}
+
+export interface BillingSourcePullRun {
+  key: string;
+  month: string | null;
+  status: 'imported' | 'skipped' | 'failed';
+  periodKind?: 'active' | 'archived';
+  reason?: string;
+  rowCount?: number;
+}
+
+export interface BillingSourcePullResult {
+  runs: BillingSourcePullRun[];
+  imported: number;
+  skipped: number;
+  failed: number;
+}
