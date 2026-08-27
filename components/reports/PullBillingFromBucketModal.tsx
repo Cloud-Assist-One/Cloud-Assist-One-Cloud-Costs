@@ -169,6 +169,10 @@ export default function PullBillingFromBucketModal({ companyId, onClose, onPulle
               If an archive already exists for the same month, that existing archive is replaced. The newest month
               found in the bucket becomes the new active period.
             </p>
+            <p>
+              Importing into an archived period that already exists for its month overwrites that provider&apos;s
+              rows in the file&apos;s date range, rather than adding to them.
+            </p>
             <div className={styles.actions}>
               <button type="button" onClick={onClose}>
                 Cancel
