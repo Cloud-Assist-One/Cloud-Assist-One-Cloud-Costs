@@ -49,3 +49,6 @@ next-env.d.ts
 # never end up in the repo, even as local test fixtures.
 *.xlsx
 *.csv
+
+# SDD scratch workspace (ledger, briefs, review packages)
+.superpowers/
