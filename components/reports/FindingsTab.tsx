@@ -154,6 +154,13 @@ export default function FindingsTab({ companyId, periodId, provider, kind }: Fin
         </Button>
       </div>
 
+      {kind === 'security-checks' && response.region && (
+        <p className={styles.regionCaveat}>
+          This scan only covers the {response.region} region. EC2, RDS, and load balancer resources in other AWS
+          regions are not scanned, so a security issue there will not appear here.
+        </p>
+      )}
+
       <FindingsGrid checks={response.checks} kind={kind} />
     </div>
   );

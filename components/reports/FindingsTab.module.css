@@ -37,3 +37,12 @@
   color: #d1274b;
   font-size: 0.875rem;
 }
+
+.regionCaveat {
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+  background: var(--color-bg-alt);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+}

@@ -131,4 +131,90 @@ describe('FindingsGrid', () => {
 
     expect(screen.getByText(/security hub \/ defender/i)).toBeInTheDocument();
   });
+
+  it('orders security-checks sections by their most severe finding, critical first', () => {
+    render(
+      <FindingsGrid
+        kind="security-checks"
+        checks={[
+          check({ checkId: 'medium-1', title: 'Medium check', findings: [finding({ severity: 'medium' })] }),
+          check({ checkId: 'critical-1', title: 'Critical check', findings: [finding({ severity: 'critical' })] }),
+          check({ checkId: 'high-1', title: 'High check', findings: [finding({ severity: 'high' })] }),
+        ]}
+      />
+    );
+
+    const headings = screen.getAllByRole('heading').map((heading) => heading.textContent);
+    expect(headings).toEqual(['Critical check', 'High check', 'Medium check']);
+  });
+
+  it('ranks a section by its single most severe finding, not its first one', () => {
+    render(
+      <FindingsGrid
+        kind="security-checks"
+        checks={[
+          check({ checkId: 'high-only', title: 'High only', findings: [finding({ severity: 'high' })] }),
+          check({
+            checkId: 'mixed',
+            title: 'Mostly low, one critical',
+            findings: [finding({ severity: 'low' }), finding({ severity: 'critical' })],
+          }),
+        ]}
+      />
+    );
+
+    const headings = screen.getAllByRole('heading').map((heading) => heading.textContent);
+    expect(headings).toEqual(['Mostly low, one critical', 'High only']);
+  });
+
+  it('puts an unavailable section first, ahead of every severity', () => {
+    render(
+      <FindingsGrid
+        kind="security-checks"
+        checks={[
+          check({ checkId: 'critical-1', title: 'Critical check', findings: [finding({ severity: 'critical' })] }),
+          check({
+            checkId: 'unavailable-1',
+            title: 'Could not run',
+            status: 'unavailable',
+            unavailableReason: 'Access denied.',
+            findings: [],
+          }),
+        ]}
+      />
+    );
+
+    const headings = screen.getAllByRole('heading').map((heading) => heading.textContent);
+    expect(headings).toEqual(['Could not run', 'Critical check']);
+  });
+
+  it('puts a clean (no-findings) section after every section with findings', () => {
+    render(
+      <FindingsGrid
+        kind="security-checks"
+        checks={[
+          check({ checkId: 'clean-1', title: 'Clean check', findings: [] }),
+          check({ checkId: 'low-1', title: 'Low check', findings: [finding({ severity: 'low' })] }),
+        ]}
+      />
+    );
+
+    const headings = screen.getAllByRole('heading').map((heading) => heading.textContent);
+    expect(headings).toEqual(['Low check', 'Clean check']);
+  });
+
+  it('leaves cost-leakage section order untouched (route push order, not severity)', () => {
+    render(
+      <FindingsGrid
+        kind="cost-leakage"
+        checks={[
+          check({ checkId: 'b', title: 'Second pushed' }),
+          check({ checkId: 'a', title: 'First pushed' }),
+        ]}
+      />
+    );
+
+    const headings = screen.getAllByRole('heading').map((heading) => heading.textContent);
+    expect(headings).toEqual(['Second pushed', 'First pushed']);
+  });
 });

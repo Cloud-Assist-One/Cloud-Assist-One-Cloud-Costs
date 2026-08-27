@@ -99,6 +99,39 @@ describe('FindingsTab', () => {
     expect(screen.getByText('$8.40')).toBeInTheDocument();
   });
 
+  it('shows a region caveat for security checks when the route reports a region', async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({ ok: true, json: async () => connectionsResponse })
+      .mockResolvedValueOnce({ ok: true, json: async () => findingsResponse() });
+
+    render(<FindingsTab companyId="company-1" periodId="period-1" provider="aws" kind="security-checks" />);
+    await screen.findByText('scratch');
+
+    expect(screen.getByText(/only covers the us-east-1 region/i)).toBeInTheDocument();
+  });
+
+  it('omits the region caveat for cost leakage, even when the route reports a region', async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({ ok: true, json: async () => connectionsResponse })
+      .mockResolvedValueOnce({ ok: true, json: async () => findingsResponse() });
+
+    render(<FindingsTab companyId="company-1" periodId="period-1" provider="aws" kind="cost-leakage" />);
+    await screen.findByText('scratch');
+
+    expect(screen.queryByText(/only covers the/i)).not.toBeInTheDocument();
+  });
+
+  it('omits the region caveat when the route reports no region (Azure)', async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({ ok: true, json: async () => connectionsResponse })
+      .mockResolvedValueOnce({ ok: true, json: async () => findingsResponse({ region: null }) });
+
+    render(<FindingsTab companyId="company-1" periodId="period-1" provider="azure" kind="security-checks" />);
+    await screen.findByText('scratch');
+
+    expect(screen.queryByText(/only covers the/i)).not.toBeInTheDocument();
+  });
+
   it('refetches when a different account is picked', async () => {
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce({ ok: true, json: async () => connectionsResponse })

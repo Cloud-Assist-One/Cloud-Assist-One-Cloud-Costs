@@ -1,6 +1,7 @@
 'use client';
 
 import type { CheckResult, Finding, FindingSeverity } from '@/lib/types';
+import { SEVERITY_ORDER } from '@/lib/findings';
 import styles from './FindingsGrid.module.css';
 
 const SEVERITY_CLASS: Record<FindingSeverity, string> = {
@@ -26,6 +27,22 @@ function byCostDescending(a: Finding, b: Finding): number {
   return b.monthlyCost - a.monthlyCost;
 }
 
+// A section's rank is its most severe finding -- a section with one
+// critical and nine lows still belongs at the top. A check that could not
+// run ranks ahead of everything: it is the most actionable thing on the
+// page, since the customer cannot even tell whether it would have found a
+// problem. A check that ran clean (no findings at all) has no severity to
+// rank by, so it sorts after every section that found something.
+function sectionRank(check: CheckResult): number {
+  if (check.status === 'unavailable') return -1;
+  if (check.findings.length === 0) return Object.keys(SEVERITY_ORDER).length;
+  return Math.min(...check.findings.map((finding) => SEVERITY_ORDER[finding.severity]));
+}
+
+function bySeverityRank(a: CheckResult, b: CheckResult): number {
+  return sectionRank(a) - sectionRank(b);
+}
+
 export default function FindingsGrid({
   checks,
   kind,
@@ -34,10 +51,14 @@ export default function FindingsGrid({
   kind: 'security-checks' | 'cost-leakage';
 }) {
   const isLeakage = kind === 'cost-leakage';
+  // Cost-leakage sections stay in the route's push order -- severity is not
+  // meaningful there, every finding is 'low'. Security-checks sections are
+  // reordered so the most severe (or least available) section leads.
+  const orderedChecks = isLeakage ? checks : [...checks].sort(bySeverityRank);
 
   return (
     <div className={styles.sections}>
-      {checks.map((check) => {
+      {orderedChecks.map((check) => {
         const rows = isLeakage ? [...check.findings].sort(byCostDescending) : check.findings;
 
         return (
