@@ -68,6 +68,22 @@ After the archive, for each distinct month discovered:
 
 Creating an archived period is a plain insert (`status: 'archived'`, `billing_month`, `archived_at`). The `archive_billing_period` RPC only ever archives the *active* period, so it is used for the archive-first step and not for the historical months.
 
+### The period-stamping trigger has to be relaxed
+
+`private.stamp_active_period()` (`supabase/migrations/20260822000000_billing_periods.sql:34-54`) is a BEFORE INSERT trigger on `cost_records`, `uploaded_files`, `review_notes`, `review_todos` and `time_entries`. It does `new.period_id := <the company's active period>` **unconditionally** — an overwrite, not a default.
+
+That is correct as a safety net for code that knows nothing about periods, which is every caller today: none of them sets `period_id`. But it makes importing a historical month impossible. Every row would land in the active period no matter which period it was meant for, and a twelve-month sync would pile a year of data into one period while the Archive tab showed empty months.
+
+The migration therefore replaces the function so it stamps only when the caller left the column null:
+
+```sql
+if new.period_id is not null then
+  return new;
+end if;
+```
+
+Every existing path behaves exactly as before, because none of them supplies the column. `ingestCostFile` then passes `period_id` explicitly, which is what lets a historical month reach its own archived period. For an upload the value passed is the active period — precisely what the trigger would have stamped — so the upload route's behaviour is unchanged.
+
 ### Strengthening the one-archive-per-month rule
 
 Today that rule lives only in `archive/route.ts`. This feature adds a second writer of archived periods, so it moves into the database:
