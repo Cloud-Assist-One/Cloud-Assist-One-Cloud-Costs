@@ -11,6 +11,8 @@ import { deriveBillingMonth } from '@/lib/deriveBillingMonth';
 import { ingestCostFile } from '@/lib/ingestCostFile';
 import { periodForMonth } from '@/lib/periodForMonth';
 import { parseCostFile } from '@/lib/parseCostFile';
+import { planPlacement } from '@/lib/pullPlacement';
+import type { ResolvedRun } from '@/lib/pullPlacement';
 import type { ObjectStore } from '@/lib/objectStore';
 import type {
   BillingSourcePullRun,
@@ -28,7 +30,11 @@ export const maxDuration = 300;
 // make the report claim a completeness it does not have.
 const MAX_RUNS = 12;
 const MAX_PARTS_PER_RUN = 200;
-const MAX_TOTAL_BYTES = 500 * 1024 * 1024;
+// Bounds transfer, not decompressed volume: run.totalBytes sums the remote
+// object sizes, which for a CUR run are gzipped. This caps how much a single
+// pull downloads, not how much decompressed data it produces — do not treat
+// it as a decompressed-size limit.
+const MAX_TOTAL_COMPRESSED_BYTES = 500 * 1024 * 1024;
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : 'Unknown error.';
@@ -74,6 +80,10 @@ export async function POST(request: NextRequest, context: RouteContext<'/api/bil
     return NextResponse.json({ error: 'That bucket is not configured for this company.' }, { status: 404 });
   }
 
+  if (!source.enabled) {
+    return NextResponse.json({ error: 'This bucket is disabled. Enable it in Settings before pulling.' }, { status: 400 });
+  }
+
   const { data: credRow } = await adminClient
     .from('cloud_provider_credentials')
     .select('encrypted_payload, region')
@@ -98,7 +108,20 @@ export async function POST(request: NextRequest, context: RouteContext<'/api/bil
       });
     } else if (provider === 'azure') {
       const secrets = decryptCredentials<AzureCredentials>(credRow.encrypted_payload);
-      const [account, container] = String(source.container).split('/');
+      // An Azure container name can never itself contain "/", so anything
+      // past the second segment is not a nested path we can safely rejoin —
+      // it means the stored value is wrong. Reject rather than silently
+      // dropping the extra segments and pointing at the wrong container.
+      const containerParts = String(source.container).split('/');
+      if (containerParts.length > 2) {
+        return NextResponse.json(
+          {
+            error: `The container "${source.container}" has more than one "/" — expected "account/container".`,
+          },
+          { status: 400 }
+        );
+      }
+      const [account, container] = containerParts;
       store = createAzureBlobObjectStore({
         tenantId: secrets.tenantId,
         clientId: secrets.clientId,
@@ -114,8 +137,8 @@ export async function POST(request: NextRequest, context: RouteContext<'/api/bil
     return NextResponse.json({ error: 'Could not read the stored credentials for this bucket.' }, { status: 500 });
   }
 
-  // --- Active period first, so archiving (if any) has something to compare
-  // against and this pull's own writes have a fixed target throughout ---
+  // --- Active period first: everything below needs a fixed id to compare
+  // against and to write into ---
   const { data: activePeriodRow } = await adminClient
     .from('billing_periods')
     .select('id')
@@ -129,8 +152,123 @@ export async function POST(request: NextRequest, context: RouteContext<'/api/bil
 
   let activePeriodId = activePeriodRow.id as string;
 
-  // --- Archive first, so the newest month can take the active period ---
-  if (archiveFirst) {
+  // --- Discover ---
+  let objects: RemoteObject[];
+  let discovered: ExportRun[];
+  try {
+    objects = await store.list(source.prefix ?? '');
+    discovered = await discoverRuns(provider, objects, (key) => store.readManifest(key));
+  } catch (err) {
+    return NextResponse.json({ error: permissionHint(provider, err) }, { status: 502 });
+  }
+
+  const runs: BillingSourcePullRun[] = [];
+
+  if (objects.length === 0) {
+    // A silent "imported 0, skipped 0, failed 0" gives no clue whether the
+    // bucket/prefix is genuinely empty or something upstream is wrong.
+    runs.push({
+      key: source.prefix || '(bucket root)',
+      month: null,
+      status: 'skipped',
+      reason: 'This bucket (or prefix) has no objects in it. Nothing to pull.',
+    });
+  } else if (discovered.length === 0) {
+    // A non-empty listing that discovered nothing is not "nothing to pull" —
+    // it is usually a narrow s3:GetObject policy that permits the report
+    // parts but not Manifest.json. Without this, the pull reports a bland
+    // success having imported nothing, with no clue why.
+    runs.push({
+      key: source.prefix || '(bucket root)',
+      month: null,
+      status: 'skipped',
+      reason: `Found ${objects.length} object(s) but no recognisable cost exports. If this is a Cost and Usage Report bucket, check the credential can read Manifest.json as well as the report parts.`,
+    });
+  }
+
+  // --- Resolve every run's month before anything else decides on it ---
+  //
+  // The 12-run cap, and the choice of which month claims the active period,
+  // both have to sort/compare on the REAL month, not the declared one. A
+  // loose-files bucket has month: null on every run; leaving that unresolved
+  // here is what let the 12-run cap keep the wrong runs and let the active
+  // vs. archived decision see an empty list and archive everything.
+  //
+  // Declared month if the layout stated one; otherwise download that run's
+  // first part only, gunzip it, parse it, and derive the month from its
+  // rows. The first-part buffer is cached so a run that goes on to be
+  // ingested does not pay for a second download of the same object.
+  const resolvedDiscovered: { run: ExportRun; month: string }[] = [];
+  const firstPartBufferCache = new Map<string, Buffer>();
+
+  for (const run of discovered) {
+    if (run.month) {
+      resolvedDiscovered.push({ run, month: run.month });
+      continue;
+    }
+    try {
+      const firstPart = run.parts[0];
+      const buffer = gunzipIfNeeded(firstPart, await store.get(firstPart));
+      const derived = deriveBillingMonth(parseCostFile(buffer).rows);
+      if (!derived) {
+        runs.push({ key: run.key, month: null, status: 'failed', reason: 'Could not tell which month this file is for.' });
+        continue;
+      }
+      firstPartBufferCache.set(run.key, buffer);
+      resolvedDiscovered.push({ run, month: derived });
+    } catch (err) {
+      // One bad run never aborts the pull.
+      runs.push({ key: run.key, month: null, status: 'failed', reason: permissionHint(provider, err) });
+    }
+  }
+
+  // Newest first, so the 12-run cap keeps the most recent year rather than
+  // whichever months the listing happened to return first. Sorted on the
+  // resolved month — every run has one now — so a month-less run never sorts
+  // as an arbitrary tie with every other month-less run.
+  resolvedDiscovered.sort((a, b) => b.month.localeCompare(a.month));
+
+  const withinCap = resolvedDiscovered.slice(0, MAX_RUNS);
+  for (const dropped of resolvedDiscovered.slice(MAX_RUNS)) {
+    runs.push({
+      key: dropped.run.key,
+      month: dropped.month,
+      status: 'skipped',
+      reason: `Older than the ${MAX_RUNS}-month limit. Get earlier months from the provider's console.`,
+    });
+  }
+
+  // --- Which runs are already ingested, by (source, key, etag) ---
+  //
+  // Scoped to status = 'processed': a run that failed mid-import still has a
+  // row here (ingestCostFile only ever flips it to 'error', never removes
+  // it), and without this filter that row wrongly looks "already ingested"
+  // forever, with no way to retry short of the provider rewriting the export.
+  const { data: alreadyIngested } = await adminClient
+    .from('uploaded_files')
+    .select('source_object_key, source_object_etag')
+    .eq('source_id', sourceId)
+    .eq('status', 'processed');
+
+  const seen = new Set((alreadyIngested ?? []).map((row) => `${row.source_object_key}::${row.source_object_etag}`));
+
+  const resolvedRuns: ResolvedRun[] = withinCap.map(({ run, month }) => ({
+    key: run.key,
+    month,
+    alreadyIngested: seen.has(`${run.key}::${run.etag}`),
+  }));
+
+  // The latest month takes the active period; every earlier month gets an
+  // archived one. latestMonth looks at every run within the cap (ingested or
+  // not) so an already-ingested newest month is never mistaken for "nothing
+  // newer exists". willClaimActive looks only at what is still pending, so a
+  // re-pull that changes nothing never archives the current period.
+  const plan = planPlacement(resolvedRuns);
+
+  // --- Archive, only if something pending will actually take the active
+  // period. Otherwise a no-change re-pull would archive the user's current
+  // period and import nothing — the opposite of a no-op. ---
+  if (archiveFirst && plan.willClaimActive) {
     // Scoped to THIS period, not the company at large: a company whose data
     // all sits in already-archived periods must not have its genuinely empty
     // active period archived too — that is exactly the blank Archive-tab
@@ -169,80 +307,32 @@ export async function POST(request: NextRequest, context: RouteContext<'/api/bil
     }
   }
 
-  // --- Discover ---
-  let objects: RemoteObject[];
-  let discovered: ExportRun[];
-  try {
-    objects = await store.list(source.prefix ?? '');
-    discovered = await discoverRuns(provider, objects, (key) => store.readManifest(key));
-  } catch (err) {
-    return NextResponse.json({ error: permissionHint(provider, err) }, { status: 502 });
-  }
-
-  const runs: BillingSourcePullRun[] = [];
-
-  // A non-empty listing that discovered nothing is not "nothing to pull" —
-  // it is usually a narrow s3:GetObject policy that permits the report parts
-  // but not Manifest.json. Without this, the pull reports a bland success
-  // having imported nothing, with no clue why.
-  if (objects.length > 0 && discovered.length === 0) {
-    runs.push({
-      key: source.prefix || '(bucket root)',
-      month: null,
-      status: 'skipped',
-      reason: `Found ${objects.length} object(s) but no recognisable cost exports. If this is a Cost and Usage Report bucket, check the credential can read Manifest.json as well as the report parts.`,
-    });
-  }
-
-  // Newest first, so the 12-run cap keeps the most recent year rather than
-  // whichever months the listing happened to return first.
-  discovered.sort((a, b) => (b.month ?? '').localeCompare(a.month ?? ''));
-
-  const withinCap = discovered.slice(0, MAX_RUNS);
-  for (const dropped of discovered.slice(MAX_RUNS)) {
-    runs.push({
-      key: dropped.key,
-      month: dropped.month,
-      status: 'skipped',
-      reason: `Older than the ${MAX_RUNS}-month limit. Get earlier months from the provider's console.`,
-    });
-  }
-
-  // --- Skip runs already ingested, by (source, key, etag) ---
-  const { data: alreadyIngested } = await adminClient
-    .from('uploaded_files')
-    .select('source_object_key, source_object_etag')
-    .eq('source_id', sourceId);
-
-  const seen = new Set((alreadyIngested ?? []).map((row) => `${row.source_object_key}::${row.source_object_etag}`));
-
-  const pending = withinCap.filter((run) => {
-    if (!seen.has(`${run.key}::${run.etag}`)) return true;
-    runs.push({ key: run.key, month: run.month, status: 'skipped', reason: 'Already ingested.' });
-    return false;
-  });
-
-  // The latest month takes the active period; every earlier month gets an
-  // archived one. Computed across everything still pending so the assignment
-  // does not depend on processing order.
-  const latestMonth = pending.map((run) => run.month).filter(Boolean).sort().pop() ?? null;
-
   let bytesUsed = 0;
 
-  for (const run of pending) {
+  for (const { run, month } of withinCap) {
+    if (seen.has(`${run.key}::${run.etag}`)) {
+      runs.push({ key: run.key, month, status: 'skipped', reason: 'Already ingested.' });
+      continue;
+    }
+
     try {
       if (run.parts.length > MAX_PARTS_PER_RUN) {
-        runs.push({ key: run.key, month: run.month, status: 'skipped', reason: `More than ${MAX_PARTS_PER_RUN} parts in one run.` });
+        runs.push({ key: run.key, month, status: 'skipped', reason: `More than ${MAX_PARTS_PER_RUN} parts in one run.` });
         continue;
       }
-      if (bytesUsed + run.totalBytes > MAX_TOTAL_BYTES) {
-        runs.push({ key: run.key, month: run.month, status: 'skipped', reason: 'Would exceed this pull’s size limit. Pull again to continue.' });
+      if (bytesUsed + run.totalBytes > MAX_TOTAL_COMPRESSED_BYTES) {
+        runs.push({ key: run.key, month, status: 'skipped', reason: 'Would exceed this pull’s size limit. Pull again to continue.' });
         continue;
       }
 
       const buffers: Buffer[] = [];
+      const cachedFirstPart = firstPartBufferCache.get(run.key);
       for (const part of run.parts) {
-        buffers.push(gunzipIfNeeded(part, await store.get(part)));
+        if (buffers.length === 0 && cachedFirstPart) {
+          buffers.push(cachedFirstPart);
+        } else {
+          buffers.push(gunzipIfNeeded(part, await store.get(part)));
+        }
       }
       bytesUsed += run.totalBytes;
 
@@ -267,13 +357,19 @@ export async function POST(request: NextRequest, context: RouteContext<'/api/bil
         continue;
       }
 
-      const month = run.month ?? derived;
-      if (!month) {
+      const finalMonth = run.month ?? derived;
+      if (!finalMonth) {
         runs.push({ key: run.key, month: null, status: 'failed', reason: 'Could not tell which month this file is for.' });
         continue;
       }
 
-      const target = await periodForMonth(adminClient, companyId, month, activePeriodId, month === latestMonth);
+      const target = await periodForMonth(
+        adminClient,
+        companyId,
+        finalMonth,
+        activePeriodId,
+        plan.isLatestByKey.get(run.key) ?? false
+      );
 
       const { data: fileRow, error: fileError } = await adminClient
         .from('uploaded_files')
@@ -284,7 +380,7 @@ export async function POST(request: NextRequest, context: RouteContext<'/api/bil
           storage_path: '',
           status: 'processing',
           uploaded_by: guard.userId,
-          billing_month: month,
+          billing_month: finalMonth,
           period_id: target.periodId,
           source_id: sourceId,
           source_object_key: run.key,
@@ -302,8 +398,8 @@ export async function POST(request: NextRequest, context: RouteContext<'/api/bil
         const raced = (fileError as { code?: string } | null)?.code === '23505';
         runs.push(
           raced
-            ? { key: run.key, month, status: 'skipped', reason: 'Already ingested by another pull.' }
-            : { key: run.key, month, status: 'failed', reason: errorMessage(fileError) }
+            ? { key: run.key, month: finalMonth, status: 'skipped', reason: 'Already ingested by another pull.' }
+            : { key: run.key, month: finalMonth, status: 'failed', reason: errorMessage(fileError) }
         );
         continue;
       }
@@ -319,12 +415,12 @@ export async function POST(request: NextRequest, context: RouteContext<'/api/bil
 
       runs.push(
         result.status === 'processed'
-          ? { key: run.key, month, status: 'imported', periodKind: target.kind, rowCount: result.rowCount }
-          : { key: run.key, month, status: 'failed', reason: (result.errors ?? []).join(' ') || 'Import failed.' }
+          ? { key: run.key, month: finalMonth, status: 'imported', periodKind: target.kind, rowCount: result.rowCount }
+          : { key: run.key, month: finalMonth, status: 'failed', reason: (result.errors ?? []).join(' ') || 'Import failed.' }
       );
     } catch (err) {
       // One bad run never aborts the pull.
-      runs.push({ key: run.key, month: run.month, status: 'failed', reason: permissionHint(provider, err) });
+      runs.push({ key: run.key, month, status: 'failed', reason: permissionHint(provider, err) });
     }
   }
 
