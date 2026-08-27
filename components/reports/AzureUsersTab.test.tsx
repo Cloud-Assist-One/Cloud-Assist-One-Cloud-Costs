@@ -75,6 +75,35 @@ describe('AzureUsersTab', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/user\.read\.all/i);
   });
 
+  it('links the verify icon to a mailto naming Azure, not AWS', async () => {
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({ ok: true, json: async () => connectionsResponse })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () =>
+          makeResponse({
+            users: {
+              data: [
+                {
+                  id: 'abc-123',
+                  displayName: 'Jane Doe',
+                  userPrincipalName: 'jane.doe@example.onmicrosoft.com',
+                  createdDateTime: '2026-01-01T00:00:00.000Z',
+                },
+              ],
+              error: null,
+            },
+          }),
+      });
+
+    render(<AzureUsersTab companyId="company-1" />);
+
+    const verifyLink = await screen.findByRole('link', { name: /email to verify this azure ad user/i });
+    const href = decodeURIComponent(verifyLink.getAttribute('href') ?? '');
+    expect(href).toContain('Verify Azure resource: Azure AD user');
+    expect(href).not.toContain('AWS');
+  });
+
   it('shows the age color-code legend', async () => {
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce({ ok: true, json: async () => connectionsResponse })

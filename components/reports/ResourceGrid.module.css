@@ -86,25 +86,6 @@
   text-align: center;
 }
 
-.verifyButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: 999px;
-  color: var(--muted-foreground);
-  border: 1px solid transparent;
-  text-decoration: none;
-}
-
-.verifyButton:hover,
-.verifyButton:focus-visible {
-  color: var(--primary);
-  border-color: var(--color-border);
-  background: var(--color-bg);
-}
-
 .legend {
   display: flex;
   align-items: center;

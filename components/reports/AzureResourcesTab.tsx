@@ -154,6 +154,7 @@ export default function AzureResourcesTab({ companyId }: AzureResourcesTabProps)
         getCreatedAt={(r) => r.timeCreated}
         getName={(r) => r.name}
         resourceType="Virtual Machine"
+        provider="azure"
         columns={[
           { header: 'Name', render: (r) => r.name },
           { header: 'Size', render: (r) => r.vmSize ?? '—' },
@@ -171,6 +172,7 @@ export default function AzureResourcesTab({ companyId }: AzureResourcesTabProps)
         getCreatedAt={(r) => r.createdAt}
         getName={(r) => r.name}
         resourceType="Function App"
+        provider="azure"
         columns={[
           { header: 'Name', render: (r) => r.name },
           { header: 'State', render: (r) => r.state ?? '—' },
@@ -188,6 +190,7 @@ export default function AzureResourcesTab({ companyId }: AzureResourcesTabProps)
         getCreatedAt={(r) => r.createdAt}
         getName={(r) => r.name}
         resourceType="Container Group"
+        provider="azure"
         columns={[
           { header: 'Name', render: (r) => r.name },
           { header: 'Images', render: (r) => r.containerImages || '—' },
@@ -205,6 +208,7 @@ export default function AzureResourcesTab({ companyId }: AzureResourcesTabProps)
         getCreatedAt={(r) => r.creationDate}
         getName={(r) => `${r.serverName}/${r.databaseName}`}
         resourceType="SQL Database"
+        provider="azure"
         columns={[
           { header: 'Server', render: (r) => r.serverName },
           { header: 'Database', render: (r) => r.databaseName },
@@ -222,6 +226,7 @@ export default function AzureResourcesTab({ companyId }: AzureResourcesTabProps)
         getCreatedAt={(r) => r.createdAt}
         getName={(r) => r.name}
         resourceType="Cosmos DB account"
+        provider="azure"
         columns={[
           { header: 'Name', render: (r) => r.name },
           { header: 'Kind', render: (r) => r.kind ?? '—' },
@@ -239,6 +244,7 @@ export default function AzureResourcesTab({ companyId }: AzureResourcesTabProps)
         getCreatedAt={(r) => r.createdAtUtc}
         getName={(r) => r.name}
         resourceType="API Management service"
+        provider="azure"
         columns={[
           { header: 'Name', render: (r) => r.name },
           { header: 'SKU', render: (r) => r.skuName ?? '—' },
@@ -255,6 +261,7 @@ export default function AzureResourcesTab({ companyId }: AzureResourcesTabProps)
         getCreatedAt={(r) => r.creationTime}
         getName={(r) => r.name}
         resourceType="Storage Account"
+        provider="azure"
         columns={[
           { header: 'Name', render: (r) => r.name },
           { header: 'Kind', render: (r) => r.kind ?? '—' },

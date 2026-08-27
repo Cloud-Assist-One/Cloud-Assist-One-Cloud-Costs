@@ -156,6 +156,7 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         getCreatedAt={(r) => r.launchTime}
         getName={(r) => r.name ?? r.instanceId}
         resourceType="EC2 instance"
+        provider="aws"
         columns={[
           { header: 'Instance ID', render: (r) => r.instanceId },
           { header: 'Name', render: (r) => r.name ?? '—' },
@@ -175,6 +176,7 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         getCreatedAt={(r) => r.lastModified}
         getName={(r) => r.functionName}
         resourceType="Lambda function"
+        provider="aws"
         columns={[
           { header: 'Function name', render: (r) => r.functionName },
           { header: 'Runtime', render: (r) => r.runtime ?? '—' },
@@ -192,6 +194,7 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         getCreatedAt={(r) => r.createdAt}
         getName={(r) => r.serviceName}
         resourceType="ECS service"
+        provider="aws"
         columns={[
           { header: 'Cluster', render: (r) => r.cluster },
           { header: 'Service', render: (r) => r.serviceName },
@@ -209,6 +212,7 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         getCreatedAt={(r) => r.instanceCreateTime}
         getName={(r) => r.dbInstanceIdentifier}
         resourceType="RDS instance"
+        provider="aws"
         columns={[
           { header: 'DB identifier', render: (r) => r.dbInstanceIdentifier },
           { header: 'Engine', render: (r) => r.engine },
@@ -227,6 +231,7 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         getCreatedAt={(r) => r.creationDateTime}
         getName={(r) => r.tableName}
         resourceType="DynamoDB table"
+        provider="aws"
         columns={[
           { header: 'Table name', render: (r) => r.tableName },
           ...tagColumn<DynamoTableRow>(response.tagKey),
@@ -240,6 +245,7 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         getCreatedAt={(r) => r.createdDate}
         getName={(r) => r.name}
         resourceType="API"
+        provider="aws"
         columns={[
           { header: 'Name', render: (r) => r.name },
           { header: 'ID', render: (r) => r.id },
@@ -257,6 +263,7 @@ export default function AwsResourcesTab({ companyId }: AwsResourcesTabProps) {
         getCreatedAt={(r) => r.creationDate}
         getName={(r) => r.name}
         resourceType="S3 bucket"
+        provider="aws"
         columns={[
           { header: 'Bucket name', render: (r) => r.name },
           { header: 'Created', render: (r) => r.creationDate ?? '—' },

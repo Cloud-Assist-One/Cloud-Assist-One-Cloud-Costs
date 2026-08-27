@@ -144,6 +144,7 @@ export default function AzureUsersTab({ companyId }: AzureUsersTabProps) {
         getCreatedAt={(r) => r.createdDateTime}
         getName={(r) => r.displayName ?? r.userPrincipalName ?? r.id}
         resourceType="Azure AD user"
+        provider="azure"
         columns={[
           { header: 'Display name', render: (r) => r.displayName ?? '—' },
           { header: 'User principal name', render: (r) => r.userPrincipalName ?? '—' },

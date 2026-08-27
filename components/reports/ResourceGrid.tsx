@@ -1,7 +1,9 @@
 'use client';
 
-import type { AwsResourceResult } from '@/lib/types';
+import type { AwsResourceResult, CloudProvider } from '@/lib/types';
 import { getResourceAgeColor } from '@/lib/resourceAge';
+import { resourceVerifyMailto } from '@/lib/verifyEmail';
+import VerifyButton from './VerifyButton';
 import styles from './ResourceGrid.module.css';
 
 const AGE_ROW_CLASS = {
@@ -9,22 +11,6 @@ const AGE_ROW_CLASS = {
   blue: styles.rowBlue,
   green: styles.rowGreen,
 } as const;
-
-function InfoIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.3" />
-      <line x1="8" y1="7.25" x2="8" y2="11.25" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      <circle cx="8" cy="4.75" r="0.9" fill="currentColor" />
-    </svg>
-  );
-}
-
-function verifyMailtoHref(resourceType: string, name: string): string {
-  const subject = `Verify AWS resource: ${resourceType} ${name}`;
-  const body = `Please verify this ${resourceType} "${name}" is valid and let me know what it is being used for.`;
-  return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-}
 
 export function ResourceLegend() {
   return (
@@ -54,6 +40,7 @@ export function ResourceGrid<T extends object>({
   getCreatedAt,
   getName,
   resourceType,
+  provider,
 }: {
   title: string;
   emptyLabel: string;
@@ -62,6 +49,7 @@ export function ResourceGrid<T extends object>({
   getCreatedAt: (row: T) => string | null;
   getName: (row: T) => string;
   resourceType: string;
+  provider: CloudProvider;
 }) {
   return (
     <section className={styles.section}>
@@ -101,14 +89,10 @@ export function ResourceGrid<T extends object>({
                       </td>
                     ))}
                     <td className={styles.verifyCell}>
-                      <a
-                        href={verifyMailtoHref(resourceType, name)}
-                        className={styles.verifyButton}
-                        aria-label={`Email to verify this ${resourceType}, ${name}`}
-                        title="Email to verify this resource"
-                      >
-                        <InfoIcon />
-                      </a>
+                      <VerifyButton
+                        href={resourceVerifyMailto(provider, resourceType, name)}
+                        label={`Email to verify this ${resourceType}, ${name}`}
+                      />
                     </td>
                   </tr>
                 );

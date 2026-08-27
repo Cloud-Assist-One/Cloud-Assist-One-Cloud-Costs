@@ -209,7 +209,7 @@ describe('AzureResourcesTab', () => {
     await screen.findByText('web-vm-1');
     const verifyLink = screen.getByRole('link', { name: /email to verify this virtual machine, web-vm-1/i });
     const href = decodeURIComponent(verifyLink.getAttribute('href') ?? '');
-    expect(href).toContain('mailto:?subject=Verify AWS resource: Virtual Machine web-vm-1');
+    expect(href).toContain('mailto:?subject=Verify Azure resource: Virtual Machine web-vm-1');
   });
 
   it('refetches when Refresh is clicked', async () => {
