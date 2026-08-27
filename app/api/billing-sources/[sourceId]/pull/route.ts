@@ -294,9 +294,17 @@ export async function POST(request: NextRequest, context: RouteContext<'/api/bil
         .single();
 
       if (fileError || !fileRow) {
-        // The unique index is what makes a race with a future scheduled pull
-        // safe: the loser lands here rather than importing a second copy.
-        runs.push({ key: run.key, month, status: 'skipped', reason: 'Already ingested by another pull.' });
+        // 23505 is the unique violation on uploaded_files_source_object_idx —
+        // another pull got this run first, which is the race the index exists
+        // to make safe. Anything else is a real failure and must not be
+        // dressed up as a deliberate skip, or the month vanishes from a pull
+        // that reports success.
+        const raced = (fileError as { code?: string } | null)?.code === '23505';
+        runs.push(
+          raced
+            ? { key: run.key, month, status: 'skipped', reason: 'Already ingested by another pull.' }
+            : { key: run.key, month, status: 'failed', reason: errorMessage(fileError) }
+        );
         continue;
       }
 
