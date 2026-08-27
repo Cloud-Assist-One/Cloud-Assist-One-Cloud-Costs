@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireCompanyAccess } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { parseCostFile } from '@/lib/parseCostFile';
+import { ingestCostFile } from '@/lib/ingestCostFile';
 import { checkBillingMonthMatches } from '@/lib/billingMonthCheck';
 import { CLOUD_PROVIDERS } from '@/lib/cloudProvider';
 import type { CloudProvider } from '@/lib/types';
@@ -83,105 +83,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: insertFileError?.message ?? 'Could not record the upload.' }, { status: 500 });
   }
 
-  try {
-    const { rows, errors } = parseCostFile(fileBuffer);
+  const result = await ingestCostFile({
+    adminClient,
+    companyId,
+    cloudProvider: cloudProvider as CloudProvider,
+    periodId: activePeriod.id,
+    uploadedFileId: uploadedFile.id,
+    buffers: [fileBuffer],
+  });
 
-    if (rows.length === 0) {
-      // Best-effort: if this update fails, the row is left at 'processing', but
-      // the response below still reports the parse error to the caller.
-      await adminClient
-        .from('uploaded_files')
-        .update({ status: 'error', error_message: errors.join(' ') || 'No valid rows found.' })
-        .eq('id', uploadedFile.id);
-      return NextResponse.json({ uploadedFileId: uploadedFile.id, status: 'error', errors });
-    }
-
-    // A re-upload for the same company/provider/date-range should replace the
-    // prior data, not add to it — otherwise costs double every time a
-    // corrected file is re-uploaded. Delete any existing records covering
-    // the range this file parses to (a no-op on a first-time upload) before
-    // inserting the fresh set.
-    const usageDates = rows.map((row) => row.usage_date);
-    const rangeStart = usageDates.reduce((min, date) => (date < min ? date : min));
-    const rangeEnd = usageDates.reduce((max, date) => (date > max ? date : max));
-
-    const { error: deleteRecordsError } = await adminClient
-      .from('cost_records')
-      .delete()
-      .eq('company_id', companyId)
-      .eq('cloud_provider', cloudProvider)
-      .eq('period_id', activePeriod.id)
-      .gte('usage_date', rangeStart)
-      .lte('usage_date', rangeEnd);
-
-    if (deleteRecordsError) {
-      // Best-effort update; see note above.
-      await adminClient
-        .from('uploaded_files')
-        .update({ status: 'error', error_message: deleteRecordsError.message })
-        .eq('id', uploadedFile.id);
-      return NextResponse.json({ uploadedFileId: uploadedFile.id, status: 'error', errors: [deleteRecordsError.message] });
-    }
-
-    const { error: insertRecordsError } = await adminClient.from('cost_records').insert(
-      rows.map((row) => ({
-        company_id: companyId,
-        cloud_provider: cloudProvider,
-        service_name: row.service_name,
-        usage_date: row.usage_date,
-        cost: row.cost,
-        account_id: row.account_id,
-        source_file_id: uploadedFile.id,
-        resource_id: row.resource_id,
-        resource_group: row.resource_group,
-        region: row.region,
-        availability_zone: row.availability_zone,
-        instance_type: row.instance_type,
-        database_engine: row.database_engine,
-        meter_category: row.meter_category,
-        meter_name: row.meter_name,
-        usage_type: row.usage_type,
-        operation: row.operation,
-        subscription_id: row.subscription_id,
-        subscription_name: row.subscription_name,
-        purchase_type: row.purchase_type,
-        reservation_id: row.reservation_id,
-        reservation_name: row.reservation_name,
-        quantity: row.quantity,
-        unit: row.unit,
-        unit_price: row.unit_price,
-        effective_price: row.effective_price,
-        currency: row.currency,
-        charge_type: row.charge_type,
-        tags: row.tags,
-      }))
+  if (result.status === 'error') {
+    return NextResponse.json(
+      { uploadedFileId: uploadedFile.id, status: 'error', errors: result.errors ?? [] },
+      // The original returned 500 only when parseCostFile threw (couldn't even
+      // read the file) and 200 for every in-band error (no rows, failed
+      // delete, failed insert). ingestCostFile's `thrown` flag preserves that
+      // distinction.
+      result.thrown ? { status: 500 } : undefined
     );
-
-    if (insertRecordsError) {
-      // Best-effort update; see note above.
-      await adminClient
-        .from('uploaded_files')
-        .update({ status: 'error', error_message: insertRecordsError.message })
-        .eq('id', uploadedFile.id);
-      return NextResponse.json({ uploadedFileId: uploadedFile.id, status: 'error', errors: [insertRecordsError.message] });
-    }
-
-    // Best-effort update; see note above.
-    await adminClient
-      .from('uploaded_files')
-      .update({ status: 'processed', row_count: rows.length })
-      .eq('id', uploadedFile.id);
-
-    return NextResponse.json({ uploadedFileId: uploadedFile.id, status: 'processed', rowCount: rows.length });
-  } catch (err) {
-    // parseCostFile (via XLSX.read) throws on corrupted/unparseable binary
-    // input rather than returning an error — catch that here so the
-    // uploaded_files row never gets stuck at 'processing'.
-    const message = err instanceof Error ? err.message : 'Could not process the file.';
-    await adminClient
-      .from('uploaded_files')
-      .update({ status: 'error', error_message: message })
-      .eq('id', uploadedFile.id);
-    return NextResponse.json({ uploadedFileId: uploadedFile.id, status: 'error', errors: [message] }, { status: 500 });
   }
+
+  return NextResponse.json({ uploadedFileId: uploadedFile.id, status: 'processed', rowCount: result.rowCount });
 }
