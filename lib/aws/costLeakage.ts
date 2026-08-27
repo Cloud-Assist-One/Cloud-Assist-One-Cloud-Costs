@@ -357,3 +357,41 @@ export function logGroupsWithoutRetention(groups: readonly LogGroupInput[]): Che
 
   return okCheck('log-groups-without-retention', 'Log groups that never expire', 'builtin', findings);
 }
+
+export interface InstanceRecommendationInput {
+  instanceArn: string;
+  instanceName: string;
+  /** Compute Optimizer's finding: OPTIMIZED, OVER_PROVISIONED, UNDER_PROVISIONED. */
+  finding: string;
+  currentInstanceType: string;
+  recommendedInstanceType: string | null;
+  estimatedMonthlySavings: number | null;
+  region: string;
+}
+
+export function overProvisionedInstances(
+  recommendations: readonly InstanceRecommendationInput[]
+): CheckResult {
+  const findings: Finding[] = recommendations
+    // UNDER_PROVISIONED is a performance problem, not a cost leak.
+    .filter((rec) => rec.finding === 'OVER_PROVISIONED')
+    .map((rec) => {
+      const target = rec.recommendedInstanceType ? `, and suggests ${rec.recommendedInstanceType}` : '';
+      // The saving belongs here rather than in monthlyCost: that column carries
+      // what the resource actually cost per the billing join, and a projected
+      // number in it would mean something different from every other row.
+      const saving =
+        rec.estimatedMonthlySavings !== null
+          ? ` Estimated saving $${rec.estimatedMonthlySavings.toFixed(2)}/month.`
+          : '';
+
+      return leak(
+        rec.instanceArn,
+        rec.instanceName,
+        rec.region,
+        `Compute Optimizer reports ${rec.instanceName} as over-provisioned at ${rec.currentInstanceType}${target}.${saving}`
+      );
+    });
+
+  return okCheck('over-provisioned-instances', 'Over-provisioned instances', 'builtin', findings);
+}

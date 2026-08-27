@@ -10,6 +10,7 @@ import {
   bucketsWithoutLifecycle,
   staleMultipartUploads,
   logGroupsWithoutRetention,
+  overProvisionedInstances,
   MULTIPART_UPLOAD_STALE_DAYS,
 } from './costLeakage';
 
@@ -389,5 +390,67 @@ describe('logGroupsWithoutRetention', () => {
 
   it('reports nothing for an account with no log groups', () => {
     expect(logGroupsWithoutRetention([]).findings).toEqual([]);
+  });
+});
+
+describe('overProvisionedInstances', () => {
+  function recommendation(overrides: Partial<Record<string, unknown>> = {}) {
+    return {
+      instanceArn: 'arn:aws:ec2:us-east-1:1:instance/i-abc',
+      instanceName: 'web-3',
+      finding: 'OVER_PROVISIONED',
+      currentInstanceType: 'm5.2xlarge',
+      recommendedInstanceType: 'm5.large',
+      estimatedMonthlySavings: 180,
+      region: 'us-east-1',
+      ...overrides,
+    };
+  }
+
+  it('flags an over-provisioned instance with both instance types', () => {
+    const result = overProvisionedInstances([recommendation()]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].detail).toContain('m5.2xlarge');
+    expect(result.findings[0].detail).toContain('m5.large');
+  });
+
+  it('states the estimated saving in the detail', () => {
+    const result = overProvisionedInstances([recommendation()]);
+
+    expect(result.findings[0].detail).toContain('$180');
+  });
+
+  // monthlyCost means "what this resource actually cost per the billing join".
+  // Putting a projected saving there would make this section's column mean
+  // something different from every other section's.
+  it('leaves monthlyCost null rather than putting the projected saving in it', () => {
+    const result = overProvisionedInstances([recommendation({ estimatedMonthlySavings: 180 })]);
+
+    expect(result.findings[0].monthlyCost).toBeNull();
+  });
+
+  it('ignores an instance Compute Optimizer considers optimized', () => {
+    const result = overProvisionedInstances([recommendation({ finding: 'OPTIMIZED' })]);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  // Under-provisioned is a performance problem, not a cost leak.
+  it('ignores an under-provisioned instance', () => {
+    const result = overProvisionedInstances([recommendation({ finding: 'UNDER_PROVISIONED' })]);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  it('omits the saving when Compute Optimizer did not estimate one', () => {
+    const result = overProvisionedInstances([recommendation({ estimatedMonthlySavings: null })]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].detail).not.toContain('$');
+  });
+
+  it('reports nothing when there are no recommendations', () => {
+    expect(overProvisionedInstances([]).findings).toEqual([]);
   });
 });
