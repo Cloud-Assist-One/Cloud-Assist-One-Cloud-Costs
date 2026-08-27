@@ -21,6 +21,7 @@ import {
   entraUsersWithoutMfa,
   insecureStorageTransport,
   appServiceNotHttpsOnly,
+  normalizeNsgRule,
   type SqlServerInput,
   type StorageAccountInput,
 } from '@/lib/azure/securityChecks';
@@ -155,22 +156,21 @@ export async function GET(request: NextRequest) {
           id: nsg.id ?? '',
           name: nsg.name ?? '',
           location: nsg.location ?? null,
-          rules: (nsg.securityRules ?? []).map((rule) => ({
-            name: rule.name ?? '',
-            direction: rule.direction ?? null,
-            access: rule.access ?? null,
-            protocol: rule.protocol ?? null,
-            // ARM populates either the singular field or the plural array,
-            // never both, so each rule's values are merged from both.
-            destinationPortRanges: [
-              ...(rule.destinationPortRange ? [rule.destinationPortRange] : []),
-              ...(rule.destinationPortRanges ?? []),
-            ],
-            sourceAddressPrefixes: [
-              ...(rule.sourceAddressPrefix ? [rule.sourceAddressPrefix] : []),
-              ...(rule.sourceAddressPrefixes ?? []),
-            ],
-          })),
+          // ARM populates either the singular field or the plural array,
+          // never both, so each rule's values are merged from both --
+          // see normalizeNsgRule for why this fold has to happen at all.
+          rules: (nsg.securityRules ?? []).map((rule) =>
+            normalizeNsgRule({
+              name: rule.name ?? '',
+              direction: rule.direction ?? null,
+              access: rule.access ?? null,
+              protocol: rule.protocol ?? null,
+              destinationPortRange: rule.destinationPortRange,
+              destinationPortRanges: rule.destinationPortRanges,
+              sourceAddressPrefix: rule.sourceAddressPrefix,
+              sourceAddressPrefixes: rule.sourceAddressPrefixes,
+            })
+          ),
         });
       }
       return openNsgRules(groups);

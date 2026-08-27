@@ -6,6 +6,7 @@ import {
   entraUsersWithoutMfa,
   insecureStorageTransport,
   appServiceNotHttpsOnly,
+  normalizeNsgRule,
 } from './securityChecks';
 
 describe('openNsgRules', () => {
@@ -85,6 +86,76 @@ describe('openNsgRules', () => {
     const result = openNsgRules(nsg({ destinationPortRanges: ['443'] }));
 
     expect(result.findings).toEqual([]);
+  });
+});
+
+describe('normalizeNsgRule', () => {
+  const base = {
+    name: 'rule-1',
+    direction: 'Inbound',
+    access: 'Allow',
+    protocol: 'Tcp',
+  };
+
+  it('folds a singular source into the plural array', () => {
+    const result = normalizeNsgRule({
+      ...base,
+      sourceAddressPrefix: '*',
+      sourceAddressPrefixes: undefined,
+      destinationPortRange: undefined,
+      destinationPortRanges: undefined,
+    });
+
+    expect(result.sourceAddressPrefixes).toEqual(['*']);
+  });
+
+  it('keeps a plural-only source as-is', () => {
+    const result = normalizeNsgRule({
+      ...base,
+      sourceAddressPrefix: undefined,
+      sourceAddressPrefixes: ['10.0.0.0/8', 'Internet'],
+      destinationPortRange: undefined,
+      destinationPortRanges: undefined,
+    });
+
+    expect(result.sourceAddressPrefixes).toEqual(['10.0.0.0/8', 'Internet']);
+  });
+
+  it('folds a singular port range into the plural array', () => {
+    const result = normalizeNsgRule({
+      ...base,
+      sourceAddressPrefix: undefined,
+      sourceAddressPrefixes: undefined,
+      destinationPortRange: '22',
+      destinationPortRanges: undefined,
+    });
+
+    expect(result.destinationPortRanges).toEqual(['22']);
+  });
+
+  it('keeps a plural-only port range as-is', () => {
+    const result = normalizeNsgRule({
+      ...base,
+      sourceAddressPrefix: undefined,
+      sourceAddressPrefixes: undefined,
+      destinationPortRange: undefined,
+      destinationPortRanges: ['22', '3389'],
+    });
+
+    expect(result.destinationPortRanges).toEqual(['22', '3389']);
+  });
+
+  it('produces empty arrays when both singular and plural fields are absent', () => {
+    const result = normalizeNsgRule({
+      ...base,
+      sourceAddressPrefix: null,
+      sourceAddressPrefixes: null,
+      destinationPortRange: null,
+      destinationPortRanges: null,
+    });
+
+    expect(result.sourceAddressPrefixes).toEqual([]);
+    expect(result.destinationPortRanges).toEqual([]);
   });
 });
 

@@ -1,6 +1,10 @@
 import { okCheck } from '@/lib/findings';
 import type { CheckResult, Finding, FindingSeverity } from '@/lib/types';
 
+// Ports where internet-wide exposure is a finding rather than a design
+// choice: SSH, RDP, MySQL, Postgres, SQL Server, MongoDB. Port 443 open to
+// the world is a web server; port 22 open to the world is an incident
+// waiting to happen. Mirrors lib/aws/securityChecks.ts's SENSITIVE_PORTS.
 export const SENSITIVE_PORTS = [22, 3389, 3306, 5432, 1433, 27017] as const;
 
 // Azure spells "the whole internet" three different ways depending on
@@ -16,6 +20,40 @@ export interface NsgRuleInput {
   protocol: string | null;
   destinationPortRanges: string[];
   sourceAddressPrefixes: string[];
+}
+
+// ARM's raw NSG rule shape carries either the singular field or the plural
+// array for a given rule, never both -- so both have to be folded into the
+// plural array this module works with, or a rule written in the singular
+// form would silently contribute no ports/sources and openNsgRules would
+// report nothing for it. This is the one fold every caller must apply, so
+// it lives here (tested) rather than being re-implemented per route.
+export interface RawNsgRuleFields {
+  name: string;
+  direction: string | null;
+  access: string | null;
+  protocol: string | null;
+  destinationPortRange: string | null | undefined;
+  destinationPortRanges: string[] | null | undefined;
+  sourceAddressPrefix: string | null | undefined;
+  sourceAddressPrefixes: string[] | null | undefined;
+}
+
+export function normalizeNsgRule(rule: RawNsgRuleFields): NsgRuleInput {
+  return {
+    name: rule.name,
+    direction: rule.direction,
+    access: rule.access,
+    protocol: rule.protocol,
+    destinationPortRanges: [
+      ...(rule.destinationPortRange ? [rule.destinationPortRange] : []),
+      ...(rule.destinationPortRanges ?? []),
+    ],
+    sourceAddressPrefixes: [
+      ...(rule.sourceAddressPrefix ? [rule.sourceAddressPrefix] : []),
+      ...(rule.sourceAddressPrefixes ?? []),
+    ],
+  };
 }
 
 export interface NsgInput {
