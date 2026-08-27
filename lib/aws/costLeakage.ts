@@ -323,3 +323,37 @@ export function staleMultipartUploads(
 
   return okCheck('stale-multipart-uploads', 'Incomplete multipart uploads', 'builtin', findings);
 }
+
+export interface LogGroupInput {
+  name: string;
+  arn: string;
+  /** Null means "keep forever" — CloudWatch's default when nobody chose. */
+  retentionInDays: number | null;
+  storedBytes: number | null;
+  region: string;
+}
+
+function formatBytes(bytes: number | null): string | null {
+  if (bytes === null) return null;
+  const gb = bytes / 1024 ** 3;
+  return gb >= 1 ? `${gb.toFixed(1)} GB` : `${(bytes / 1024 ** 2).toFixed(0)} MB`;
+}
+
+export function logGroupsWithoutRetention(groups: readonly LogGroupInput[]): CheckResult {
+  const findings: Finding[] = groups
+    .filter((group) => group.retentionInDays === null)
+    .map((group) => {
+      const size = formatBytes(group.storedBytes);
+      // The accumulated size is what separates a setting nobody chose from a
+      // bill that is already large.
+      const accumulated = size ? ` It currently holds ${size}.` : '';
+      return leak(
+        group.arn,
+        group.name,
+        group.region,
+        `Log group ${group.name} has no retention period, so its logs never expire.${accumulated}`
+      );
+    });
+
+  return okCheck('log-groups-without-retention', 'Log groups that never expire', 'builtin', findings);
+}

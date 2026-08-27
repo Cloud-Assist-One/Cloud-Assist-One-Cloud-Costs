@@ -9,6 +9,7 @@ import {
   stoppedRdsInstances,
   bucketsWithoutLifecycle,
   staleMultipartUploads,
+  logGroupsWithoutRetention,
   MULTIPART_UPLOAD_STALE_DAYS,
 } from './costLeakage';
 
@@ -345,5 +346,48 @@ describe('staleMultipartUploads', () => {
     );
 
     expect(result.findings).toHaveLength(1);
+  });
+});
+
+describe('logGroupsWithoutRetention', () => {
+  it('flags a log group that never expires', () => {
+    const result = logGroupsWithoutRetention([
+      { name: '/aws/lambda/api', arn: 'arn:aws:logs:us-east-1:1:log-group:/aws/lambda/api', retentionInDays: null, storedBytes: 5_368_709_120, region: 'us-east-1' },
+    ]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].resourceName).toBe('/aws/lambda/api');
+    expect(result.findings[0].detail).toContain('never expire');
+  });
+
+  // The stored size is what turns "a setting nobody chose" into "this is
+  // costing real money right now".
+  it('states how much has already accumulated', () => {
+    const result = logGroupsWithoutRetention([
+      { name: '/aws/lambda/api', arn: 'arn:log', retentionInDays: null, storedBytes: 5_368_709_120, region: 'us-east-1' },
+    ]);
+
+    expect(result.findings[0].detail).toContain('5.0 GB');
+  });
+
+  it('ignores a log group with a retention period set', () => {
+    const result = logGroupsWithoutRetention([
+      { name: '/aws/lambda/short', arn: 'arn:log', retentionInDays: 30, storedBytes: 1000, region: 'us-east-1' },
+    ]);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  it('handles a log group whose size is not reported', () => {
+    const result = logGroupsWithoutRetention([
+      { name: '/aws/new', arn: 'arn:log', retentionInDays: null, storedBytes: null, region: 'us-east-1' },
+    ]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].detail).not.toContain('NaN');
+  });
+
+  it('reports nothing for an account with no log groups', () => {
+    expect(logGroupsWithoutRetention([]).findings).toEqual([]);
   });
 });
