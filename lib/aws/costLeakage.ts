@@ -220,3 +220,106 @@ export function stoppedRdsInstances(instances: readonly RdsInput[]): CheckResult
 
   return okCheck('stopped-rds-instances', 'Stopped RDS instances', 'builtin', findings);
 }
+
+// An upload abandoned for a week is not an upload in progress. AWS bills the
+// uploaded parts as storage until the upload is aborted, and they do not
+// appear in the console's object listing.
+export const MULTIPART_UPLOAD_STALE_DAYS = 7;
+
+export interface BucketLifecycleInput {
+  name: string;
+  region: string;
+  hasLifecyclePolicy: boolean;
+  /** Set when the lookup failed for a reason other than "no policy configured". */
+  lookupError: string | null;
+}
+
+export interface MultipartUploadBucketInput {
+  name: string;
+  region: string;
+  /** Oldest stale upload's initiation time, or null when there are none. */
+  oldestInitiated: string | null;
+  staleCount: number;
+}
+
+// The route caps how many buckets it will examine. A section reporting "3
+// buckets without a policy" after looking at an eighth of them claims a
+// completeness it has not earned, so the shortfall is stated as its own row.
+function shortfallFinding(scanned: number, total: number, what: string): Finding[] {
+  if (total <= scanned) return [];
+  return [
+    leak(
+      'bucket-scan-incomplete',
+      'Bucket scan incomplete',
+      null,
+      `Examined ${scanned} of ${total} buckets. The remaining ${total - scanned} were not checked ${what}.`
+    ),
+  ];
+}
+
+export function bucketsWithoutLifecycle(
+  buckets: readonly BucketLifecycleInput[],
+  scanned = buckets.length,
+  total = buckets.length
+): CheckResult {
+  const findings: Finding[] = [];
+
+  for (const bucket of buckets) {
+    if (bucket.lookupError) {
+      // Unknown is not clean: saying nothing here would hide real waste behind
+      // a permissions gap.
+      findings.push(
+        leak(
+          `arn:aws:s3:::${bucket.name}`,
+          bucket.name,
+          bucket.region,
+          `Bucket ${bucket.name}'s lifecycle policy could not be read (${bucket.lookupError}), so whether it expires old objects is unknown.`
+        )
+      );
+      continue;
+    }
+
+    if (bucket.hasLifecyclePolicy) continue;
+
+    findings.push(
+      leak(
+        `arn:aws:s3:::${bucket.name}`,
+        bucket.name,
+        bucket.region,
+        `Bucket ${bucket.name} has no lifecycle policy, so nothing expires or tiers old objects and its storage bill only grows.`
+      )
+    );
+  }
+
+  findings.push(...shortfallFinding(scanned, total, 'for a lifecycle policy'));
+
+  return okCheck('buckets-without-lifecycle', 'Buckets with no lifecycle policy', 'builtin', findings);
+}
+
+export function staleMultipartUploads(
+  buckets: readonly MultipartUploadBucketInput[],
+  now: Date,
+  scanned = buckets.length,
+  total = buckets.length
+): CheckResult {
+  const findings: Finding[] = [];
+
+  for (const bucket of buckets) {
+    if (bucket.staleCount === 0 || !bucket.oldestInitiated) continue;
+
+    const days = Math.floor((now.getTime() - new Date(bucket.oldestInitiated).getTime()) / 86_400_000);
+
+    findings.push(
+      leak(
+        `arn:aws:s3:::${bucket.name}`,
+        bucket.name,
+        bucket.region,
+        `Bucket ${bucket.name} has ${bucket.staleCount} incomplete multipart upload(s), the oldest ${days} days old. Their uploaded parts bill as storage until the uploads are aborted, and they do not show in the object listing.`
+      )
+    );
+  }
+
+  findings.push(...shortfallFinding(scanned, total, 'for incomplete uploads'));
+
+  return okCheck('stale-multipart-uploads', 'Incomplete multipart uploads', 'builtin', findings);
+}

@@ -7,6 +7,9 @@ import {
   emptyLoadBalancers,
   idleNatGateways,
   stoppedRdsInstances,
+  bucketsWithoutLifecycle,
+  staleMultipartUploads,
+  MULTIPART_UPLOAD_STALE_DAYS,
 } from './costLeakage';
 
 describe('stoppedSince', () => {
@@ -254,5 +257,93 @@ describe('stoppedRdsInstances', () => {
     ]);
 
     expect(result.findings).toEqual([]);
+  });
+});
+
+describe('bucketsWithoutLifecycle', () => {
+  it('flags a bucket with no lifecycle policy', () => {
+    const result = bucketsWithoutLifecycle([
+      { name: 'assets', region: 'us-east-1', hasLifecyclePolicy: false, lookupError: null },
+    ]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].resourceName).toBe('assets');
+    expect(result.findings[0].monthlyCost).toBeNull();
+  });
+
+  it('ignores a bucket that has one', () => {
+    const result = bucketsWithoutLifecycle([
+      { name: 'archived', region: 'us-east-1', hasLifecyclePolicy: true, lookupError: null },
+    ]);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  // A denied bucket is unknown, not clean. Reporting it as having a policy
+  // would hide real waste behind a permissions gap.
+  it('reports a bucket whose policy could not be read, rather than assuming it has one', () => {
+    const result = bucketsWithoutLifecycle([
+      { name: 'locked', region: 'us-east-1', hasLifecyclePolicy: false, lookupError: 'Access Denied' },
+    ]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].detail).toContain('could not be read');
+    expect(result.findings[0].detail).toContain('Access Denied');
+  });
+
+  it('adds a shortfall finding when the bucket cap bit', () => {
+    const result = bucketsWithoutLifecycle(
+      [{ name: 'assets', region: 'us-east-1', hasLifecyclePolicy: true, lookupError: null }],
+      200,
+      1432
+    );
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].detail).toContain('200');
+    expect(result.findings[0].detail).toContain('1432');
+  });
+
+  it('adds no shortfall finding when every bucket was examined', () => {
+    const result = bucketsWithoutLifecycle(
+      [{ name: 'assets', region: 'us-east-1', hasLifecyclePolicy: true, lookupError: null }],
+      1,
+      1
+    );
+
+    expect(result.findings).toEqual([]);
+  });
+});
+
+describe('staleMultipartUploads', () => {
+  const now = new Date('2026-08-27T00:00:00.000Z');
+
+  it('flags a bucket with uploads older than the threshold', () => {
+    const result = staleMultipartUploads(
+      [{ name: 'uploads', region: 'us-east-1', oldestInitiated: '2026-08-01T00:00:00.000Z', staleCount: 12 }],
+      now
+    );
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].detail).toContain('12');
+    expect(result.findings[0].detail).toContain('26 days');
+  });
+
+  it('ignores a bucket with no stale uploads', () => {
+    const result = staleMultipartUploads(
+      [{ name: 'clean', region: 'us-east-1', oldestInitiated: null, staleCount: 0 }],
+      now
+    );
+
+    expect(result.findings).toEqual([]);
+  });
+
+  // One bucket with 4,000 abandoned parts is one thing to go and fix.
+  it('reports one finding per bucket rather than one per upload', () => {
+    const result = staleMultipartUploads(
+      [{ name: 'busy', region: 'us-east-1', oldestInitiated: '2026-07-01T00:00:00.000Z', staleCount: 4000 }],
+      now
+    );
+
+    expect(result.findings).toHaveLength(1);
   });
 });
