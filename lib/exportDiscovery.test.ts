@@ -134,6 +134,36 @@ describe('discoverRuns for AWS', () => {
   });
 });
 
+describe('MANIFEST_PATTERN', () => {
+  // Real CUR manifests are "<report-name>-Manifest.json" — no path separator
+  // before "Manifest.json" at all, just a hyphen.
+  it('treats a hyphen-prefixed manifest name as a manifest', async () => {
+    const manifest: CurManifest = {
+      assemblyId: 'aaa',
+      reportKeys: ['report-00001.csv.gz'],
+      billingPeriod: { start: '20260801T000000.000Z', end: '20260901T000000.000Z' },
+    };
+
+    const runs = await discoverRuns('aws', [obj('report-Manifest.json')], manifestReader({ 'report-Manifest.json': manifest }));
+
+    expect(runs).toHaveLength(1);
+  });
+
+  // A file that merely ends in "manifest.json" with no "-" or "/" right
+  // before it is not a CUR manifest and must not be read as one.
+  it('does not treat manifest.json.bak as a manifest', async () => {
+    const manifest: CurManifest = {
+      assemblyId: 'aaa',
+      reportKeys: ['data.csv'],
+      billingPeriod: { start: '20260801T000000.000Z', end: '20260901T000000.000Z' },
+    };
+
+    const runs = await discoverRuns('aws', [obj('manifest.json.bak')], manifestReader({ 'manifest.json.bak': manifest }));
+
+    expect(runs).toEqual([]);
+  });
+});
+
 describe('discoverRuns for Azure', () => {
   // A scheduled daily export writes a full month-to-date snapshot each day.
   // Importing all of them would import August thirty-one times.

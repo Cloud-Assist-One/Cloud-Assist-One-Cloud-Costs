@@ -1,7 +1,13 @@
 import type { CloudProvider, CurManifest, ExportRun, RemoteObject } from './types';
 
 const SPREADSHEET_PATTERN = /\.(csv|xlsx|xls)(\.gz)?$/i;
-const MANIFEST_PATTERN = /manifest\.json$/i;
+// Real AWS CUR manifests are named "<report-name>-Manifest.json", so this
+// cannot be anchored with (^|\/) — that would match only a bare
+// "Manifest.json" and blank discovery for every AWS bucket. The character
+// class instead requires a "-" or "/" immediately before "manifest.json",
+// which rules out a bare "manifest.json" suffix pasted onto an unrelated
+// filename with no separator at all.
+const MANIFEST_PATTERN = /[-/]manifest\.json$/i;
 // The YYYYMMDD-YYYYMMDD folder both providers put a billing period in.
 const DATE_RANGE_SEGMENT = /(?:^|\/)(\d{8})-(\d{8})(?:\/|$)/;
 
