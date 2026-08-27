@@ -449,6 +449,19 @@ describe('AppShell', () => {
     expect(screen.queryByText('report-tab-content for azure')).not.toBeInTheDocument();
   });
 
+  it('shows a Security Checks sub-tab under Azure', async () => {
+    const user = userEvent.setup();
+    render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);
+
+    await user.click(screen.getByRole('tab', { name: /microsoft azure/i }));
+    expect(await screen.findByText('report-tab-content for azure')).toBeInTheDocument();
+    expect(screen.queryByText('findings-tab-content for azure security-checks')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: 'Security Checks' }));
+    expect(await screen.findByText('findings-tab-content for azure security-checks')).toBeInTheDocument();
+    expect(screen.queryByText('report-tab-content for azure')).not.toBeInTheDocument();
+  });
+
   it('resets the archived-period view and line-items filter when switching companies', async () => {
     listCompanies.mockResolvedValue({
       data: [

@@ -96,7 +96,9 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
   const [awsSubTab, setAwsSubTab] = useState<
     'overview' | 'resources' | 'iamUsers' | 'securityChecks' | 'costLeakage'
   >('overview');
-  const [azureSubTab, setAzureSubTab] = useState<'overview' | 'resources' | 'users' | 'costLeakage'>('overview');
+  const [azureSubTab, setAzureSubTab] = useState<
+    'overview' | 'resources' | 'users' | 'securityChecks' | 'costLeakage'
+  >('overview');
   const [adminSubTab, setAdminSubTab] = useState<'companies' | 'users' | 'emails'>('companies');
   const isWideCloudView =
     (activeTab === 'aws' &&
@@ -105,7 +107,10 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
         awsSubTab === 'securityChecks' ||
         awsSubTab === 'costLeakage')) ||
     (activeTab === 'azure' &&
-      (azureSubTab === 'resources' || azureSubTab === 'users' || azureSubTab === 'costLeakage'));
+      (azureSubTab === 'resources' ||
+        azureSubTab === 'users' ||
+        azureSubTab === 'securityChecks' ||
+        azureSubTab === 'costLeakage'));
   const router = useRouter();
 
   useEffect(() => {
@@ -459,13 +464,16 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
                   <Tabs
                     value={azureSubTab}
                     onValueChange={(value) =>
-                      setAzureSubTab(value as 'overview' | 'resources' | 'users' | 'costLeakage')
+                      setAzureSubTab(
+                        value as 'overview' | 'resources' | 'users' | 'securityChecks' | 'costLeakage'
+                      )
                     }
                   >
                     <TabsList>
                       <TabsTrigger value="overview">Overview</TabsTrigger>
                       <TabsTrigger value="resources">Resources</TabsTrigger>
                       <TabsTrigger value="users">Users</TabsTrigger>
+                      <TabsTrigger value="securityChecks">Security Checks</TabsTrigger>
                       <TabsTrigger value="costLeakage">Cost Leakage</TabsTrigger>
                     </TabsList>
                   </Tabs>
@@ -482,6 +490,13 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
                     <AzureResourcesTab companyId={effectiveCompanyId} />
                   ) : azureSubTab === 'users' ? (
                     <AzureUsersTab companyId={effectiveCompanyId} />
+                  ) : azureSubTab === 'securityChecks' ? (
+                    <FindingsTab
+                      companyId={effectiveCompanyId}
+                      periodId={periodIdForReports}
+                      provider="azure"
+                      kind="security-checks"
+                    />
                   ) : (
                     <FindingsTab
                       companyId={effectiveCompanyId}
