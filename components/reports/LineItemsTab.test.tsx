@@ -223,6 +223,23 @@ describe('formatQuantity', () => {
 });
 
 describe('isBillingCodeTag', () => {
+  // A CUR delivers its tags as one JSON map whose keys keep the full column
+  // name, so the same tag arrives prefixed. Without these, billing codes
+  // vanish the moment CUR data replaces a Cost Explorer pull.
+  it.each([
+    'resourceTags/user:Billing Code',
+    'resource_tags/user_billing_code',
+    'user:BillingCode',
+    'user_billing_code',
+  ])('matches the CUR-prefixed key %s', (key) => {
+    expect(isBillingCodeTag(key)).toBe(true);
+  });
+
+  it('does not match a different tag that merely carries the same prefix', () => {
+    expect(isBillingCodeTag('resourceTags/user:Owner')).toBe(false);
+    expect(isBillingCodeTag('resourceTags/user:Name')).toBe(false);
+  });
+
   it.each(['Billing Code', 'billing code', 'BillingCode', 'billing_code', 'billing-code', 'BILLING CODE', 'billingCode'])(
     'matches %s',
     (key) => {

@@ -40,15 +40,21 @@ const columnHelper = createColumnHelper<LineItemRow>();
 // Shared by every "just show the text, or an em dash" column below. Long
 // values (resource ids, names) truncate visually but keep the full value
 // available via the title attribute on hover.
-function textCell(info: CellContext<LineItemRow, string | null>) {
-  const value = info.getValue();
-  if (value === null) return '—';
-  return (
-    <span className={styles.truncate} title={value}>
-      {value}
-    </span>
-  );
+function truncatedCell(className: string) {
+  return function cell(info: CellContext<LineItemRow, string | null>) {
+    const value = info.getValue();
+    if (value === null) return '—';
+    return (
+      <span className={className} title={value}>
+        {value}
+      </span>
+    );
+  };
 }
+
+const textCell = truncatedCell(styles.truncate);
+const narrowCell = truncatedCell(styles.truncateNarrow);
+const mediumCell = truncatedCell(styles.truncateMedium);
 
 // Providers report usage quantities at full float precision, which renders
 // as things like 0.000277777777777778 and pushes the column far wider than
@@ -103,10 +109,10 @@ const columns = [
     header: 'Provider',
     cell: (info) => CLOUD_PROVIDER_LABELS[info.getValue()],
   }),
-  columnHelper.accessor('service_name', { header: 'Service', cell: (info) => info.getValue() }),
+  columnHelper.accessor('service_name', { header: 'Service', cell: mediumCell }),
   columnHelper.accessor('account_id', { header: 'Account', cell: (info) => info.getValue() ?? '—' }),
   columnHelper.accessor('cost', { header: 'Cost', cell: (info) => formatCurrency(info.getValue()) }),
-  columnHelper.accessor('resource_id', { header: 'Resource ID', cell: textCell }),
+  columnHelper.accessor('resource_id', { header: 'Resource ID', cell: mediumCell }),
   columnHelper.accessor('region', { header: 'Region', cell: textCell }),
   columnHelper.accessor('instance_type', { header: 'Instance Type', cell: textCell }),
   columnHelper.accessor('database_engine', { header: 'DB Engine', cell: textCell }),
@@ -116,7 +122,7 @@ const columns = [
   columnHelper.accessor('subscription_name', { header: 'Subscription Name', cell: textCell }),
   columnHelper.accessor('purchase_type', { header: 'Purchase Type', cell: textCell }),
   columnHelper.accessor('quantity', { header: 'Quantity', cell: quantityCell }),
-  columnHelper.accessor('unit', { header: 'Unit', cell: textCell }),
+  columnHelper.accessor('unit', { header: 'Unit', cell: narrowCell }),
   columnHelper.accessor('unit_price', { header: 'Unit Price', cell: numberCell }),
   columnHelper.accessor('charge_type', { header: 'Charge Type', cell: textCell }),
   columnHelper.accessor('tags', {

@@ -32,3 +32,20 @@
   white-space: nowrap;
   vertical-align: bottom;
 }
+
+/* Three columns get tighter caps so twenty columns have a chance of fitting
+   one screen. Each still carries its full value in the title attribute, so
+   narrowing costs nothing but a hover. */
+
+/* "Hrs", "GB-Mo", "Requests" — never needs the default width. */
+.truncateNarrow {
+  composes: truncate;
+  max-width: 5rem;
+}
+
+/* Service names and resource ids are the two longest values in the grid, and
+   the leading characters are the identifying ones. */
+.truncateMedium {
+  composes: truncate;
+  max-width: 10rem;
+}

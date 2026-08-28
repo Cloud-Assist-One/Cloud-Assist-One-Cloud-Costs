@@ -8,6 +8,15 @@
  */
 
 /**
+ * A CUR delivers every tag inside one JSON map, and keeps the full column name
+ * as the key -- "resourceTags/user:Billing Code" rather than "Billing Code".
+ * Cost Explorer pulls and hand uploads carry the bare name. Stripping the
+ * prefix is what lets one rule cover both, and its absence is what made
+ * billing codes disappear the moment CUR data replaced a Cost Explorer pull.
+ */
+const CUR_TAG_PREFIX = /^(resource[_\s-]?tags[/_])?user[:_]/i;
+
+/**
  * True for the billing-code tag under any spelling.
  *
  * Tag keys are typed by hand in each cloud console, so the same tag shows up
@@ -15,7 +24,7 @@
  * Comparing on letters and digits alone treats them all as one tag.
  */
 export function isBillingCodeTag(key: string): boolean {
-  return key.replace(/[^a-z0-9]/gi, '').toLowerCase() === 'billingcode';
+  return key.replace(CUR_TAG_PREFIX, '').replace(/[^a-z0-9]/gi, '').toLowerCase() === 'billingcode';
 }
 
 /**
