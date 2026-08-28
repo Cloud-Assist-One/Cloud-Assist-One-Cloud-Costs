@@ -175,3 +175,151 @@ export function orphanedNetworkInterfaces(interfaces: readonly NetworkInterfaceI
 
   return okCheck('orphaned-network-interfaces', 'Orphaned network interfaces', 'builtin', findings);
 }
+
+// Log Analytics includes 30 days of retention; beyond that bills per GB-month.
+export const LOG_ANALYTICS_FREE_RETENTION_DAYS = 30;
+
+export interface StorageLifecycleInput {
+  id: string;
+  name: string;
+  location: string | null;
+  hasLifecyclePolicy: boolean;
+  /** Set when the lookup failed for a reason other than "no policy configured". */
+  lookupError: string | null;
+}
+
+export interface LogAnalyticsWorkspaceInput {
+  id: string;
+  name: string;
+  location: string | null;
+  retentionInDays: number | null;
+  /** Null means no daily cap, so ingestion spend is unbounded. */
+  dailyQuotaGb: number | null;
+}
+
+export function storageAccountsWithoutLifecycle(
+  accounts: readonly StorageLifecycleInput[]
+): CheckResult {
+  const findings: Finding[] = [];
+
+  for (const account of accounts) {
+    if (account.lookupError) {
+      // Unknown is not clean: staying silent would hide real waste behind a
+      // permissions gap.
+      findings.push(
+        leak(
+          account.id,
+          account.name,
+          account.location,
+          `Storage account ${account.name}'s lifecycle policy could not be read (${account.lookupError}), so whether it tiers or expires old blobs is unknown.`
+        )
+      );
+      continue;
+    }
+
+    if (account.hasLifecyclePolicy) continue;
+
+    findings.push(
+      leak(
+        account.id,
+        account.name,
+        account.location,
+        `Storage account ${account.name} has no lifecycle management policy, so nothing tiers or expires old blobs and its storage bill only grows.`
+      )
+    );
+  }
+
+  return okCheck(
+    'storage-accounts-without-lifecycle',
+    'Storage accounts with no lifecycle policy',
+    'builtin',
+    findings
+  );
+}
+
+export function workspacesWithCostlyLogSettings(
+  workspaces: readonly LogAnalyticsWorkspaceInput[]
+): CheckResult {
+  const findings: Finding[] = [];
+
+  for (const workspace of workspaces) {
+    const reasons: string[] = [];
+
+    // Log Analytics always has a retention value, so "no retention" cannot
+    // happen here the way it can on CloudWatch — the leak is retention bought
+    // beyond the included allowance.
+    if (workspace.retentionInDays !== null && workspace.retentionInDays > LOG_ANALYTICS_FREE_RETENTION_DAYS) {
+      reasons.push(
+        `retention is ${workspace.retentionInDays} days, beyond the ${LOG_ANALYTICS_FREE_RETENTION_DAYS} included`
+      );
+    }
+
+    // Unbounded ingestion is future spend rather than accumulated waste, but it
+    // is the setting that turns a noisy app into a surprise invoice.
+    if (workspace.dailyQuotaGb === null) {
+      reasons.push('there is no daily ingestion cap, so ingestion spend is unbounded');
+    }
+
+    if (reasons.length === 0) continue;
+
+    findings.push(
+      leak(
+        workspace.id,
+        workspace.name,
+        workspace.location,
+        `Log Analytics workspace ${workspace.name}: ${reasons.join(', and ')}.`
+      )
+    );
+  }
+
+  return okCheck(
+    'workspaces-costly-log-settings',
+    'Log Analytics workspaces with costly settings',
+    'builtin',
+    findings
+  );
+}
+
+// Advisor's Cost category is broader than this check. It also returns
+// unassociated public IPs and unattached disks -- both of which this tab
+// already detects with its own rules -- and reserved-instance advice, which is
+// deferred commitment coverage. Scoping to virtual machines is what keeps one
+// piece of waste from appearing twice with two different cost figures.
+const RIGHTSIZING_IMPACTED_FIELD = 'microsoft.compute/virtualmachines';
+
+export interface AdvisorRecommendationInput {
+  id: string;
+  category: string;
+  impactedField: string;
+  impactedValue: string;
+  problem: string;
+  savingsAmount: number | null;
+  savingsCurrency: string | null;
+}
+
+export function advisorRightsizingRecommendations(
+  recommendations: readonly AdvisorRecommendationInput[]
+): CheckResult {
+  const findings: Finding[] = recommendations
+    .filter(
+      (rec) =>
+        rec.category === 'Cost' && rec.impactedField.toLowerCase() === RIGHTSIZING_IMPACTED_FIELD
+    )
+    .map((rec) => {
+      // The saving goes in the detail, not monthlyCost: that column carries what
+      // the resource actually cost per the billing join.
+      const saving =
+        rec.savingsAmount !== null
+          ? ` Estimated saving ${rec.savingsAmount.toFixed(2)} ${rec.savingsCurrency ?? ''}`.trimEnd() + '/month.'
+          : '';
+
+      return leak(
+        rec.id,
+        rec.impactedValue,
+        null,
+        `Azure Advisor: ${rec.problem} — ${rec.impactedValue}.${saving}`
+      );
+    });
+
+  return okCheck('advisor-rightsizing', 'Underutilized virtual machines', 'builtin', findings);
+}

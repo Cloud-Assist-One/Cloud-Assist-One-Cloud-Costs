@@ -7,6 +7,7 @@ import {
   insecureStorageTransport,
   appServiceNotHttpsOnly,
   normalizeNsgRule,
+  expiringKeyVaultCertificates,
 } from './securityChecks';
 
 describe('openNsgRules', () => {
@@ -358,6 +359,74 @@ describe('appServiceNotHttpsOnly', () => {
       { id: '/subscriptions/s1/sites/app-2', name: 'app-2', location: 'eastus', httpsOnly: true },
     ]);
 
+    expect(result.findings).toEqual([]);
+  });
+});
+
+describe('expiringKeyVaultCertificates', () => {
+  const now = new Date('2026-08-27T00:00:00.000Z');
+
+  function cert(overrides: Partial<Record<string, unknown>> = {}) {
+    return {
+      id: 'https://kv-prod.vault.azure.net/certificates/api-tls',
+      name: 'api-tls',
+      vaultName: 'kv-prod',
+      expiresOn: '2026-12-01T00:00:00.000Z',
+      enabled: true,
+      ...overrides,
+    };
+  }
+
+  it('flags an already-expired certificate as critical', () => {
+    const result = expiringKeyVaultCertificates([cert({ expiresOn: '2026-08-01T00:00:00.000Z' })], now);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].severity).toBe('critical');
+    expect(result.findings[0].detail).toContain('expired');
+  });
+
+  it('flags a certificate expiring within 30 days as high', () => {
+    const result = expiringKeyVaultCertificates([cert({ expiresOn: '2026-09-10T00:00:00.000Z' })], now);
+
+    expect(result.findings[0].severity).toBe('high');
+  });
+
+  it('flags a certificate expiring within 90 days as medium', () => {
+    const result = expiringKeyVaultCertificates([cert({ expiresOn: '2026-10-20T00:00:00.000Z' })], now);
+
+    expect(result.findings[0].severity).toBe('medium');
+  });
+
+  it('ignores a certificate expiring beyond 90 days', () => {
+    const result = expiringKeyVaultCertificates([cert({ expiresOn: '2027-06-01T00:00:00.000Z' })], now);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  it('ignores a certificate with no expiry date rather than guessing', () => {
+    const result = expiringKeyVaultCertificates([cert({ expiresOn: null })], now);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  // A disabled certificate is not serving traffic, so its expiry is not urgent.
+  it('ignores a disabled certificate', () => {
+    const result = expiringKeyVaultCertificates([cert({ expiresOn: '2026-08-01T00:00:00.000Z', enabled: false })], now);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  it('names the vault so the certificate can be found', () => {
+    const result = expiringKeyVaultCertificates([cert({ expiresOn: '2026-09-10T00:00:00.000Z' })], now);
+
+    expect(result.findings[0].resourceName).toBe('api-tls');
+    expect(result.findings[0].detail).toContain('kv-prod');
+  });
+
+  it('reports nothing for a subscription with no certificates', () => {
+    const result = expiringKeyVaultCertificates([], now);
+
+    expect(result.status).toBe('ok');
     expect(result.findings).toEqual([]);
   });
 });

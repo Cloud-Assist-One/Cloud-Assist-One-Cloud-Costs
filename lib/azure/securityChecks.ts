@@ -278,3 +278,54 @@ export function appServiceNotHttpsOnly(sites: readonly AppServiceInput[]): Check
 
   return okCheck('app-service-not-https-only', 'App Services not HTTPS-only', 'builtin', findings);
 }
+
+// Same renewal windows as the AWS certificate check, so a customer running both
+// clouds sees one consistent notion of "urgent".
+export const CERT_EXPIRY_HIGH_DAYS = 30;
+export const CERT_EXPIRY_MEDIUM_DAYS = 90;
+
+export interface KeyVaultCertificateInput {
+  id: string;
+  name: string;
+  vaultName: string;
+  /** Key Vault's attributes.expires. Null when no expiry is set. */
+  expiresOn: string | null;
+  enabled: boolean;
+}
+
+export function expiringKeyVaultCertificates(
+  certs: readonly KeyVaultCertificateInput[],
+  now: Date
+): CheckResult {
+  const findings: Finding[] = [];
+
+  for (const cert of certs) {
+    // A disabled certificate is not serving traffic, so its expiry is not
+    // urgent; and no expiry recorded is absent data, not a problem.
+    if (!cert.enabled || !cert.expiresOn) continue;
+
+    const daysLeft = Math.floor((new Date(cert.expiresOn).getTime() - now.getTime()) / 86_400_000);
+    if (daysLeft > CERT_EXPIRY_MEDIUM_DAYS) continue;
+
+    const severity: FindingSeverity =
+      daysLeft < 0 ? 'critical' : daysLeft <= CERT_EXPIRY_HIGH_DAYS ? 'high' : 'medium';
+
+    const timing =
+      daysLeft < 0
+        ? `expired ${Math.abs(daysLeft)} days ago`
+        : `expires in ${daysLeft} days (${cert.expiresOn.slice(0, 10)})`;
+
+    findings.push({
+      severity,
+      resourceId: cert.id,
+      resourceName: cert.name,
+      region: null,
+      // The vault name is what makes the certificate findable — a name alone is
+      // ambiguous across vaults.
+      detail: `Certificate ${cert.name} in vault ${cert.vaultName} ${timing}.`,
+      monthlyCost: null,
+    });
+  }
+
+  return okCheck('expiring-certificates', 'Certificates expiring or expired', 'builtin', findings);
+}

@@ -7,6 +7,11 @@ import {
   emptyLoadBalancers,
   idleNatGateways,
   stoppedRdsInstances,
+  bucketsWithoutLifecycle,
+  staleMultipartUploads,
+  logGroupsWithoutRetention,
+  overProvisionedInstances,
+  type InstanceRecommendationInput,
 } from './costLeakage';
 
 describe('stoppedSince', () => {
@@ -254,5 +259,229 @@ describe('stoppedRdsInstances', () => {
     ]);
 
     expect(result.findings).toEqual([]);
+  });
+});
+
+describe('bucketsWithoutLifecycle', () => {
+  it('flags a bucket with no lifecycle policy', () => {
+    const result = bucketsWithoutLifecycle([
+      { name: 'assets', region: 'us-east-1', hasLifecyclePolicy: false, lookupError: null },
+    ]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].resourceName).toBe('assets');
+    expect(result.findings[0].monthlyCost).toBeNull();
+  });
+
+  it('ignores a bucket that has one', () => {
+    const result = bucketsWithoutLifecycle([
+      { name: 'archived', region: 'us-east-1', hasLifecyclePolicy: true, lookupError: null },
+    ]);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  // A denied bucket is unknown, not clean. Reporting it as having a policy
+  // would hide real waste behind a permissions gap.
+  it('reports a bucket whose policy could not be read, rather than assuming it has one', () => {
+    const result = bucketsWithoutLifecycle([
+      { name: 'locked', region: 'us-east-1', hasLifecyclePolicy: false, lookupError: 'Access Denied' },
+    ]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].detail).toContain('could not be read');
+    expect(result.findings[0].detail).toContain('Access Denied');
+  });
+
+  it('adds a shortfall finding when the bucket cap bit', () => {
+    const result = bucketsWithoutLifecycle(
+      [{ name: 'assets', region: 'us-east-1', hasLifecyclePolicy: true, lookupError: null }],
+      200,
+      1432
+    );
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].detail).toContain('200');
+    expect(result.findings[0].detail).toContain('1432');
+  });
+
+  it('adds no shortfall finding when every bucket was examined', () => {
+    const result = bucketsWithoutLifecycle(
+      [{ name: 'assets', region: 'us-east-1', hasLifecyclePolicy: true, lookupError: null }],
+      1,
+      1
+    );
+
+    expect(result.findings).toEqual([]);
+  });
+});
+
+describe('staleMultipartUploads', () => {
+  const now = new Date('2026-08-27T00:00:00.000Z');
+
+  it('flags a bucket with uploads older than the threshold', () => {
+    const result = staleMultipartUploads(
+      [{ name: 'uploads', region: 'us-east-1', oldestInitiated: '2026-08-01T00:00:00.000Z', staleCount: 12, lookupError: null }],
+      now
+    );
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].detail).toContain('12');
+    expect(result.findings[0].detail).toContain('26 days');
+  });
+
+  it('ignores a bucket with no stale uploads', () => {
+    const result = staleMultipartUploads(
+      [{ name: 'clean', region: 'us-east-1', oldestInitiated: null, staleCount: 0, lookupError: null }],
+      now
+    );
+
+    expect(result.findings).toEqual([]);
+  });
+
+  // One bucket with 4,000 abandoned parts is one thing to go and fix.
+  it('reports one finding per bucket rather than one per upload', () => {
+    const result = staleMultipartUploads(
+      [{ name: 'busy', region: 'us-east-1', oldestInitiated: '2026-07-01T00:00:00.000Z', staleCount: 4000, lookupError: null }],
+      now
+    );
+
+    expect(result.findings).toHaveLength(1);
+  });
+
+  // A denied bucket is unknown, not clean. Reporting it as having no stale
+  // uploads would hide real waste behind a permissions gap -- the same
+  // reasoning bucketsWithoutLifecycle applies to a denied lifecycle lookup.
+  it('reports a bucket whose incomplete uploads could not be listed, rather than assuming it has none', () => {
+    const result = staleMultipartUploads(
+      [{ name: 'locked', region: 'us-east-1', oldestInitiated: null, staleCount: 0, lookupError: 'Access Denied' }],
+      now
+    );
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].detail).toContain('could not be listed');
+    expect(result.findings[0].detail).toContain('Access Denied');
+  });
+});
+
+describe('logGroupsWithoutRetention', () => {
+  // CloudWatch's real DescribeLogGroups response carries a trailing ":*"
+  // after the log group name in this field ("This version of the ARN
+  // includes a trailing :* after the log group name" -- the SDK's own doc
+  // comment). The route strips that suffix before building this input, so
+  // these fixtures model the post-strip value the rule actually receives --
+  // the rule itself does no stripping and just passes the arn through.
+  const LOG_GROUP_ARN = 'arn:aws:logs:us-east-1:1:log-group:/aws/lambda/api';
+
+  it('flags a log group that never expires', () => {
+    const result = logGroupsWithoutRetention([
+      { name: '/aws/lambda/api', arn: LOG_GROUP_ARN, retentionInDays: null, storedBytes: 5_368_709_120, region: 'us-east-1' },
+    ]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].resourceName).toBe('/aws/lambda/api');
+    expect(result.findings[0].detail).toContain('never expire');
+  });
+
+  it('uses the stripped arn as the resource id, not a value still carrying CloudWatch\'s ":*" suffix', () => {
+    const result = logGroupsWithoutRetention([
+      { name: '/aws/lambda/api', arn: LOG_GROUP_ARN, retentionInDays: null, storedBytes: 5_368_709_120, region: 'us-east-1' },
+    ]);
+
+    expect(result.findings[0].resourceId).toBe(LOG_GROUP_ARN);
+    expect(result.findings[0].resourceId).not.toContain(':*');
+  });
+
+  // The stored size is what turns "a setting nobody chose" into "this is
+  // costing real money right now".
+  it('states how much has already accumulated', () => {
+    const result = logGroupsWithoutRetention([
+      { name: '/aws/lambda/api', arn: LOG_GROUP_ARN, retentionInDays: null, storedBytes: 5_368_709_120, region: 'us-east-1' },
+    ]);
+
+    expect(result.findings[0].detail).toContain('5.0 GB');
+  });
+
+  it('ignores a log group with a retention period set', () => {
+    const result = logGroupsWithoutRetention([
+      { name: '/aws/lambda/short', arn: 'arn:aws:logs:us-east-1:1:log-group:/aws/lambda/short', retentionInDays: 30, storedBytes: 1000, region: 'us-east-1' },
+    ]);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  it('handles a log group whose size is not reported', () => {
+    const result = logGroupsWithoutRetention([
+      { name: '/aws/new', arn: 'arn:aws:logs:us-east-1:1:log-group:/aws/new', retentionInDays: null, storedBytes: null, region: 'us-east-1' },
+    ]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].detail).not.toContain('NaN');
+  });
+
+  it('reports nothing for an account with no log groups', () => {
+    expect(logGroupsWithoutRetention([]).findings).toEqual([]);
+  });
+});
+
+describe('overProvisionedInstances', () => {
+  function recommendation(overrides: Partial<InstanceRecommendationInput> = {}): InstanceRecommendationInput {
+    return {
+      instanceArn: 'arn:aws:ec2:us-east-1:1:instance/i-abc',
+      instanceName: 'web-3',
+      finding: 'OVER_PROVISIONED',
+      currentInstanceType: 'm5.2xlarge',
+      recommendedInstanceType: 'm5.large',
+      estimatedMonthlySavings: 180,
+      region: 'us-east-1',
+      ...overrides,
+    };
+  }
+
+  it('flags an over-provisioned instance with both instance types', () => {
+    const result = overProvisionedInstances([recommendation()]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].detail).toContain('m5.2xlarge');
+    expect(result.findings[0].detail).toContain('m5.large');
+  });
+
+  it('states the estimated saving in the detail', () => {
+    const result = overProvisionedInstances([recommendation()]);
+
+    expect(result.findings[0].detail).toContain('$180');
+  });
+
+  // monthlyCost means "what this resource actually cost per the billing join".
+  // Putting a projected saving there would make this section's column mean
+  // something different from every other section's.
+  it('leaves monthlyCost null rather than putting the projected saving in it', () => {
+    const result = overProvisionedInstances([recommendation({ estimatedMonthlySavings: 180 })]);
+
+    expect(result.findings[0].monthlyCost).toBeNull();
+  });
+
+  it('ignores an instance Compute Optimizer considers optimized', () => {
+    const result = overProvisionedInstances([recommendation({ finding: 'OPTIMIZED' })]);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  // Under-provisioned is a performance problem, not a cost leak.
+  it('ignores an under-provisioned instance', () => {
+    const result = overProvisionedInstances([recommendation({ finding: 'UNDER_PROVISIONED' })]);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  it('omits the saving when Compute Optimizer did not estimate one', () => {
+    const result = overProvisionedInstances([recommendation({ estimatedMonthlySavings: null })]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].detail).not.toContain('$');
+  });
+
+  it('reports nothing when there are no recommendations', () => {
+    expect(overProvisionedInstances([]).findings).toEqual([]);
   });
 });

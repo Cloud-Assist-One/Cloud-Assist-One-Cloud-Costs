@@ -220,3 +220,194 @@ export function stoppedRdsInstances(instances: readonly RdsInput[]): CheckResult
 
   return okCheck('stopped-rds-instances', 'Stopped RDS instances', 'builtin', findings);
 }
+
+// An upload abandoned for a week is not an upload in progress. AWS bills the
+// uploaded parts as storage until the upload is aborted, and they do not
+// appear in the console's object listing.
+export const MULTIPART_UPLOAD_STALE_DAYS = 7;
+
+export interface BucketLifecycleInput {
+  name: string;
+  region: string;
+  hasLifecyclePolicy: boolean;
+  /** Set when the lookup failed for a reason other than "no policy configured". */
+  lookupError: string | null;
+}
+
+export interface MultipartUploadBucketInput {
+  name: string;
+  region: string;
+  /** Oldest stale upload's initiation time, or null when there are none. */
+  oldestInitiated: string | null;
+  staleCount: number;
+  /** Set when the lookup failed for a reason other than "no uploads found". */
+  lookupError: string | null;
+}
+
+// The route caps how many buckets it will examine. A section reporting "3
+// buckets without a policy" after looking at an eighth of them claims a
+// completeness it has not earned, so the shortfall is stated as its own row.
+function shortfallFinding(scanned: number, total: number, what: string): Finding[] {
+  if (total <= scanned) return [];
+  return [
+    leak(
+      'bucket-scan-incomplete',
+      'Bucket scan incomplete',
+      null,
+      `Examined ${scanned} of ${total} buckets. The remaining ${total - scanned} were not checked ${what}.`
+    ),
+  ];
+}
+
+export function bucketsWithoutLifecycle(
+  buckets: readonly BucketLifecycleInput[],
+  scanned = buckets.length,
+  total = buckets.length
+): CheckResult {
+  const findings: Finding[] = [];
+
+  for (const bucket of buckets) {
+    if (bucket.lookupError) {
+      // Unknown is not clean: saying nothing here would hide real waste behind
+      // a permissions gap.
+      findings.push(
+        leak(
+          `arn:aws:s3:::${bucket.name}`,
+          bucket.name,
+          bucket.region,
+          `Bucket ${bucket.name}'s lifecycle policy could not be read (${bucket.lookupError}), so whether it expires old objects is unknown.`
+        )
+      );
+      continue;
+    }
+
+    if (bucket.hasLifecyclePolicy) continue;
+
+    findings.push(
+      leak(
+        `arn:aws:s3:::${bucket.name}`,
+        bucket.name,
+        bucket.region,
+        `Bucket ${bucket.name} has no lifecycle policy, so nothing expires or tiers old objects and its storage bill only grows.`
+      )
+    );
+  }
+
+  findings.push(...shortfallFinding(scanned, total, 'for a lifecycle policy'));
+
+  return okCheck('buckets-without-lifecycle', 'Buckets with no lifecycle policy', 'builtin', findings);
+}
+
+export function staleMultipartUploads(
+  buckets: readonly MultipartUploadBucketInput[],
+  now: Date,
+  scanned = buckets.length,
+  total = buckets.length
+): CheckResult {
+  const findings: Finding[] = [];
+
+  for (const bucket of buckets) {
+    if (bucket.lookupError) {
+      // Unknown is not clean: saying nothing here would hide real waste behind
+      // a permissions gap.
+      findings.push(
+        leak(
+          `arn:aws:s3:::${bucket.name}`,
+          bucket.name,
+          bucket.region,
+          `Bucket ${bucket.name}'s incomplete multipart uploads could not be listed (${bucket.lookupError}), so whether any are stale is unknown.`
+        )
+      );
+      continue;
+    }
+
+    if (bucket.staleCount === 0 || !bucket.oldestInitiated) continue;
+
+    const days = daysBetween(bucket.oldestInitiated, now);
+
+    findings.push(
+      leak(
+        `arn:aws:s3:::${bucket.name}`,
+        bucket.name,
+        bucket.region,
+        `Bucket ${bucket.name} has ${bucket.staleCount} incomplete multipart upload(s), the oldest ${days} days old. Their uploaded parts bill as storage until the uploads are aborted, and they do not show in the object listing.`
+      )
+    );
+  }
+
+  findings.push(...shortfallFinding(scanned, total, 'for incomplete uploads'));
+
+  return okCheck('stale-multipart-uploads', 'Incomplete multipart uploads', 'builtin', findings);
+}
+
+export interface LogGroupInput {
+  name: string;
+  arn: string;
+  /** Null means "keep forever" — CloudWatch's default when nobody chose. */
+  retentionInDays: number | null;
+  storedBytes: number | null;
+  region: string;
+}
+
+function formatBytes(bytes: number | null): string | null {
+  if (bytes === null) return null;
+  const gb = bytes / 1024 ** 3;
+  return gb >= 1 ? `${gb.toFixed(1)} GB` : `${(bytes / 1024 ** 2).toFixed(0)} MB`;
+}
+
+export function logGroupsWithoutRetention(groups: readonly LogGroupInput[]): CheckResult {
+  const findings: Finding[] = groups
+    .filter((group) => group.retentionInDays === null)
+    .map((group) => {
+      const size = formatBytes(group.storedBytes);
+      // The accumulated size is what separates a setting nobody chose from a
+      // bill that is already large.
+      const accumulated = size ? ` It currently holds ${size}.` : '';
+      return leak(
+        group.arn,
+        group.name,
+        group.region,
+        `Log group ${group.name} has no retention period, so its logs never expire.${accumulated}`
+      );
+    });
+
+  return okCheck('log-groups-without-retention', 'Log groups that never expire', 'builtin', findings);
+}
+
+export interface InstanceRecommendationInput {
+  instanceArn: string;
+  instanceName: string;
+  /** Compute Optimizer's finding: OPTIMIZED, OVER_PROVISIONED, UNDER_PROVISIONED. */
+  finding: string;
+  currentInstanceType: string;
+  recommendedInstanceType: string | null;
+  estimatedMonthlySavings: number | null;
+  region: string;
+}
+
+export function overProvisionedInstances(
+  recommendations: readonly InstanceRecommendationInput[]
+): CheckResult {
+  const findings: Finding[] = recommendations
+    // UNDER_PROVISIONED is a performance problem, not a cost leak.
+    .filter((rec) => rec.finding === 'OVER_PROVISIONED')
+    .map((rec) => {
+      const target = rec.recommendedInstanceType ? `, and suggests ${rec.recommendedInstanceType}` : '';
+      // The saving belongs here rather than in monthlyCost: that column carries
+      // what the resource actually cost per the billing join, and a projected
+      // number in it would mean something different from every other row.
+      const saving =
+        rec.estimatedMonthlySavings !== null
+          ? ` Estimated saving $${rec.estimatedMonthlySavings.toFixed(2)}/month.`
+          : '';
+
+      return leak(
+        rec.instanceArn,
+        rec.instanceName,
+        rec.region,
+        `Compute Optimizer reports ${rec.instanceName} as over-provisioned at ${rec.currentInstanceType}${target}.${saving}`
+      );
+    });
+
+  return okCheck('over-provisioned-instances', 'Over-provisioned instances', 'builtin', findings);
+}

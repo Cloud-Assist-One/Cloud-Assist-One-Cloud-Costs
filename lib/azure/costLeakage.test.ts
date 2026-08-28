@@ -6,6 +6,11 @@ import {
   emptyAppServicePlans,
   emptyBackendPoolLoadBalancers,
   orphanedNetworkInterfaces,
+  storageAccountsWithoutLifecycle,
+  workspacesWithCostlyLogSettings,
+  advisorRightsizingRecommendations,
+  type LogAnalyticsWorkspaceInput,
+  type AdvisorRecommendationInput,
 } from './costLeakage';
 
 describe('unattachedDisks', () => {
@@ -202,5 +207,157 @@ describe('orphanedNetworkInterfaces', () => {
     ]);
 
     expect(result.findings).toEqual([]);
+  });
+});
+
+describe('storageAccountsWithoutLifecycle', () => {
+  it('flags an account with no management policy', () => {
+    const result = storageAccountsWithoutLifecycle([
+      { id: '/subscriptions/s1/storage/sa1', name: 'sa1', location: 'eastus', hasLifecyclePolicy: false, lookupError: null },
+    ]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].resourceName).toBe('sa1');
+  });
+
+  it('ignores an account that has one', () => {
+    const result = storageAccountsWithoutLifecycle([
+      { id: '/subscriptions/s1/storage/sa2', name: 'sa2', location: 'eastus', hasLifecyclePolicy: true, lookupError: null },
+    ]);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  // Unknown is not clean — the same rule the AWS bucket check follows.
+  it('reports an account whose policy could not be read', () => {
+    const result = storageAccountsWithoutLifecycle([
+      { id: '/subscriptions/s1/storage/sa3', name: 'sa3', location: 'eastus', hasLifecyclePolicy: false, lookupError: 'Forbidden' },
+    ]);
+
+    expect(result.findings[0].detail).toContain('could not be read');
+    expect(result.findings[0].detail).toContain('Forbidden');
+  });
+});
+
+describe('workspacesWithCostlyLogSettings', () => {
+  function workspace(overrides: Partial<LogAnalyticsWorkspaceInput> = {}): LogAnalyticsWorkspaceInput {
+    return {
+      id: '/subscriptions/s1/workspaces/law-prod',
+      name: 'law-prod',
+      location: 'eastus',
+      retentionInDays: 30,
+      dailyQuotaGb: 5,
+      ...overrides,
+    };
+  }
+
+  it('flags retention above the free allowance', () => {
+    const result = workspacesWithCostlyLogSettings([workspace({ retentionInDays: 180 })]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].detail).toContain('180 days');
+  });
+
+  it('flags a workspace with no daily ingestion cap', () => {
+    const result = workspacesWithCostlyLogSettings([workspace({ dailyQuotaGb: null })]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].detail).toContain('no daily ingestion cap');
+  });
+
+  it('reports both reasons in one finding when both apply', () => {
+    const result = workspacesWithCostlyLogSettings([workspace({ retentionInDays: 365, dailyQuotaGb: null })]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].detail).toContain('365 days');
+    expect(result.findings[0].detail).toContain('no daily ingestion cap');
+  });
+
+  it('ignores a workspace at the free retention with a cap set', () => {
+    const result = workspacesWithCostlyLogSettings([workspace()]);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  it('treats the free allowance itself as fine, not costly', () => {
+    const result = workspacesWithCostlyLogSettings([workspace({ retentionInDays: 30 })]);
+
+    expect(result.findings).toEqual([]);
+  });
+});
+
+describe('advisorRightsizingRecommendations', () => {
+  function rec(overrides: Partial<AdvisorRecommendationInput> = {}): AdvisorRecommendationInput {
+    return {
+      id: '/subscriptions/s1/recommendations/r1',
+      category: 'Cost',
+      impactedField: 'Microsoft.Compute/virtualMachines',
+      impactedValue: 'vm-web-3',
+      problem: 'Right-size or shutdown underutilized virtual machines',
+      savingsAmount: 92.4,
+      savingsCurrency: 'USD',
+      ...overrides,
+    };
+  }
+
+  it('flags a virtual machine rightsizing recommendation', () => {
+    const result = advisorRightsizingRecommendations([rec()]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].resourceName).toBe('vm-web-3');
+  });
+
+  it('states the estimated saving in the detail', () => {
+    const result = advisorRightsizingRecommendations([rec()]);
+
+    expect(result.findings[0].detail).toContain('92.40');
+  });
+
+  // Same rule as the AWS side: monthlyCost is the billing join, not a forecast.
+  it('leaves monthlyCost null rather than putting the projected saving in it', () => {
+    const result = advisorRightsizingRecommendations([rec()]);
+
+    expect(result.findings[0].monthlyCost).toBeNull();
+  });
+
+  // This tab already reports unassociated public IPs with its own rule. Showing
+  // Advisor's copy too would report one piece of waste twice, with two figures.
+  it('excludes a recommendation about a resource type this tab already covers', () => {
+    const result = advisorRightsizingRecommendations([
+      rec({ impactedField: 'Microsoft.Network/publicIPAddresses', impactedValue: 'ip-1' }),
+    ]);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  // The rule filters on impactedField alone, not on problem text, so this
+  // only re-proves what the public-IP exclusion test above already proves:
+  // any impactedField other than the VM one is excluded. 'Microsoft.Subscription'
+  // is assumed as what a reserved-instance recommendation's impactedField
+  // looks like -- it is not observed from live Advisor data -- so this does
+  // not independently verify reserved-instance advice specifically is excluded.
+  it('excludes any recommendation whose impactedField is not virtual machines, using a reserved-instance-shaped example', () => {
+    const result = advisorRightsizingRecommendations([
+      rec({ impactedField: 'Microsoft.Subscription', problem: 'Buy virtual machine reserved instances to save money' }),
+    ]);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  it('excludes a non-cost recommendation', () => {
+    const result = advisorRightsizingRecommendations([rec({ category: 'HighAvailability' })]);
+
+    expect(result.findings).toEqual([]);
+  });
+
+  it('omits the saving when Advisor did not provide one', () => {
+    const result = advisorRightsizingRecommendations([rec({ savingsAmount: null })]);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].detail).not.toContain('saving');
+  });
+
+  it('reports nothing for an empty recommendation list', () => {
+    expect(advisorRightsizingRecommendations([]).findings).toEqual([]);
   });
 });

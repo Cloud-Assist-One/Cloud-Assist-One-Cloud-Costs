@@ -3,6 +3,9 @@ import { ClientSecretCredential } from '@azure/identity';
 import { ComputeManagementClient } from '@azure/arm-compute';
 import { NetworkManagementClient } from '@azure/arm-network';
 import { WebSiteManagementClient } from '@azure/arm-appservice';
+import { StorageManagementClient } from '@azure/arm-storage';
+import { OperationalInsightsManagementClient } from '@azure/arm-operationalinsights';
+import { AdvisorManagementClient } from '@azure/arm-advisor';
 import { requireCompanyAccess } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { decryptCredentials } from '@/lib/cloudCredentialsCrypto';
@@ -17,10 +20,22 @@ import {
   emptyAppServicePlans,
   emptyBackendPoolLoadBalancers,
   orphanedNetworkInterfaces,
+  storageAccountsWithoutLifecycle,
+  workspacesWithCostlyLogSettings,
+  advisorRightsizingRecommendations,
+  type StorageLifecycleInput,
 } from '@/lib/azure/costLeakage';
 import type { CheckResult, FindingsResponse } from '@/lib/types';
 
+// This route runs eight checks strictly sequentially, several of them
+// paginated ARM list calls or per-resource fan-outs. The default 15s would
+// cut it off mid-run. Matches the Azure Cost Details route.
+export const maxDuration = 300;
+
 // Matches the cap the resources route uses, for the same throttling reason.
+// Caps every per-resource fan-out in this route -- the VM instance-view
+// lookups below and the per-storage-account management-policy lookups --
+// not just the check it was first written for.
 const INSTANCE_VIEW_LOOKUP_CONCURRENCY = 8;
 
 function errorMessage(err: unknown): string {
@@ -248,6 +263,94 @@ export async function GET(request: NextRequest) {
         });
       }
       return orphanedNetworkInterfaces(rows);
+    })
+  );
+
+  checks.push(
+    await runCheck('storage-accounts-without-lifecycle', 'Storage accounts with no lifecycle policy', async () => {
+      const storage = new StorageManagementClient(credential, subscriptionId);
+
+      const accounts = [];
+      for await (const account of storage.storageAccounts.list()) {
+        accounts.push(account);
+      }
+
+      const rows = await mapWithConcurrency(accounts, INSTANCE_VIEW_LOOKUP_CONCURRENCY, async (account) => {
+        const resourceGroup = resourceGroupFromId(account.id);
+        const row: StorageLifecycleInput = {
+          id: account.id ?? '',
+          name: account.name ?? '',
+          location: account.location ?? null,
+          hasLifecyclePolicy: false,
+          lookupError: null,
+        };
+        try {
+          const policy = await storage.managementPolicies.get(resourceGroup, account.name ?? '', 'default');
+          row.hasLifecyclePolicy = (policy.policy?.rules ?? []).length > 0;
+        } catch (err) {
+          // A 404 IS the finding: no management policy is configured. Anything
+          // else leaves the account unknown, which the rule reports separately.
+          const status = (err as { statusCode?: number })?.statusCode;
+          if (status !== 404) row.lookupError = errorMessage(err);
+        }
+        return row;
+      });
+
+      return storageAccountsWithoutLifecycle(rows);
+    })
+  );
+
+  checks.push(
+    await runCheck('workspaces-costly-log-settings', 'Log Analytics workspaces with costly settings', async () => {
+      const insights = new OperationalInsightsManagementClient(credential, subscriptionId);
+
+      const rows = [];
+      for await (const workspace of insights.workspaces.list()) {
+        // Some API versions report "no cap" as -1 rather than omitting the
+        // field; the rule treats null (not -1) as "no cap configured".
+        const dailyQuota = workspace.workspaceCapping?.dailyQuotaGb;
+        rows.push({
+          id: workspace.id ?? '',
+          name: workspace.name ?? '',
+          location: workspace.location ?? null,
+          retentionInDays: workspace.retentionInDays ?? null,
+          dailyQuotaGb: dailyQuota === undefined || dailyQuota === -1 ? null : dailyQuota,
+        });
+      }
+
+      return workspacesWithCostlyLogSettings(rows);
+    })
+  );
+
+  checks.push(
+    await runCheck('advisor-rightsizing', 'Underutilized virtual machines', async () => {
+      const advisor = new AdvisorManagementClient(credential, subscriptionId);
+
+      const rows = [];
+      // Pushing the category filter server-side (rather than pulling every
+      // category and filtering in-process) means the rule's own in-process
+      // Cost check below is a redundant guard, not the only line of defense.
+      for await (const rec of advisor.recommendations.list({ filter: "Category eq 'Cost'" })) {
+        const savings = Number(rec.extendedProperties?.savingsAmount);
+        rows.push({
+          // rec.id is the recommendation's own ARM id (.../Microsoft.Advisor/
+          // recommendations/{guid}) -- its last path segment is the guid, not
+          // a resource identifier, so it can never join to a cost_records row.
+          // resourceMetadata.resourceId is the ARM id of the VM (or other
+          // resource) the recommendation is actually about; rec.id is kept
+          // only as a last-resort fallback so a finding never comes back with
+          // an empty resourceId.
+          id: rec.resourceMetadata?.resourceId ?? rec.id ?? '',
+          category: rec.category ?? '',
+          impactedField: rec.impactedField ?? '',
+          impactedValue: rec.impactedValue ?? '',
+          problem: rec.shortDescription?.problem ?? 'Underutilized resource',
+          savingsAmount: Number.isFinite(savings) ? savings : null,
+          savingsCurrency: rec.extendedProperties?.savingsCurrency ?? null,
+        });
+      }
+
+      return advisorRightsizingRecommendations(rows);
     })
   );
 

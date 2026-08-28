@@ -290,3 +290,53 @@ export function unencryptedRdsStorage(instances: readonly RdsSecurityInput[]): C
 
   return okCheck('unencrypted-rds-storage', 'Unencrypted database storage', 'builtin', findings);
 }
+
+// Renewal windows. A certificate 200 days out is not actionable and listing it
+// buries the ones that are; 30 days is the point where a renewal has to be
+// scheduled rather than noted.
+export const CERT_EXPIRY_HIGH_DAYS = 30;
+export const CERT_EXPIRY_MEDIUM_DAYS = 90;
+
+export interface CertificateInput {
+  arn: string;
+  domainName: string;
+  /** ACM's NotAfter. Null when the certificate has no expiry recorded. */
+  notAfter: string | null;
+  inUse: boolean;
+  region: string;
+}
+
+export function expiringCertificates(certs: readonly CertificateInput[], now: Date): CheckResult {
+  const findings: Finding[] = [];
+
+  for (const cert of certs) {
+    // No expiry recorded is absent data, not evidence of a problem — the same
+    // rule the inactive-user check follows.
+    if (!cert.notAfter) continue;
+
+    const daysLeft = Math.floor((new Date(cert.notAfter).getTime() - now.getTime()) / 86_400_000);
+    if (daysLeft > CERT_EXPIRY_MEDIUM_DAYS) continue;
+
+    const severity: FindingSeverity =
+      daysLeft < 0 ? 'critical' : daysLeft <= CERT_EXPIRY_HIGH_DAYS ? 'high' : 'medium';
+
+    // Whether anything is actually serving the certificate decides how urgent a
+    // renewal is, and ACM reports it, so it belongs in the detail.
+    const usage = cert.inUse ? 'in use' : 'not attached to any resource';
+    const timing =
+      daysLeft < 0
+        ? `expired ${Math.abs(daysLeft)} days ago`
+        : `expires in ${daysLeft} days (${cert.notAfter.slice(0, 10)})`;
+
+    findings.push({
+      severity,
+      resourceId: cert.arn,
+      resourceName: cert.domainName,
+      region: cert.region,
+      detail: `Certificate for ${cert.domainName} ${timing}, and is ${usage}.`,
+      monthlyCost: null,
+    });
+  }
+
+  return okCheck('expiring-certificates', 'Certificates expiring or expired', 'builtin', findings);
+}
