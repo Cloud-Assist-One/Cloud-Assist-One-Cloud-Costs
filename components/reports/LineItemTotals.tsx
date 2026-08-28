@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { LineItemFilters } from '@/lib/lineItemFilters';
+import { formatCost } from '@/lib/formatCost';
 import {
   fetchLineItemGroups,
   fetchLineItemSummary,
@@ -16,10 +17,6 @@ import styles from './LineItemTotals.module.css';
 interface LineItemTotalsProps {
   /** The same object the grid queries with, so both describe the same rows. */
   filters: LineItemFilters;
-}
-
-function formatCurrency(amount: number): string {
-  return `$${amount.toFixed(2)}`;
 }
 
 /** Rows with nothing in the grouped column are a real group worth chasing. */
@@ -98,7 +95,7 @@ export default function LineItemTotals({ filters }: LineItemTotalsProps) {
           </p>
         ) : summary ? (
           <p className={styles.summary}>
-            <strong>{formatCurrency(summary.totalCost)}</strong> across {summary.rowCount.toLocaleString()} line
+            <strong>{formatCost(summary.totalCost)}</strong> across {summary.rowCount.toLocaleString()} line
             item{summary.rowCount === 1 ? '' : 's'}
           </p>
         ) : (
@@ -137,7 +134,7 @@ export default function LineItemTotals({ filters }: LineItemTotalsProps) {
               <tr key={group.groupKey ?? '__none__'}>
                 <td>{group.groupKey ?? NO_VALUE_LABEL}</td>
                 <td>{group.rowCount.toLocaleString()}</td>
-                <td>{formatCurrency(group.totalCost)}</td>
+                <td>{formatCost(group.totalCost)}</td>
               </tr>
             ))}
           </tbody>

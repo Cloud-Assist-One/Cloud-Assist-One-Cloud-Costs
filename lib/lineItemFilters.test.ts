@@ -1,4 +1,4 @@
-import { applyLineItemFilters, DISPLAYED_ZERO_THRESHOLD } from './lineItemFilters';
+import { applyLineItemFilters } from './lineItemFilters';
 
 /**
  * Records what the filter function asked PostgREST for, without a database.
@@ -9,7 +9,7 @@ import { applyLineItemFilters, DISPLAYED_ZERO_THRESHOLD } from './lineItemFilter
 function recorder() {
   const calls: { method: string; args: unknown[] }[] = [];
   const builder: Record<string, (...args: unknown[]) => unknown> = {};
-  for (const method of ['eq', 'neq', 'in', 'ilike', 'gte', 'lte', 'or']) {
+  for (const method of ['eq', 'neq', 'in', 'ilike', 'gte', 'lte']) {
     builder[method] = (...args: unknown[]) => {
       calls.push({ method, args });
       return builder;
@@ -126,31 +126,21 @@ describe('applyLineItemFilters', () => {
   });
 
   describe('excludeZeroCost', () => {
-    // The grid formats cost to two decimals, so a line costing 0.0000004
-    // reads as "$0.00" while not being zero. Filtering on cost <> 0 left a
-    // quarter of the rows on screen showing $0.00 with the box ticked, which
-    // reads as a broken filter. The threshold matches what is displayed.
-    it('drops everything that displays as $0.00, not just exact zeros', () => {
-      const calls = apply({ periodId: 'p1', excludeZeroCost: true });
-
-      expect(calls).toContainEqual({
-        method: 'or',
-        args: [`cost.gte.${DISPLAYED_ZERO_THRESHOLD},cost.lte.-${DISPLAYED_ZERO_THRESHOLD}`],
+    it('drops rows costing exactly zero', () => {
+      expect(apply({ periodId: 'p1', excludeZeroCost: true })).toContainEqual({
+        method: 'neq',
+        args: ['cost', 0],
       });
     });
 
-    // A negative cost is a credit or refund. A one-sided "greater than"
-    // would hide real money.
-    it('keeps credits, which are negative but not nothing', () => {
-      const [predicate] = apply({ periodId: 'p1', excludeZeroCost: true }).find(
-        (call) => call.method === 'or'
-      )!.args as string[];
+    // These numbers get reconciled against the provider's own invoice, so a
+    // threshold that swept up fractions of a penny would move the total away
+    // from what AWS says. Only exact zeros, which contribute nothing, go.
+    it('keeps a cost of a fraction of a penny, which is still money', () => {
+      const calls = apply({ periodId: 'p1', excludeZeroCost: true });
 
-      expect(predicate).toContain(`cost.lte.-${DISPLAYED_ZERO_THRESHOLD}`);
-    });
-
-    it('rounds at half a cent, the point where the display flips to $0.01', () => {
-      expect(DISPLAYED_ZERO_THRESHOLD).toBe(0.005);
+      expect(calls.every((call) => !(call.method === 'gte' && call.args[0] === 'cost'))).toBe(true);
+      expect(calls.every((call) => call.method !== 'or')).toBe(true);
     });
 
     it('adds nothing when it is off', () => {
@@ -160,7 +150,7 @@ describe('applyLineItemFilters', () => {
     it('composes with an explicit cost range', () => {
       const calls = apply({ periodId: 'p1', excludeZeroCost: true, costMin: -100, costMax: 100 });
 
-      expect(calls.some((call) => call.method === 'or')).toBe(true);
+      expect(calls).toContainEqual({ method: 'neq', args: ['cost', 0] });
       expect(calls).toContainEqual({ method: 'gte', args: ['cost', -100] });
       expect(calls).toContainEqual({ method: 'lte', args: ['cost', 100] });
     });

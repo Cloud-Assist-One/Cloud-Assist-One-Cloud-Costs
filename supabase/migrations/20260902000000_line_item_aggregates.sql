@@ -48,10 +48,13 @@ as $$
     and (p_date_to is null or c.usage_date <= p_date_to)
     and (p_cost_min is null or c.cost >= p_cost_min)
     and (p_cost_max is null or c.cost <= p_cost_max)
-    -- Matched against what the grid displays: costs run to ten decimal
-    -- places, so "<> 0" left rows reading $0.00 on screen. Symmetric, because
-    -- a negative cost is a credit and that is real money.
-    and (not p_exclude_zero_cost or abs(c.cost) >= 0.005)
+    -- Exactly zero, and nothing else. These totals are reconciled against the
+    -- provider's own invoice, so a threshold sweeping up fractions of a penny
+    -- would move the number away from what AWS reports. Rows costing nothing
+    -- contribute nothing, so this is the only trim that leaves the sum intact.
+    -- Sub-cent rows are handled in the display: the grid renders them as
+    -- "<$0.01" rather than "$0.00".
+    and (not p_exclude_zero_cost or c.cost <> 0)
 $$;
 
 create or replace function public.line_items_grouped(
@@ -102,7 +105,7 @@ as $$
     and (p_date_to is null or c.usage_date <= p_date_to)
     and (p_cost_min is null or c.cost >= p_cost_min)
     and (p_cost_max is null or c.cost <= p_cost_max)
-    and (not p_exclude_zero_cost or abs(c.cost) >= 0.005)
+    and (not p_exclude_zero_cost or c.cost <> 0)
   group by 1
   -- Biggest spend first: the point of grouping is to see where the money went.
   order by 3 desc

@@ -18,6 +18,7 @@ import LineItemTotals from './LineItemTotals';
 import LineItemExportActions from './LineItemExportActions';
 import LineItemAssistant from './LineItemAssistant';
 import type { LineItemFilters } from '@/lib/lineItemFilters';
+import { formatCost, preciseNumber } from '@/lib/formatCost';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import styles from './LineItemsTab.module.css';
 
@@ -34,10 +35,6 @@ const PAGE_SIZE = 50;
 // checkbox turns them back on. Named because clearing the assistant returns
 // here, rather than to a bare {} that would silently switch them on.
 const DEFAULT_FILTERS: EditableFilters = { excludeZeroCost: true };
-
-function formatCurrency(amount: number): string {
-  return `$${amount.toFixed(2)}`;
-}
 
 type LineItemRow = CostRecord & { referenced: boolean };
 
@@ -80,10 +77,25 @@ export function formatQuantity(value: number | null): string {
   return String(rounded);
 }
 
-function numberCell(info: CellContext<LineItemRow, number | null>) {
-  const value = info.getValue();
-  return value === null ? '—' : String(value);
+/**
+ * A rounded figure with the exact one on hover.
+ *
+ * Provider line items carry ten decimal places. Showing them all would push
+ * the grid off the screen; showing two makes a real charge read as $0.00. The
+ * cell rounds and the title tells the truth.
+ */
+function preciseCell(render: (value: number | null) => string) {
+  return function cell(info: CellContext<LineItemRow, number | null>) {
+    const value = info.getValue();
+    const exact = preciseNumber(value);
+    return (
+      <span title={exact || undefined}>{render(value)}</span>
+    );
+  };
 }
+
+const costCell = preciseCell(formatCost);
+const unitPriceCell = preciseCell((value) => formatQuantity(value));
 
 function quantityCell(info: CellContext<LineItemRow, number | null>) {
   return formatQuantity(info.getValue());
@@ -117,20 +129,10 @@ const columns = [
   }),
   columnHelper.accessor('service_name', { header: 'Service', cell: mediumCell }),
   columnHelper.accessor('account_id', { header: 'Account', cell: (info) => info.getValue() ?? '—' }),
-  columnHelper.accessor('cost', { header: 'Cost', cell: (info) => formatCurrency(info.getValue()) }),
-  columnHelper.accessor('resource_id', { header: 'Resource ID', cell: mediumCell }),
-  columnHelper.accessor('region', { header: 'Region', cell: textCell }),
-  columnHelper.accessor('instance_type', { header: 'Instance Type', cell: textCell }),
-  columnHelper.accessor('database_engine', { header: 'DB Engine', cell: textCell }),
-  columnHelper.accessor('meter_category', { header: 'Meter Category', cell: textCell }),
-  columnHelper.accessor('meter_name', { header: 'Meter Name', cell: textCell }),
-  columnHelper.accessor('subscription_id', { header: 'Subscription ID', cell: textCell }),
-  columnHelper.accessor('subscription_name', { header: 'Subscription Name', cell: textCell }),
-  columnHelper.accessor('purchase_type', { header: 'Purchase Type', cell: textCell }),
-  columnHelper.accessor('quantity', { header: 'Quantity', cell: quantityCell }),
-  columnHelper.accessor('unit', { header: 'Unit', cell: narrowCell }),
-  columnHelper.accessor('unit_price', { header: 'Unit Price', cell: numberCell }),
-  columnHelper.accessor('charge_type', { header: 'Charge Type', cell: textCell }),
+  columnHelper.accessor('cost', { header: 'Cost', cell: costCell }),
+  // Next to Cost, not away with the usage columns: a cost of a fraction of
+  // a penny looks like nothing until you can see the rate that produced it.
+  columnHelper.accessor('unit_price', { header: 'Unit Price', cell: unitPriceCell }),
   columnHelper.accessor('tags', {
     header: 'Billing Code',
     cell: (info) => {
@@ -144,6 +146,18 @@ const columns = [
       );
     },
   }),
+  columnHelper.accessor('resource_id', { header: 'Resource ID', cell: mediumCell }),
+  columnHelper.accessor('region', { header: 'Region', cell: textCell }),
+  columnHelper.accessor('instance_type', { header: 'Instance Type', cell: textCell }),
+  columnHelper.accessor('database_engine', { header: 'DB Engine', cell: textCell }),
+  columnHelper.accessor('meter_category', { header: 'Meter Category', cell: textCell }),
+  columnHelper.accessor('meter_name', { header: 'Meter Name', cell: textCell }),
+  columnHelper.accessor('subscription_id', { header: 'Subscription ID', cell: textCell }),
+  columnHelper.accessor('subscription_name', { header: 'Subscription Name', cell: textCell }),
+  columnHelper.accessor('purchase_type', { header: 'Purchase Type', cell: textCell }),
+  columnHelper.accessor('quantity', { header: 'Quantity', cell: quantityCell }),
+  columnHelper.accessor('unit', { header: 'Unit', cell: narrowCell }),
+  columnHelper.accessor('charge_type', { header: 'Charge Type', cell: textCell }),
   columnHelper.accessor('referenced', {
     header: '',
     cell: (info) => (info.getValue() ? <span title="Referenced by a note or follow-up">📝</span> : null),
