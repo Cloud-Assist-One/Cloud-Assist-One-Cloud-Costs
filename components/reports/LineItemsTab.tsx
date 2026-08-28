@@ -15,6 +15,7 @@ import { CLOUD_PROVIDER_LABELS } from '@/lib/cloudProvider';
 import { formatTags } from '@/lib/billingCode';
 import LineItemFilterBar, { type EditableFilters } from './LineItemFilterBar';
 import LineItemTotals from './LineItemTotals';
+import LineItemExportActions from './LineItemExportActions';
 import type { LineItemFilters } from '@/lib/lineItemFilters';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import styles from './LineItemsTab.module.css';
@@ -144,7 +145,10 @@ export default function LineItemsTab({ companyId, periodId, initialServiceFilter
   const [sortColumn, setSortColumn] = useState<LineItemSortColumn>('usage_date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [serviceFilter, setServiceFilter] = useState<string[]>(initialServiceFilter ?? []);
-  const [filters, setFilters] = useState<EditableFilters>({});
+  // CUR emits a great many $0 lines -- free tier, zero usage, metadata-only
+  // rows. They are noise in a cost report, so the tab opens without them; the
+  // checkbox turns them back on.
+  const [filters, setFilters] = useState<EditableFilters>({ excludeZeroCost: true });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -237,6 +241,11 @@ export default function LineItemsTab({ companyId, periodId, initialServiceFilter
       />
 
       <LineItemTotals filters={activeFilters} />
+
+      <LineItemExportActions
+        filters={activeFilters}
+        sort={{ column: sortColumn, direction: sortDirection }}
+      />
 
       <div className={`${styles.controls} print-hidden`}>
         <button type="button" onClick={() => toggleSort('usage_date')}>

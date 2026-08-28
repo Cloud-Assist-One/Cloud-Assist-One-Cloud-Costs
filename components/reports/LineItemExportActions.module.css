@@ -1,0 +1,44 @@
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.notice {
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+}
+
+/* Built only for printing: on screen it would be a second, unpaged copy of
+   the grid. */
+.printTable {
+  display: none;
+}
+
+@media print {
+  .printTable {
+    display: table;
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8pt;
+  }
+
+  .printTable th,
+  .printTable td {
+    border: 1px solid #999;
+    padding: 2px 4px;
+    text-align: left;
+    /* Resource ids and ARNs are long; wrapping keeps them inside the page
+       rather than pushing columns off the right edge. */
+    word-break: break-word;
+  }
+
+  .printTable thead {
+    display: table-header-group;
+  }
+
+  .printTable tr {
+    break-inside: avoid;
+  }
+}

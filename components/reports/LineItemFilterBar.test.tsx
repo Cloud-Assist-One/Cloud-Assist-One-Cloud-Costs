@@ -43,6 +43,20 @@ describe('LineItemFilterBar', () => {
     await waitFor(() => expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ searchText: undefined })));
   });
 
+  // The tab now opens with this on; the bar must still render it unchecked
+  // when it is genuinely off.
+  it('shows the zero-cost filter unchecked when it is off', () => {
+    setup({});
+
+    expect(screen.getByLabelText(/hide \$0 lines/i)).not.toBeChecked();
+  });
+
+  it('shows the zero-cost filter checked when it is on', () => {
+    setup({ excludeZeroCost: true });
+
+    expect(screen.getByLabelText(/hide \$0 lines/i)).toBeChecked();
+  });
+
   it('toggles the zero-cost filter', async () => {
     const { onChange } = setup();
 
