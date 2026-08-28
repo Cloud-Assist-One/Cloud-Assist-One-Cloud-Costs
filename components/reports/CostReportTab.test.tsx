@@ -90,10 +90,17 @@ jest.mock('./PullBillingFromBucketModal', () => ({
   ),
 }));
 
+/** The bucket-sources lookup that decides which pull button appears. */
+function mockSources(sources: { cloud_provider: string; enabled?: boolean }[]) {
+  global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ sources }) });
+}
+
 describe('CostReportTab', () => {
   beforeEach(() => {
     loadRecords.mockReset();
     loadBillingMonth.mockReset().mockResolvedValue({ data: null });
+    // No bucket configured is the default, so most tests see Quick Pull.
+    mockSources([]);
   });
 
   it('shows the total cost and a per-service breakdown for the period', async () => {
@@ -212,14 +219,60 @@ describe('CostReportTab', () => {
     expect(screen.queryByRole('button', { name: /detail pull/i })).not.toBeInTheDocument();
   });
 
-  it('shows a Detail Pull button that opens the bucket modal', async () => {
+  it('shows a Detail Pull button that opens the bucket modal when a bucket is configured', async () => {
     loadRecords.mockResolvedValueOnce({ data: [] });
+    mockSources([{ cloud_provider: 'aws', enabled: true }]);
 
     render(<CostReportTab companyId="company-1" cloudProvider="aws" periodId="period-1" />);
 
     await userEvent.click(await screen.findByRole('button', { name: /detail pull/i }));
 
     expect(screen.getByText('bucket-pull-modal-content')).toBeInTheDocument();
+  });
+
+  // Exactly one pull is ever offered. Quick Pull replaces a date range
+  // wholesale, so running it after a Detail Pull overwrites resource-level
+  // rows with grouped ones that carry no resource ids.
+  it('hides Quick Pull once a bucket is configured for this provider', async () => {
+    loadRecords.mockResolvedValueOnce({ data: [] });
+    mockSources([{ cloud_provider: 'aws', enabled: true }]);
+
+    render(<CostReportTab companyId="company-1" cloudProvider="aws" periodId="period-1" />);
+
+    expect(await screen.findByRole('button', { name: /detail pull/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /quick pull/i })).not.toBeInTheDocument();
+  });
+
+  // An S3 bucket says nothing about whether Azure has a container.
+  it('still offers Quick Pull on a provider whose only bucket is the other cloud', async () => {
+    loadRecords.mockResolvedValueOnce({ data: [] });
+    mockSources([{ cloud_provider: 'aws', enabled: true }]);
+
+    render(<CostReportTab companyId="company-1" cloudProvider="azure" periodId="period-1" />);
+
+    expect(await screen.findByRole('button', { name: /quick pull/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /detail pull/i })).not.toBeInTheDocument();
+  });
+
+  // The pull route refuses a disabled bucket, so treating it as configured
+  // would leave one button that cannot run and no fallback.
+  it('offers Quick Pull when the only bucket for this provider is disabled', async () => {
+    loadRecords.mockResolvedValueOnce({ data: [] });
+    mockSources([{ cloud_provider: 'aws', enabled: false }]);
+
+    render(<CostReportTab companyId="company-1" cloudProvider="aws" periodId="period-1" />);
+
+    expect(await screen.findByRole('button', { name: /quick pull/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /detail pull/i })).not.toBeInTheDocument();
+  });
+
+  it('falls back to Quick Pull when the bucket lookup fails', async () => {
+    loadRecords.mockResolvedValueOnce({ data: [] });
+    global.fetch = jest.fn().mockRejectedValue(new Error('network'));
+
+    render(<CostReportTab companyId="company-1" cloudProvider="aws" periodId="period-1" />);
+
+    expect(await screen.findByRole('button', { name: /quick pull/i })).toBeInTheDocument();
   });
 
   it('reloads cost records after a successful pull', async () => {

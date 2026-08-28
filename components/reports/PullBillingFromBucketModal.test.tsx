@@ -19,13 +19,31 @@ const pullResult = {
   failed: 0,
 };
 
-function renderModal() {
-  return render(<PullBillingFromBucketModal companyId="company-1" onClose={jest.fn()} onPulled={jest.fn()} />);
+function renderModal(provider: 'aws' | 'azure' = 'aws') {
+  return render(
+    <PullBillingFromBucketModal
+      companyId="company-1"
+      provider={provider}
+      onClose={jest.fn()}
+      onPulled={jest.fn()}
+    />
+  );
 }
 
 describe('PullBillingFromBucketModal', () => {
   beforeEach(() => {
     global.fetch = jest.fn();
+  });
+
+  // The endpoint returns every source the company has. Offering an S3 bucket
+  // on the Azure tab would pull the wrong provider's billing into the period.
+  it('ignores sources belonging to another cloud', async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => sources });
+
+    renderModal('azure');
+
+    expect(await screen.findByText(/no bucket/i)).toBeInTheDocument();
+    expect(screen.queryByText(/production cur/i)).not.toBeInTheDocument();
   });
 
   // Everything below the fold depends on this: the pull is destructive-adjacent
@@ -56,7 +74,9 @@ describe('PullBillingFromBucketModal', () => {
     const onClose = jest.fn();
     (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => sources });
 
-    render(<PullBillingFromBucketModal companyId="company-1" onClose={onClose} onPulled={jest.fn()} />);
+    render(
+      <PullBillingFromBucketModal companyId="company-1" provider="aws" onClose={onClose} onPulled={jest.fn()} />
+    );
     await screen.findByRole('button', { name: /cancel/i });
     await userEvent.setup().click(screen.getByRole('button', { name: /cancel/i }));
 

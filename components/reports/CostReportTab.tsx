@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import type { CloudProvider, CostRecord } from '@/lib/types';
 import { aggregateByDate, aggregateByService, totalCost } from '@/lib/reportAggregation';
 import { lastRunLabel } from '@/lib/lastRunLabel';
+import { hasDetailPullSource } from '@/lib/billingSourceAvailability';
 import { formatBillingMonth } from '@/lib/cloudProvider';
 import PullBillingModal from './PullBillingModal';
 import PullBillingFromBucketModal from './PullBillingFromBucketModal';
@@ -40,6 +41,9 @@ export default function CostReportTab({
   const [showPullBillingModal, setShowPullBillingModal] = useState(false);
   const [showBucketPullModal, setShowBucketPullModal] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  // null until the lookup settles, so neither button flashes before we know
+  // which one this provider should get.
+  const [canDetailPull, setCanDetailPull] = useState<boolean | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,6 +71,32 @@ export default function CostReportTab({
       cancelled = true;
     };
   }, [companyId, cloudProvider, periodId, refreshKey]);
+
+  // Which pull this provider offers. Exactly one is ever shown: Quick Pull
+  // replaces a date range wholesale, so running it after a Detail Pull
+  // overwrites resource-level rows with grouped ones carrying no resource ids.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSources() {
+      try {
+        const response = await fetch(`/api/settings/billing-file-sources?companyId=${companyId}`);
+        const body = await response.json();
+        if (cancelled) return;
+        // A failed lookup falls back to Quick Pull rather than showing nothing:
+        // the lighter pull always works, and no buttons at all is worse than
+        // the wrong one.
+        setCanDetailPull(response.ok && hasDetailPullSource(body.sources ?? [], cloudProvider));
+      } catch {
+        if (!cancelled) setCanDetailPull(false);
+      }
+    }
+
+    loadSources();
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId, cloudProvider, refreshKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -150,18 +180,16 @@ export default function CostReportTab({
   return (
     <div className={styles.wrapper}>
       <div className={`${styles.actionsBar} print-hidden`}>
-        {canPullBilling && !isReadOnly && (
-          <>
-            {/* Detail Pull leads: it is the one that imports the full export,
-                with the per-resource detail Quick Pull's grouped API response
-                cannot carry. */}
+        {canPullBilling && !isReadOnly && canDetailPull !== null && (
+          canDetailPull ? (
             <button type="button" onClick={() => setShowBucketPullModal(true)}>
               Detail Pull
             </button>
+          ) : (
             <button type="button" onClick={() => setShowPullBillingModal(true)}>
               Quick Pull
             </button>
-          </>
+          )
         )}
         <button type="button" onClick={() => window.print()}>
           Print
@@ -180,6 +208,7 @@ export default function CostReportTab({
       {showBucketPullModal && (
         <PullBillingFromBucketModal
           companyId={companyId}
+          provider={cloudProvider}
           onClose={() => setShowBucketPullModal(false)}
           onPulled={handleBucketPulled}
         />

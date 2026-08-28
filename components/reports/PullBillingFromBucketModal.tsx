@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { formatBillingMonth } from '@/lib/cloudProvider';
-import type { BillingSourcePullResult, BillingSourcePullRun } from '@/lib/types';
+import { sourcesForProvider } from '@/lib/billingSourceAvailability';
+import type { BillingSourcePullResult, BillingSourcePullRun, CloudProvider } from '@/lib/types';
 import styles from './PullBillingFromBucketModal.module.css';
 
 // Only the fields this modal needs from a configured bucket source.
@@ -12,10 +13,13 @@ interface SourceOption {
   container: string;
   prefix: string;
   cloud_provider: string;
+  enabled?: boolean | null;
 }
 
 interface PullBillingFromBucketModalProps {
   companyId: string;
+  /** The tab's cloud. The API returns every source for the company. */
+  provider: CloudProvider;
   onClose: () => void;
   onPulled: () => void;
 }
@@ -38,7 +42,7 @@ function groupRunsByMonth(runs: BillingSourcePullRun[]): [string | null, Billing
   return order.map((month) => [month, groups.get(month) ?? []]);
 }
 
-export default function PullBillingFromBucketModal({ companyId, onClose, onPulled }: PullBillingFromBucketModalProps) {
+export default function PullBillingFromBucketModal({ companyId, provider, onClose, onPulled }: PullBillingFromBucketModalProps) {
   const [sources, setSources] = useState<SourceOption[] | null>(null);
   const [sourcesError, setSourcesError] = useState<string | null>(null);
   const [selectedSourceId, setSelectedSourceId] = useState('');
@@ -60,7 +64,10 @@ export default function PullBillingFromBucketModal({ companyId, onClose, onPulle
           setStep('empty');
           return;
         }
-        const list = (body.sources ?? []) as SourceOption[];
+        // Scoped to the tab's own cloud: the endpoint returns every source
+        // the company has, and offering an S3 bucket on the Azure tab would
+        // pull the wrong provider's billing into this period.
+        const list = sourcesForProvider((body.sources ?? []) as SourceOption[], provider);
         setSources(list);
         if (list.length === 0) {
           setStep('empty');
@@ -83,7 +90,7 @@ export default function PullBillingFromBucketModal({ companyId, onClose, onPulle
     return () => {
       cancelled = true;
     };
-  }, [companyId]);
+  }, [companyId, provider]);
 
   async function handlePull() {
     setStep('result');
