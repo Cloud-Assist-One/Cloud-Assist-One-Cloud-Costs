@@ -16,11 +16,18 @@ alter table public.uploaded_files
 --   * source_id set        -> it came from a bucket, unambiguously
 --   * a pull artifact path -> one of the two Quick Pull writers
 --   * anything else        -> somebody uploaded a file
+-- Three artifact names, not two: Azure's quick pull wrote
+-- "azure-cost-management-pull.json" before it wrote
+-- "azure-cost-details-pull.csv", and rows from the older one are still here.
+-- Checked against the live table rather than assumed -- the earlier name was
+-- found on a real row that the two-name version of this backfill would have
+-- filed as a hand upload.
 update public.uploaded_files
 set origin = case
   when source_id is not null then 'detail_pull'
   when storage_path like '%-aws-cost-explorer-pull.json' then 'quick_pull'
   when storage_path like '%-azure-cost-details-pull.csv' then 'quick_pull'
+  when storage_path like '%-azure-cost-management-pull.json' then 'quick_pull'
   else 'upload'
 end
 where origin is null;
