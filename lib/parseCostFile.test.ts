@@ -327,4 +327,61 @@ describe('parseCostFile', () => {
       expect(result.rows[0].service_name).toBe('Contoso Widgets');
     });
   });
+
+  // AWS CUR 2.0 / Data Exports names every column in snake_case. The header
+  // below is a subset of a real 116-column export; before these aliases
+  // existed, none of cost, date, service or account resolved and a real CUR
+  // parsed into nothing.
+  describe('AWS CUR 2.0 (Data Exports) report', () => {
+    const CUR2_CSV = [
+      'bill_payer_account_id,line_item_usage_account_id,line_item_usage_start_date,line_item_product_code,' +
+        'line_item_unblended_cost,line_item_net_unblended_cost,line_item_currency_code,line_item_line_item_type,' +
+        'line_item_resource_id,line_item_availability_zone,line_item_usage_amount,line_item_usage_type,' +
+        'line_item_operation,product_region_code,product_instance_type,pricing_unit,' +
+        'pricing_public_on_demand_rate,pricing_purchase_option',
+      '123456789012,123456789012,2026-08-03T00:00:00Z,AmazonEC2,12.34,11.90,USD,Usage,' +
+        'arn:aws:ec2:us-east-1:123456789012:instance/i-abc123,us-east-1a,24,BoxUsage:t3.medium,' +
+        'RunInstances,us-east-1,t3.medium,Hrs,0.0416,On Demand',
+    ].join('\n');
+
+    function parseCsv(csv: string) {
+      return parseCostFile(Buffer.from(csv, 'utf8'));
+    }
+
+    it('resolves the four core columns a real CUR 2.0 export uses', () => {
+      const result = parseCsv(CUR2_CSV);
+
+      expect(result.errors).toEqual([]);
+      expect(result.rows).toHaveLength(1);
+
+      const row = result.rows[0];
+      expect(row.cost).toBeCloseTo(12.34);
+      expect(row.usage_date).toBe('2026-08-03');
+      // AWS ships no friendly service name in this export; the product code
+      // is what there is.
+      expect(row.service_name).toBe('AmazonEC2');
+      expect(row.account_id).toBe('123456789012');
+    });
+
+    it('fills the line-item columns from their snake_case names', () => {
+      const row = parseCsv(CUR2_CSV).rows[0];
+
+      expect(row.resource_id).toBe('arn:aws:ec2:us-east-1:123456789012:instance/i-abc123');
+      expect(row.region).toBe('us-east-1');
+      expect(row.availability_zone).toBe('us-east-1a');
+      expect(row.instance_type).toBe('t3.medium');
+      expect(row.usage_type).toBe('BoxUsage:t3.medium');
+      expect(row.operation).toBe('RunInstances');
+      expect(row.quantity).toBe(24);
+      expect(row.unit).toBe('Hrs');
+      expect(row.currency).toBe('USD');
+      expect(row.charge_type).toBe('Usage');
+    });
+
+    // The resource id is what the Cost Leakage tab joins findings against, so
+    // a CUR that parses without it defeats the reason for pulling a CUR.
+    it('carries the resource id, which grouped API pulls cannot provide', () => {
+      expect(parseCsv(CUR2_CSV).rows[0].resource_id).toContain('i-abc123');
+    });
+  });
 });

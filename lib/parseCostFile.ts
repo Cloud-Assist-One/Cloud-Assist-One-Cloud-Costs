@@ -51,8 +51,12 @@ const SERVICE_HEADER_ALIASES = [
   // reading the same. ConsumedService ("Microsoft.Compute") is the fallback.
   'metercategory',
   'consumedservice',
+  // AWS CUR 2.0 ships no friendly service name; the product code is what
+  // there is, so rows read "AmazonEC2" rather than "Amazon Elastic Compute Cloud".
+  'line_item_product_code',
+  'product_servicecode',
 ];
-const DATE_HEADER_ALIASES = ['date', 'usage date', 'start date', 'month', 'usagedatetime'];
+const DATE_HEADER_ALIASES = ['date', 'usage date', 'start date', 'month', 'usagedatetime', 'line_item_usage_start_date'];
 const COST_HEADER_ALIASES = [
   'cost',
   'amount',
@@ -62,16 +66,18 @@ const COST_HEADER_ALIASES = [
   'cost (usd)',
   'costinbillingcurrency',
   'pretaxcost',
+  // AWS CUR 2.0 / Data Exports.
+  'line_item_unblended_cost',
 ];
-const ACCOUNT_HEADER_ALIASES = ['account id', 'linked account', 'subscription id', 'subscription name'];
+const ACCOUNT_HEADER_ALIASES = ['account id', 'linked account', 'subscription id', 'subscription name', 'line_item_usage_account_id'];
 
 // Line-item detail aliases, covering both AWS Cost and Usage Report (CUR)
 // and Azure usage-export naming. Matched case-insensitively via
 // normalizeHeader, same as the four aliases above.
 const RESOURCE_ID_HEADER_ALIASES = ['resource id', 'resourceid', 'lineitem/resourceid', 'line_item_resource_id', 'instance id', 'instancename'];
 const RESOURCE_GROUP_HEADER_ALIASES = ['resource group', 'resourcegroup', 'resourcegroupname'];
-const REGION_HEADER_ALIASES = ['region', 'resourcelocation', 'resource location', 'location', 'product/region', 'product_region', 'meterregion'];
-const AVAILABILITY_ZONE_HEADER_ALIASES = ['availability zone', 'az', 'lineitem/availabilityzone'];
+const REGION_HEADER_ALIASES = ['region', 'resourcelocation', 'resource location', 'location', 'product/region', 'product_region', 'meterregion', 'product_region_code'];
+const AVAILABILITY_ZONE_HEADER_ALIASES = ['availability zone', 'az', 'lineitem/availabilityzone', 'line_item_availability_zone'];
 const INSTANCE_TYPE_HEADER_ALIASES = ['instance type', 'instancetype', 'product/instancetype', 'product_instance_type'];
 const DATABASE_ENGINE_HEADER_ALIASES = ['database engine', 'databaseengine', 'product/databaseengine', 'product_database_engine'];
 const METER_CATEGORY_HEADER_ALIASES = ['meter category', 'metercategory'];
@@ -80,15 +86,15 @@ const USAGE_TYPE_HEADER_ALIASES = ['usage type', 'usagetype', 'lineitem/usagetyp
 const OPERATION_HEADER_ALIASES = ['operation', 'lineitem/operation', 'line_item_operation'];
 const SUBSCRIPTION_ID_HEADER_ALIASES = ['subscription id', 'subscriptionid', 'subscriptionguid'];
 const SUBSCRIPTION_NAME_HEADER_ALIASES = ['subscription name', 'subscriptionname'];
-const PURCHASE_TYPE_HEADER_ALIASES = ['purchase type', 'purchaseoption', 'pricingmodel', 'pricing model', 'lineitem/lineitemtype', 'charge type'];
-const RESERVATION_ID_HEADER_ALIASES = ['reservation id', 'reservationid'];
-const RESERVATION_NAME_HEADER_ALIASES = ['reservation name', 'reservationname'];
+const PURCHASE_TYPE_HEADER_ALIASES = ['purchase type', 'purchaseoption', 'pricingmodel', 'pricing model', 'lineitem/lineitemtype', 'charge type', 'pricing_purchase_option'];
+const RESERVATION_ID_HEADER_ALIASES = ['reservation id', 'reservationid', 'reservation_reservation_a_r_n'];
+const RESERVATION_NAME_HEADER_ALIASES = ['reservation name', 'reservationname', 'savings_plan_savings_plan_a_r_n'];
 const QUANTITY_HEADER_ALIASES = ['quantity', 'usagequantity', 'lineitem/usageamount', 'line_item_usage_amount'];
-const UNIT_HEADER_ALIASES = ['unit', 'unitofmeasure', 'pricing/unit'];
-const UNIT_PRICE_HEADER_ALIASES = ['unit price', 'unitprice', 'pricing/publicondemandrate'];
-const EFFECTIVE_PRICE_HEADER_ALIASES = ['effective price', 'effectiveprice', 'lineitem/netunblendedcost'];
-const CURRENCY_HEADER_ALIASES = ['currency', 'billingcurrency', 'currencycode', 'pricing/currency'];
-const CHARGE_TYPE_HEADER_ALIASES = ['charge type', 'chargetype', 'lineitem/lineitemtype'];
+const UNIT_HEADER_ALIASES = ['unit', 'unitofmeasure', 'pricing/unit', 'pricing_unit'];
+const UNIT_PRICE_HEADER_ALIASES = ['unit price', 'unitprice', 'pricing/publicondemandrate', 'pricing_public_on_demand_rate'];
+const EFFECTIVE_PRICE_HEADER_ALIASES = ['effective price', 'effectiveprice', 'lineitem/netunblendedcost', 'line_item_net_unblended_cost'];
+const CURRENCY_HEADER_ALIASES = ['currency', 'billingcurrency', 'currencycode', 'pricing/currency', 'line_item_currency_code'];
+const CHARGE_TYPE_HEADER_ALIASES = ['charge type', 'chargetype', 'lineitem/lineitemtype', 'line_item_line_item_type'];
 const TAGS_HEADER_ALIASES = ['tags', 'resource tags', 'resourcetags'];
 
 // CUR-style per-tag columns: `resource_tags/user_<key>` (Azure-flavored

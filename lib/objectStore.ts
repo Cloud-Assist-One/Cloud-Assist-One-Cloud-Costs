@@ -1,4 +1,4 @@
-import type { CurManifest, RemoteObject } from './types';
+import type { ManifestRun, RemoteObject } from './types';
 
 /**
  * Listing and downloading, without the pull route knowing which cloud it is
@@ -9,5 +9,5 @@ export interface ObjectStore {
   list(prefix: string): Promise<RemoteObject[]>;
   get(key: string): Promise<Buffer>;
   /** Null when the object is missing, unreadable, or not a manifest. */
-  readManifest(key: string): Promise<CurManifest | null>;
+  readManifest(key: string): Promise<ManifestRun | null>;
 }

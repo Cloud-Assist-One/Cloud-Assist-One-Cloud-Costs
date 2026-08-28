@@ -174,16 +174,17 @@ export async function POST(request: NextRequest, context: RouteContext<'/api/bil
       reason: 'This bucket (or prefix) has no objects in it. Nothing to pull.',
     });
   } else if (discovered.length === 0) {
-    // A non-empty listing that discovered nothing is not "nothing to pull" —
-    // it is usually a narrow s3:GetObject policy that permits the report
-    // parts but not Manifest.json. Without this, the pull reports a bland
-    // success having imported nothing, with no clue why.
-    runs.push({
-      key: source.prefix || '(bucket root)',
-      month: null,
-      status: 'skipped',
-      reason: `Found ${objects.length} object(s) but no recognisable cost exports. If this is a Cost and Usage Report bucket, check the credential can read Manifest.json as well as the report parts.`,
-    });
+    // A non-empty listing that discovered nothing is not "nothing to pull".
+    // Which of the two causes it is matters, because they need opposite
+    // fixes, and the earlier single message named only the permissions one --
+    // which sent a real CUR 2.0 bucket on a credential hunt for a format
+    // problem. Whether a manifest was present is what separates them.
+    const manifestCount = objects.filter((object) => /[-/]manifest\.json$/i.test(object.key)).length;
+    const reason = manifestCount
+      ? `Found ${objects.length} object(s) including ${manifestCount} manifest(s), but none could be read. Either the credential cannot read the manifest, or it is in a format this does not recognise yet.`
+      : `Found ${objects.length} object(s) but no manifest and no recognisable cost export. Check the prefix points at the export folder itself.`;
+
+    runs.push({ key: source.prefix || '(bucket root)', month: null, status: 'skipped', reason });
   }
 
   // --- Resolve every run's month before anything else decides on it ---

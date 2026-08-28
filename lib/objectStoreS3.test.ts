@@ -57,11 +57,58 @@ describe('createS3ObjectStore', () => {
     expect((await store().get('a.csv')).toString()).toBe('service,cost\nEC2,10\n');
   });
 
-  it('parses a manifest', async () => {
+  it('parses a legacy CUR manifest', async () => {
     const manifest = { assemblyId: 'aaa', reportKeys: ['p1.csv.gz'], billingPeriod: { start: '20260801T000000.000Z', end: '20260901T000000.000Z' } };
     send.mockResolvedValueOnce({ Body: bodyOf(JSON.stringify(manifest)) });
 
-    expect(await store().readManifest('Manifest.json')).toEqual(manifest);
+    expect(await store().readManifest('report-Manifest.json')).toEqual({
+      parts: ['p1.csv.gz'],
+      month: '2026-08-01',
+    });
+  });
+
+  // CUR 2.0 / Data Exports. Shape taken from a real manifest: no billingPeriod
+  // field at all, dataFiles instead of reportKeys, and full s3:// URIs.
+  const DATA_EXPORT_KEY = 'daily/cloud-cost-assist/metadata/BILLING_PERIOD=2026-08/cloud-cost-assist-Manifest.json';
+  const dataExportManifest = {
+    executionId: 'f85c0903-d71d-34e7-a895-dc4a87b5e9b6',
+    exportArn: 'arn:aws:bcm-data-exports:us-east-1:123456789012:export/cloud-cost-assist-73037a91',
+    columns: [{ name: 'bill_bill_type', type: 'string' }],
+    dataFiles: [
+      's3://cur-bucket/daily/cloud-cost-assist/data/BILLING_PERIOD=2026-08/cloud-cost-assist-00001.csv.gz',
+    ],
+    additionalOutputFiles: [],
+  };
+
+  it('parses a CUR 2.0 manifest, which names no billing period', async () => {
+    send.mockResolvedValueOnce({ Body: bodyOf(JSON.stringify(dataExportManifest)) });
+
+    expect(await store().readManifest(DATA_EXPORT_KEY)).toEqual({
+      parts: ['daily/cloud-cost-assist/data/BILLING_PERIOD=2026-08/cloud-cost-assist-00001.csv.gz'],
+      // Derived from the key's BILLING_PERIOD segment: the manifest itself
+      // carries no date anywhere.
+      month: '2026-08-01',
+    });
+  });
+
+  // The s3:// prefix has to come off or nothing downstream can find the part:
+  // the byte-size lookup misses and the part download 404s on a key that
+  // never existed.
+  it('strips the s3://bucket/ prefix CUR 2.0 puts on every data file', async () => {
+    send.mockResolvedValueOnce({ Body: bodyOf(JSON.stringify(dataExportManifest)) });
+
+    const manifest = await store().readManifest(DATA_EXPORT_KEY);
+
+    expect(manifest?.parts[0].startsWith('s3://')).toBe(false);
+    expect(manifest?.parts[0]).toBe(
+      'daily/cloud-cost-assist/data/BILLING_PERIOD=2026-08/cloud-cost-assist-00001.csv.gz'
+    );
+  });
+
+  it('returns null for a CUR 2.0 manifest whose key states no billing period', async () => {
+    send.mockResolvedValueOnce({ Body: bodyOf(JSON.stringify(dataExportManifest)) });
+
+    expect(await store().readManifest('somewhere/else/cloud-cost-assist-Manifest.json')).toBeNull();
   });
 
   // An unreadable manifest must skip its month, not abort the whole pull.

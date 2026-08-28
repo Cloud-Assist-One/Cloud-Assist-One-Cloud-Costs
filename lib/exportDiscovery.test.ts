@@ -1,11 +1,11 @@
 import { discoverRuns, monthFromCompactDate } from './exportDiscovery';
-import type { CurManifest, RemoteObject } from './types';
+import type { ManifestRun, RemoteObject } from './types';
 
 function obj(key: string, overrides: Partial<RemoteObject> = {}): RemoteObject {
   return { key, etag: `etag-${key}`, size: 1000, lastModified: '2026-08-05T00:00:00.000Z', ...overrides };
 }
 
-function manifestReader(manifests: Record<string, CurManifest>) {
+function manifestReader(manifests: Record<string, ManifestRun>) {
   return async (key: string) => manifests[key] ?? null;
 }
 
@@ -27,10 +27,9 @@ describe('monthFromCompactDate', () => {
 });
 
 describe('discoverRuns for AWS', () => {
-  const manifest: CurManifest = {
-    assemblyId: 'aaa',
-    reportKeys: ['cur/report/20260801-20260901/aaa/report-00001.csv.gz', 'cur/report/20260801-20260901/aaa/report-00002.csv.gz'],
-    billingPeriod: { start: '20260801T000000.000Z', end: '20260901T000000.000Z' },
+  const manifest: ManifestRun = {
+    parts: ['cur/report/20260801-20260901/aaa/report-00001.csv.gz', 'cur/report/20260801-20260901/aaa/report-00002.csv.gz'],
+    month: '2026-08-01',
   };
 
   it('emits one run per manifest, carrying every part', async () => {
@@ -46,14 +45,14 @@ describe('discoverRuns for AWS', () => {
 
     expect(runs).toHaveLength(1);
     expect(runs[0].key).toBe('cur/report/20260801-20260901/aaa/Manifest.json');
-    expect(runs[0].parts).toEqual(manifest.reportKeys);
+    expect(runs[0].parts).toEqual(manifest.parts);
     expect(runs[0].month).toBe('2026-08-01');
   });
 
   // CUR rewrites the whole month under a new assembly id on each refresh.
   // Importing both would double the month.
   it('keeps only the newest assembly when a month has several', async () => {
-    const older: CurManifest = { ...manifest, assemblyId: 'old', reportKeys: ['cur/report/20260801-20260901/old/report-00001.csv.gz'] };
+    const older: ManifestRun = { ...manifest, parts: ['cur/report/20260801-20260901/old/report-00001.csv.gz'] };
 
     const runs = await discoverRuns(
       'aws',
@@ -72,10 +71,9 @@ describe('discoverRuns for AWS', () => {
   });
 
   it('emits a run per month when the bucket holds several', async () => {
-    const july: CurManifest = {
-      assemblyId: 'jjj',
-      reportKeys: ['cur/report/20260701-20260801/jjj/report-00001.csv.gz'],
-      billingPeriod: { start: '20260701T000000.000Z', end: '20260801T000000.000Z' },
+    const july: ManifestRun = {
+      parts: ['cur/report/20260701-20260801/jjj/report-00001.csv.gz'],
+      month: '2026-07-01',
     };
 
     const runs = await discoverRuns(
@@ -134,15 +132,36 @@ describe('discoverRuns for AWS', () => {
   });
 });
 
+// Regression: a real CUR 2.0 bucket reported "no recognisable cost exports".
+// The manifest matched by name so the manifest branch took ownership, then
+// failed to parse, and the branch returns empty by design -- so the data file,
+// which the fallback branch would have accepted, was never reached. Keys are
+// from the bucket that hit it.
+describe('discoverRuns for a CUR 2.0 (Data Exports) bucket', () => {
+  const MANIFEST_KEY = 'daily/cloud-cost-assist/metadata/BILLING_PERIOD=2026-08/cloud-cost-assist-Manifest.json';
+  const DATA_KEY = 'daily/cloud-cost-assist/data/BILLING_PERIOD=2026-08/cloud-cost-assist-00001.csv.gz';
+
+  it('emits a run for a bucket whose only objects are a manifest and one part', async () => {
+    const runs = await discoverRuns(
+      'aws',
+      [obj(MANIFEST_KEY), obj(DATA_KEY, { size: 4096 })],
+      manifestReader({ [MANIFEST_KEY]: { parts: [DATA_KEY], month: '2026-08-01' } })
+    );
+
+    expect(runs).toHaveLength(1);
+    expect(runs[0].month).toBe('2026-08-01');
+    expect(runs[0].parts).toEqual([DATA_KEY]);
+    // Sized from the listing, which only works because the s3:// prefix came
+    // off the manifest's dataFiles entry.
+    expect(runs[0].totalBytes).toBe(4096);
+  });
+});
+
 describe('MANIFEST_PATTERN', () => {
   // Real CUR manifests are "<report-name>-Manifest.json" — no path separator
   // before "Manifest.json" at all, just a hyphen.
   it('treats a hyphen-prefixed manifest name as a manifest', async () => {
-    const manifest: CurManifest = {
-      assemblyId: 'aaa',
-      reportKeys: ['report-00001.csv.gz'],
-      billingPeriod: { start: '20260801T000000.000Z', end: '20260901T000000.000Z' },
-    };
+    const manifest: ManifestRun = { parts: ['report-00001.csv.gz'], month: '2026-08-01' };
 
     const runs = await discoverRuns('aws', [obj('report-Manifest.json')], manifestReader({ 'report-Manifest.json': manifest }));
 
@@ -152,11 +171,7 @@ describe('MANIFEST_PATTERN', () => {
   // A file that merely ends in "manifest.json" with no "-" or "/" right
   // before it is not a CUR manifest and must not be read as one.
   it('does not treat manifest.json.bak as a manifest', async () => {
-    const manifest: CurManifest = {
-      assemblyId: 'aaa',
-      reportKeys: ['data.csv'],
-      billingPeriod: { start: '20260801T000000.000Z', end: '20260901T000000.000Z' },
-    };
+    const manifest: ManifestRun = { parts: ['data.csv'], month: '2026-08-01' };
 
     const runs = await discoverRuns('aws', [obj('manifest.json.bak')], manifestReader({ 'manifest.json.bak': manifest }));
 

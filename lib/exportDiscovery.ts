@@ -1,4 +1,4 @@
-import type { CloudProvider, CurManifest, ExportRun, RemoteObject } from './types';
+import type { CloudProvider, ExportRun, ManifestRun, RemoteObject } from './types';
 
 const SPREADSHEET_PATTERN = /\.(csv|xlsx|xls)(\.gz)?$/i;
 // Real AWS CUR manifests are named "<report-name>-Manifest.json", so this
@@ -31,7 +31,7 @@ function newest(a: RemoteObject, b: RemoteObject): RemoteObject {
 export async function discoverRuns(
   provider: CloudProvider,
   objects: readonly RemoteObject[],
-  readManifest: (key: string) => Promise<CurManifest | null>
+  readManifest: (key: string) => Promise<ManifestRun | null>
 ): Promise<ExportRun[]> {
   const sizeByKey = new Map(objects.map((object) => [object.key, object.size]));
 
@@ -41,19 +41,16 @@ export async function discoverRuns(
   if (manifestObjects.length > 0) {
     // Newest assembly per month: CUR rewrites the whole month under a new
     // assembly id on each refresh, so importing every one would multiply it.
-    const bestByMonth = new Map<string, { object: RemoteObject; manifest: CurManifest }>();
+    const bestByMonth = new Map<string, { object: RemoteObject; manifest: ManifestRun }>();
 
     for (const object of manifestObjects) {
       // One unreadable manifest must not take the other months down with it.
       const manifest = await readManifest(object.key).catch(() => null);
       if (!manifest) continue;
 
-      const month = monthFromCompactDate(manifest.billingPeriod?.start ?? '');
-      if (!month) continue;
-
-      const existing = bestByMonth.get(month);
+      const existing = bestByMonth.get(manifest.month);
       if (!existing || newest(existing.object, object) === object) {
-        bestByMonth.set(month, { object, manifest });
+        bestByMonth.set(manifest.month, { object, manifest });
       }
     }
 
@@ -64,9 +61,9 @@ export async function discoverRuns(
     return [...bestByMonth.entries()].map(([month, { object, manifest }]) => ({
       key: object.key,
       etag: object.etag,
-      parts: manifest.reportKeys,
+      parts: manifest.parts,
       month,
-      totalBytes: manifest.reportKeys.reduce((total, key) => total + (sizeByKey.get(key) ?? 0), 0),
+      totalBytes: manifest.parts.reduce((total, key) => total + (sizeByKey.get(key) ?? 0), 0),
     }));
   }
 

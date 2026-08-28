@@ -459,12 +459,38 @@ export interface RemoteObject {
   lastModified: string | null;
 }
 
-/** The parts of an AWS Cost and Usage Report Manifest.json this code reads. */
+/** The parts of a legacy AWS Cost and Usage Report Manifest.json this code reads. */
 export interface CurManifest {
   assemblyId: string;
   reportKeys: string[];
   /** Timestamps like "20260801T000000.000Z". */
   billingPeriod: { start: string; end: string };
+}
+
+/**
+ * The parts of a CUR 2.0 / Data Exports manifest this code reads.
+ *
+ * Three things differ from the legacy shape above, and all three matter:
+ * the parts live under `dataFiles`, each is a full `s3://bucket/key` URI
+ * rather than a bare key, and there is no billing period anywhere in the
+ * document -- the month exists only as a `BILLING_PERIOD=YYYY-MM` segment
+ * in the manifest's own key.
+ */
+export interface DataExportManifest {
+  executionId: string;
+  dataFiles: string[];
+}
+
+/**
+ * A manifest resolved to what discovery actually needs, whichever format it
+ * arrived in. Normalizing at the store boundary keeps exportDiscovery about
+ * bucket layout instead of AWS's two manifest generations.
+ */
+export interface ManifestRun {
+  /** Bare object keys of every part in the run, in order. */
+  parts: string[];
+  /** First day of the billing month, "YYYY-MM-01". */
+  month: string;
 }
 
 /** One import unit: a CUR run's parts, or a single Azure snapshot. */
