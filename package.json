@@ -10,6 +10,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.122.0",
     "@aws-sdk/client-acm": "^3.1120.0",
     "@aws-sdk/client-api-gateway": "^3.1116.0",
     "@aws-sdk/client-apigatewayv2": "^3.1116.0",

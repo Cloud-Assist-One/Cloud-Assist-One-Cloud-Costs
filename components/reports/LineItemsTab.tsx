@@ -14,6 +14,8 @@ import { fetchLineItemsPage, fetchReferencedRecordIds, type LineItemSortColumn }
 import { CLOUD_PROVIDER_LABELS } from '@/lib/cloudProvider';
 import { formatTags } from '@/lib/billingCode';
 import LineItemFilterBar, { type EditableFilters } from './LineItemFilterBar';
+import LineItemTotals from './LineItemTotals';
+import type { LineItemFilters } from '@/lib/lineItemFilters';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import styles from './LineItemsTab.module.css';
 
@@ -146,6 +148,18 @@ export default function LineItemsTab({ companyId, periodId, initialServiceFilter
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Composed once and shared: the grid below and the totals above must
+  // describe the same rows, and two separately-built filter objects are how
+  // they would quietly drift apart.
+  const activeFilters = useMemo<LineItemFilters>(
+    () => ({
+      ...filters,
+      periodId,
+      serviceNames: serviceFilter.length > 0 ? serviceFilter : undefined,
+    }),
+    [filters, periodId, serviceFilter]
+  );
+
   useEffect(() => {
     let cancelled = false;
 
@@ -157,11 +171,7 @@ export default function LineItemsTab({ companyId, periodId, initialServiceFilter
       try {
         const page = await fetchLineItemsPage(
           supabase,
-          {
-            ...filters,
-            periodId,
-            serviceNames: serviceFilter.length > 0 ? serviceFilter : undefined,
-          },
+          activeFilters,
           { column: sortColumn, direction: sortDirection },
           { pageIndex, pageSize: PAGE_SIZE }
         );
@@ -186,7 +196,7 @@ export default function LineItemsTab({ companyId, periodId, initialServiceFilter
     return () => {
       cancelled = true;
     };
-  }, [companyId, periodId, serviceFilter, filters, sortColumn, sortDirection, pageIndex]);
+  }, [companyId, activeFilters, sortColumn, sortDirection, pageIndex]);
 
   const tableRows = useMemo(
     () => rows.map((row) => ({ ...row, referenced: referencedIds.has(row.id) })),
@@ -225,6 +235,8 @@ export default function LineItemsTab({ companyId, periodId, initialServiceFilter
           setPageIndex(0);
         }}
       />
+
+      <LineItemTotals filters={activeFilters} />
 
       <div className={`${styles.controls} print-hidden`}>
         <button type="button" onClick={() => toggleSort('usage_date')}>
