@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import LineItemsTab, { formatQuantity, formatTags, isBillingCodeTag } from './LineItemsTab';
+import LineItemsTab, { formatQuantity } from './LineItemsTab';
+import { formatTags, isBillingCodeTag } from '@/lib/billingCode';
 
 const fetchPage = jest.fn();
 const fetchReferenced = jest.fn();

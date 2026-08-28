@@ -1,5 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { CloudProvider, CostRecord } from './types';
+import type { CostRecord } from './types';
+import { applyLineItemFilters, type LineItemFilters } from './lineItemFilters';
+
+export type { LineItemFilters } from './lineItemFilters';
 
 export type LineItemSortColumn =
   | 'usage_date'
@@ -27,12 +30,6 @@ export type LineItemSortColumn =
   | 'charge_type';
 export type SortDirection = 'asc' | 'desc';
 
-export interface LineItemFilters {
-  periodId: string;
-  serviceNames?: string[];
-  cloudProvider?: CloudProvider;
-}
-
 export interface LineItemSort {
   column: LineItemSortColumn;
   direction: SortDirection;
@@ -54,14 +51,12 @@ export async function fetchLineItemsPage(
   sort: LineItemSort,
   page: LineItemPageRequest
 ): Promise<LineItemPage> {
-  let query = supabase.from('cost_records').select('*', { count: 'exact' }).eq('period_id', filters.periodId);
-
-  if (filters.cloudProvider) {
-    query = query.eq('cloud_provider', filters.cloudProvider);
-  }
-  if (filters.serviceNames && filters.serviceNames.length > 0) {
-    query = query.in('service_name', filters.serviceNames);
-  }
+  // Every filter goes through the one shared applier, so the grid, the totals
+  // and the export can never disagree about which rows are "current".
+  const query = applyLineItemFilters(
+    supabase.from('cost_records').select('*', { count: 'exact' }),
+    filters
+  );
 
   const from = page.pageIndex * page.pageSize;
   const to = from + page.pageSize - 1;

@@ -9,9 +9,11 @@ import {
   type CellContext,
 } from '@tanstack/react-table';
 import { createClient } from '@/lib/supabase/client';
-import type { CloudProvider, CostRecord } from '@/lib/types';
+import type { CostRecord } from '@/lib/types';
 import { fetchLineItemsPage, fetchReferencedRecordIds, type LineItemSortColumn } from '@/lib/lineItemQuery';
-import { CLOUD_PROVIDERS, CLOUD_PROVIDER_LABELS } from '@/lib/cloudProvider';
+import { CLOUD_PROVIDER_LABELS } from '@/lib/cloudProvider';
+import { formatTags } from '@/lib/billingCode';
+import LineItemFilterBar, { type EditableFilters } from './LineItemFilterBar';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import styles from './LineItemsTab.module.css';
 
@@ -69,33 +71,6 @@ function numberCell(info: CellContext<LineItemRow, number | null>) {
 
 function quantityCell(info: CellContext<LineItemRow, number | null>) {
   return formatQuantity(info.getValue());
-}
-
-/**
- * True for the billing-code tag under any spelling.
- *
- * Tag keys are typed by hand in each cloud console, so the same tag shows up
- * as "Billing Code", "billing_code", "BillingCode", "billing-code" and so on.
- * Comparing on letters and digits alone treats them all as one tag.
- */
-export function isBillingCodeTag(key: string): boolean {
-  return key.replace(/[^a-z0-9]/gi, '').toLowerCase() === 'billingcode';
-}
-
-/**
- * Shows only the billing code, not the whole tag set.
- *
- * A resource can carry dozens of tags, which made the column an unreadable
- * run-on string. The billing code is the one this grid is used to group by.
- */
-export function formatTags(tags: Record<string, string> | null): string {
-  if (!tags) return '—';
-  const matches = Object.entries(tags).filter(([key]) => isBillingCodeTag(key));
-  if (matches.length === 0) return '—';
-  // Keyed only by value: the column header already says what it is, and a
-  // resource tagged twice under different spellings should read as its
-  // values, not repeat the key.
-  return matches.map(([, value]) => value).join(', ');
 }
 
 // Columns that can be sorted server-side beyond the two with their own
@@ -167,7 +142,7 @@ export default function LineItemsTab({ companyId, periodId, initialServiceFilter
   const [sortColumn, setSortColumn] = useState<LineItemSortColumn>('usage_date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [serviceFilter, setServiceFilter] = useState<string[]>(initialServiceFilter ?? []);
-  const [providerFilter, setProviderFilter] = useState<CloudProvider | ''>('');
+  const [filters, setFilters] = useState<EditableFilters>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -183,9 +158,9 @@ export default function LineItemsTab({ companyId, periodId, initialServiceFilter
         const page = await fetchLineItemsPage(
           supabase,
           {
+            ...filters,
             periodId,
             serviceNames: serviceFilter.length > 0 ? serviceFilter : undefined,
-            cloudProvider: providerFilter || undefined,
           },
           { column: sortColumn, direction: sortDirection },
           { pageIndex, pageSize: PAGE_SIZE }
@@ -211,7 +186,7 @@ export default function LineItemsTab({ companyId, periodId, initialServiceFilter
     return () => {
       cancelled = true;
     };
-  }, [companyId, periodId, serviceFilter, providerFilter, sortColumn, sortDirection, pageIndex]);
+  }, [companyId, periodId, serviceFilter, filters, sortColumn, sortDirection, pageIndex]);
 
   const tableRows = useMemo(
     () => rows.map((row) => ({ ...row, referenced: referencedIds.has(row.id) })),
@@ -238,34 +213,20 @@ export default function LineItemsTab({ companyId, periodId, initialServiceFilter
 
   return (
     <div className={styles.wrapper}>
+      <LineItemFilterBar
+        filters={filters}
+        onChange={(next) => {
+          setFilters(next);
+          setPageIndex(0);
+        }}
+        serviceFilterCount={serviceFilter.length}
+        onClearServiceFilter={() => {
+          setServiceFilter([]);
+          setPageIndex(0);
+        }}
+      />
+
       <div className={`${styles.controls} print-hidden`}>
-        <label htmlFor="line-items-provider">Provider</label>
-        <select
-          id="line-items-provider"
-          value={providerFilter}
-          onChange={(e) => {
-            setProviderFilter(e.target.value as CloudProvider | '');
-            setPageIndex(0);
-          }}
-        >
-          <option value="">All</option>
-          {CLOUD_PROVIDERS.map((provider) => (
-            <option key={provider} value={provider}>
-              {CLOUD_PROVIDER_LABELS[provider]}
-            </option>
-          ))}
-        </select>
-        {serviceFilter.length > 0 && (
-          <button
-            type="button"
-            onClick={() => {
-              setServiceFilter([]);
-              setPageIndex(0);
-            }}
-          >
-            Clear service filter ({serviceFilter.length})
-          </button>
-        )}
         <button type="button" onClick={() => toggleSort('usage_date')}>
           Sort by date {sortColumn === 'usage_date' ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
         </button>
