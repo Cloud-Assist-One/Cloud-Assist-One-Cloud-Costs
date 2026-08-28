@@ -168,6 +168,7 @@ export async function persistPulledBilling(args: PersistPulledBillingArgs): Prom
       status: 'processing',
       uploaded_by: uploadedBy,
       billing_month: billingMonth,
+      origin: 'quick_pull',
     })
     .select()
     .single();

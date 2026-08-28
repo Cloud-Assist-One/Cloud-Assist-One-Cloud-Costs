@@ -75,6 +75,7 @@ export async function POST(request: NextRequest) {
       status: 'processing',
       uploaded_by: guard.userId,
       billing_month: billingMonth,
+      origin: 'upload',
     })
     .select()
     .single();

@@ -78,6 +78,18 @@ jest.mock('./PullBillingModal', () => ({
   ),
 }));
 
+jest.mock('./PullBillingFromBucketModal', () => ({
+  __esModule: true,
+  default: ({ onClose }: { onClose: () => void }) => (
+    <div>
+      bucket-pull-modal-content
+      <button type="button" onClick={onClose}>
+        close-bucket-modal
+      </button>
+    </div>
+  ),
+}));
+
 describe('CostReportTab', () => {
   beforeEach(() => {
     loadRecords.mockReset();
@@ -108,6 +120,32 @@ describe('CostReportTab', () => {
     render(<CostReportTab companyId="company-1" cloudProvider="aws" periodId="period-1" />);
 
     expect(await screen.findByText('Billing month: August 2026')).toBeInTheDocument();
+  });
+
+  it('states which run produced the data, and when, under the billing month', async () => {
+    loadRecords.mockResolvedValueOnce({ data: [] });
+    loadBillingMonth.mockResolvedValueOnce({
+      data: { billing_month: '2026-08-01', origin: 'detail_pull', created_at: '2026-08-28T15:42:00.000Z' },
+    });
+
+    render(<CostReportTab companyId="company-1" cloudProvider="aws" periodId="period-1" />);
+
+    expect(await screen.findByText(/Detail pull ·/)).toBeInTheDocument();
+    expect(screen.getByText(/Aug 28, 2026/)).toBeInTheDocument();
+  });
+
+  // Rows written before uploaded_files.origin existed still have a billing
+  // month worth showing; the line just says less about them.
+  it('still shows the billing month when the run has no recorded origin', async () => {
+    loadRecords.mockResolvedValueOnce({ data: [] });
+    loadBillingMonth.mockResolvedValueOnce({
+      data: { billing_month: '2026-08-01', origin: null, created_at: '2026-08-28T15:42:00.000Z' },
+    });
+
+    render(<CostReportTab companyId="company-1" cloudProvider="aws" periodId="period-1" />);
+
+    expect(await screen.findByText('Billing month: August 2026')).toBeInTheDocument();
+    expect(screen.queryByText(/pull ·/i)).not.toBeInTheDocument();
   });
 
   it('shows an empty state when there are no records in the period', async () => {
@@ -150,24 +188,38 @@ describe('CostReportTab', () => {
   });
 
   it.each(['gcp', 'snowflake'] as const)(
-    'does not show a Pull Billing button for %s, which is upload-only',
+    'does not show either pull button for %s, which is upload-only',
     async (provider) => {
       loadRecords.mockResolvedValueOnce({ data: [] });
 
       render(<CostReportTab companyId="company-1" cloudProvider={provider} periodId="period-1" />);
 
       await screen.findByText(/no cost data for this period/i);
-      expect(screen.queryByRole('button', { name: /pull billing/i })).not.toBeInTheDocument();
+      // Both by their real names. Querying a name no button carries would
+      // pass whether or not the buttons rendered.
+      expect(screen.queryByRole('button', { name: /quick pull/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /detail pull/i })).not.toBeInTheDocument();
     }
   );
 
-  it('does not show a Pull Billing button when the period is read-only', async () => {
+  it('does not show either pull button when the period is read-only', async () => {
     loadRecords.mockResolvedValueOnce({ data: [] });
 
     render(<CostReportTab companyId="company-1" cloudProvider="aws" periodId="period-1" isReadOnly />);
 
     await screen.findByText(/no cost data for this period/i);
-    expect(screen.queryByRole('button', { name: /pull billing/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /quick pull/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /detail pull/i })).not.toBeInTheDocument();
+  });
+
+  it('shows a Detail Pull button that opens the bucket modal', async () => {
+    loadRecords.mockResolvedValueOnce({ data: [] });
+
+    render(<CostReportTab companyId="company-1" cloudProvider="aws" periodId="period-1" />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /detail pull/i }));
+
+    expect(screen.getByText('bucket-pull-modal-content')).toBeInTheDocument();
   });
 
   it('reloads cost records after a successful pull', async () => {

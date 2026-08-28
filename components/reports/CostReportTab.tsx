@@ -5,6 +5,7 @@ import { CartesianGrid, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, L
 import { createClient } from '@/lib/supabase/client';
 import type { CloudProvider, CostRecord } from '@/lib/types';
 import { aggregateByDate, aggregateByService, totalCost } from '@/lib/reportAggregation';
+import { lastRunLabel } from '@/lib/lastRunLabel';
 import { formatBillingMonth } from '@/lib/cloudProvider';
 import PullBillingModal from './PullBillingModal';
 import PullBillingFromBucketModal from './PullBillingFromBucketModal';
@@ -33,6 +34,7 @@ export default function CostReportTab({
 }: CostReportTabProps) {
   const [records, setRecords] = useState<CostRecord[]>([]);
   const [billingMonth, setBillingMonth] = useState<string | null>(null);
+  const [lastRun, setLastRun] = useState<{ origin: string | null; createdAt: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showPullBillingModal, setShowPullBillingModal] = useState(false);
@@ -46,7 +48,7 @@ export default function CostReportTab({
       const supabase = createClient();
       const { data } = await supabase
         .from('uploaded_files')
-        .select('billing_month')
+        .select('billing_month, origin, created_at')
         .eq('company_id', companyId)
         .eq('cloud_provider', cloudProvider)
         .eq('period_id', periodId)
@@ -56,6 +58,7 @@ export default function CostReportTab({
         .maybeSingle();
       if (!cancelled) {
         setBillingMonth(data?.billing_month ?? null);
+        setLastRun(data ? { origin: data.origin, createdAt: data.created_at } : null);
       }
     }
 
@@ -134,6 +137,7 @@ export default function CostReportTab({
     setRefreshKey((k) => k + 1);
   }, []);
 
+  const runLabel = useMemo(() => lastRunLabel(lastRun), [lastRun]);
   const byDate = useMemo(() => aggregateByDate(records), [records]);
   const byService = useMemo(() => aggregateByService(records), [records]);
   const total = useMemo(() => totalCost(records), [records]);
@@ -148,11 +152,14 @@ export default function CostReportTab({
       <div className={`${styles.actionsBar} print-hidden`}>
         {canPullBilling && !isReadOnly && (
           <>
+            {/* Detail Pull leads: it is the one that imports the full export,
+                with the per-resource detail Quick Pull's grouped API response
+                cannot carry. */}
+            <button type="button" onClick={() => setShowBucketPullModal(true)}>
+              Detail Pull
+            </button>
             <button type="button" onClick={() => setShowPullBillingModal(true)}>
               Quick Pull
-            </button>
-            <button type="button" onClick={() => setShowBucketPullModal(true)}>
-              Pull Billing
             </button>
           </>
         )}
@@ -178,7 +185,17 @@ export default function CostReportTab({
         />
       )}
 
-      {billingMonth && <p className={styles.billingMonth}>Billing month: {formatBillingMonth(billingMonth)}</p>}
+      {billingMonth && (
+        <p className={styles.billingMonth}>
+          Billing month: {formatBillingMonth(billingMonth)}
+          {runLabel && (
+            <>
+              <br />
+              <span className={styles.lastRun}>{runLabel}</span>
+            </>
+          )}
+        </p>
+      )}
 
       {loading ? (
         <p>Loading…</p>

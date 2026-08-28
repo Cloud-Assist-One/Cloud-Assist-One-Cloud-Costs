@@ -382,6 +382,7 @@ export async function POST(request: NextRequest, context: RouteContext<'/api/bil
           status: 'processing',
           uploaded_by: guard.userId,
           billing_month: finalMonth,
+          origin: 'detail_pull',
           period_id: target.periodId,
           source_id: sourceId,
           source_object_key: run.key,

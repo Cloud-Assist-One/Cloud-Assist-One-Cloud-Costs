@@ -115,7 +115,7 @@ export default function PullBillingFromBucketModal({ companyId, onClose, onPulle
   const selectedSource = sources?.find((s) => s.id === selectedSourceId) ?? null;
 
   return (
-    <div className={styles.overlay} role="dialog" aria-modal="true" aria-label="Pull Billing">
+    <div className={styles.overlay} role="dialog" aria-modal="true" aria-label="Detail Pull">
       <div className={styles.dialog}>
         <button type="button" className={styles.closeButton} onClick={onClose} aria-label="Close">
           ×
@@ -160,7 +160,7 @@ export default function PullBillingFromBucketModal({ companyId, onClose, onPulle
 
         {step === 'confirm' && selectedSource && (
           <div className={styles.confirm}>
-            <h3>Pull Billing from {selectedSource.label}</h3>
+            <h3>Detail Pull from {selectedSource.label}</h3>
             <p>
               Pulling will archive the current period&apos;s data first. The archived copy stays readable under the
               Archive tab.

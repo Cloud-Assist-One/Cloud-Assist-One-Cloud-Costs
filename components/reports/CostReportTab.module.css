@@ -21,6 +21,13 @@
   margin: 0;
 }
 
+/* Lighter than the billing month above it: which run produced the data is
+   supporting detail, not the heading. */
+.lastRun {
+  font-weight: 400;
+  font-size: 0.85rem;
+}
+
 .chart {
   background: var(--color-bg-alt);
   border-radius: 8px;
