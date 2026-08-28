@@ -8,6 +8,14 @@ interface LineItemAssistantProps {
   companyId: string;
   /** Applied to the tab, which then shows exactly what was set. */
   onFilters: (filters: AssistantFilters) => void;
+  /**
+   * Drop the filter this box applied.
+   *
+   * The tab owns what "no filter" means -- it opens with $0 lines hidden --
+   * so clearing asks the tab to reset rather than sending an empty object and
+   * silently turning that default off.
+   */
+  onClear: () => void;
 }
 
 /**
@@ -38,11 +46,21 @@ export function compiledTokens(filters: AssistantFilters): { key: string; value:
   return tokens;
 }
 
-export default function LineItemAssistant({ companyId, onFilters }: LineItemAssistantProps) {
+export default function LineItemAssistant({ companyId, onFilters, onClear }: LineItemAssistantProps) {
   const [question, setQuestion] = useState('');
   const [asking, setAsking] = useState(false);
   const [applied, setApplied] = useState<{ key: string; value: string }[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Clearing the box undoes what the box did. Emptying the question while
+  // leaving the grid filtered would strand a filter whose cause just
+  // disappeared from the screen.
+  function handleClear() {
+    setQuestion('');
+    setApplied(null);
+    setError(null);
+    onClear();
+  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -113,6 +131,11 @@ export default function LineItemAssistant({ companyId, onFilters }: LineItemAssi
           placeholder="What did we spend on EC2 in us-east-1 over $100?"
           disabled={asking}
         />
+        {(question !== '' || applied || error) && (
+          <button type="button" className={styles.clear} onClick={handleClear} disabled={asking}>
+            Clear
+          </button>
+        )}
         <button type="submit" className={styles.ask} disabled={asking || question.trim() === ''}>
           {asking ? 'Reading' : 'Ask'}
         </button>

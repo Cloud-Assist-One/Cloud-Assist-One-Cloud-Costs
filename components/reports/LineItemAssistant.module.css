@@ -147,6 +147,30 @@
 
 /* Disabled should read as "not yet", not as "absent" -- at the darker tone
    the button all but vanished against the panel. */
+/* Quieter than Ask: clearing is the secondary act, and a second solid pill
+   beside the first would read as two equal choices. */
+.clear {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--console-dim);
+  background: transparent;
+  border: none;
+  padding: 0.35rem 0.4rem;
+  cursor: pointer;
+}
+
+.clear:hover {
+  color: #ffffff;
+}
+
+.clear:focus-visible {
+  outline: 2px solid var(--console-token);
+  outline-offset: 2px;
+  border-radius: 0.2rem;
+}
+
 .ask:disabled {
   background: #24456f;
   color: #b6c9e0;

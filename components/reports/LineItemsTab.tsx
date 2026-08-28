@@ -29,6 +29,12 @@ interface LineItemsTabProps {
 
 const PAGE_SIZE = 50;
 
+// CUR emits a great many $0 lines -- free tier, zero usage, metadata-only
+// rows. They are noise in a cost report, so the tab opens without them; the
+// checkbox turns them back on. Named because clearing the assistant returns
+// here, rather than to a bare {} that would silently switch them on.
+const DEFAULT_FILTERS: EditableFilters = { excludeZeroCost: true };
+
 function formatCurrency(amount: number): string {
   return `$${amount.toFixed(2)}`;
 }
@@ -152,10 +158,7 @@ export default function LineItemsTab({ companyId, periodId, initialServiceFilter
   const [sortColumn, setSortColumn] = useState<LineItemSortColumn>('usage_date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [serviceFilter, setServiceFilter] = useState<string[]>(initialServiceFilter ?? []);
-  // CUR emits a great many $0 lines -- free tier, zero usage, metadata-only
-  // rows. They are noise in a cost report, so the tab opens without them; the
-  // checkbox turns them back on.
-  const [filters, setFilters] = useState<EditableFilters>({ excludeZeroCost: true });
+  const [filters, setFilters] = useState<EditableFilters>(DEFAULT_FILTERS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -241,6 +244,10 @@ export default function LineItemsTab({ companyId, periodId, initialServiceFilter
           // whole request, and merging would silently keep a filter from the
           // previous question that the new one never mentioned.
           setFilters(next);
+          setPageIndex(0);
+        }}
+        onClear={() => {
+          setFilters(DEFAULT_FILTERS);
           setPageIndex(0);
         }}
       />

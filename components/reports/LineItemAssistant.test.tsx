@@ -4,8 +4,9 @@ import LineItemAssistant from './LineItemAssistant';
 
 function setup() {
   const onFilters = jest.fn();
-  render(<LineItemAssistant companyId="company-1" onFilters={onFilters} />);
-  return { onFilters };
+  const onClear = jest.fn();
+  render(<LineItemAssistant companyId="company-1" onFilters={onFilters} onClear={onClear} />);
+  return { onFilters, onClear };
 }
 
 function reply(filters: unknown, ok = true) {
@@ -122,6 +123,67 @@ describe('LineItemAssistant', () => {
 
     expect(screen.getByRole('button', { name: /^ask$/i })).toBeDisabled();
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  describe('clearing', () => {
+    // Nothing to clear yet — an always-present button would be a control that
+    // does nothing most of the time.
+    it('offers no clear button before anything has been asked', () => {
+      setup();
+
+      expect(screen.queryByRole('button', { name: /clear/i })).not.toBeInTheDocument();
+    });
+
+    it('offers one as soon as there is a question to clear', async () => {
+      setup();
+
+      await userEvent.type(screen.getByLabelText(/^ask$/i), 'ec2');
+
+      expect(screen.getByRole('button', { name: /clear/i })).toBeInTheDocument();
+    });
+
+    it('empties the question and the compiled tokens', async () => {
+      reply({ searchText: 'ec2' });
+      setup();
+
+      await userEvent.type(screen.getByLabelText(/^ask$/i), 'ec2 costs');
+      await userEvent.click(screen.getByRole('button', { name: /^ask$/i }));
+      await screen.findByRole('status');
+
+      await userEvent.click(screen.getByRole('button', { name: /clear/i }));
+
+      expect(screen.getByLabelText(/^ask$/i)).toHaveValue('');
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
+
+    // Clearing the box has to undo what the box did. Leaving the grid
+    // filtered while the question that filtered it disappears is worse than
+    // not clearing at all.
+    it('tells the tab to drop the filter it applied', async () => {
+      reply({ searchText: 'ec2' });
+      const { onClear } = setup();
+
+      await userEvent.type(screen.getByLabelText(/^ask$/i), 'ec2 costs');
+      await userEvent.click(screen.getByRole('button', { name: /^ask$/i }));
+      await screen.findByRole('status');
+
+      await userEvent.click(screen.getByRole('button', { name: /clear/i }));
+
+      expect(onClear).toHaveBeenCalled();
+    });
+
+    it('clears an error too', async () => {
+      reply({ error: 'The assistant could not answer that.' }, false);
+      setup();
+
+      await userEvent.type(screen.getByLabelText(/^ask$/i), 'anything');
+      await userEvent.click(screen.getByRole('button', { name: /^ask$/i }));
+      await screen.findByRole('alert');
+
+      await userEvent.click(screen.getByRole('button', { name: /clear/i }));
+
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
   });
 
   it('clears the previous answer while a new question is running', async () => {
