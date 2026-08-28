@@ -79,11 +79,29 @@ export default function LineItemAssistant({ companyId, onFilters }: LineItemAssi
   }
 
   return (
-    <form className={`${styles.assistant} print-hidden`} onSubmit={handleSubmit}>
+    <form
+      className={`${styles.assistant} ${asking ? styles.busy : ''} print-hidden`}
+      onSubmit={handleSubmit}
+    >
       <div className={styles.row}>
-        <span className={`${styles.marker} ${asking ? styles.thinking : ''}`} aria-hidden="true">
-          &gt;_
-        </span>
+        {/* A processor, not a sparkle: this control compiles a sentence into a
+            query, and the mark should say that rather than borrow the generic
+            magic-wand shorthand every AI feature reaches for. */}
+        <svg
+          className={`${styles.icon} ${asking ? styles.thinking : ''}`}
+          width="21"
+          height="21"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.7"
+          strokeLinecap="round"
+          aria-hidden="true"
+        >
+          <rect x="6.5" y="6.5" width="11" height="11" rx="2.5" />
+          <rect className={styles.core} x="10.5" y="10.5" width="3" height="3" rx="0.5" fill="currentColor" stroke="none" />
+          <path d="M12 3v4M12 17v4M3 12h4M17 12h4" />
+        </svg>
         <label className="sr-only" htmlFor="line-items-question">
           Ask
         </label>
