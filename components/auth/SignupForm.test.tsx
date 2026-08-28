@@ -7,13 +7,29 @@ describe('SignupForm', () => {
     global.fetch = jest.fn();
   });
 
-  it('requires email, company name, first name, and last name before submitting', async () => {
+  it('requires email, company name, first name, last name, and phone before submitting', async () => {
     const user = userEvent.setup();
     render(<SignupForm />);
 
     await user.click(screen.getByRole('button', { name: /create free account/i }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/required/i);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  // Phone was optional until signups started arriving with no way to reach
+  // the person, so this pins the one field whose requirement is new.
+  it('blocks submission when only the phone number is missing', async () => {
+    const user = userEvent.setup();
+    render(<SignupForm />);
+
+    await user.type(screen.getByLabelText(/^email$/i), 'new@example.com');
+    await user.type(screen.getByLabelText(/company name/i), 'Acme Corp');
+    await user.type(screen.getByLabelText(/first name/i), 'Ada');
+    await user.type(screen.getByLabelText(/last name/i), 'Lovelace');
+    await user.click(screen.getByRole('button', { name: /create free account/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/phone/i);
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
@@ -55,6 +71,7 @@ describe('SignupForm', () => {
     await user.type(screen.getByLabelText(/company name/i), 'Acme Corp');
     await user.type(screen.getByLabelText(/first name/i), 'Ada');
     await user.type(screen.getByLabelText(/last name/i), 'Lovelace');
+    await user.type(screen.getByLabelText(/phone number/i), '555-1234');
     await user.click(screen.getByRole('button', { name: /create free account/i }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/already exists/i);
@@ -62,5 +79,6 @@ describe('SignupForm', () => {
     expect(screen.getByLabelText(/company name/i)).toHaveValue('Acme Corp');
     expect(screen.getByLabelText(/first name/i)).toHaveValue('Ada');
     expect(screen.getByLabelText(/last name/i)).toHaveValue('Lovelace');
+    expect(screen.getByLabelText(/phone number/i)).toHaveValue('555-1234');
   });
 });

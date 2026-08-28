@@ -21,8 +21,14 @@ export default function SignupForm() {
 
     // Client-side check is a courtesy — the API validates and trims again,
     // since this route has no auth guard in front of it.
-    if (!email.trim() || !companyName.trim() || !firstName.trim() || !lastName.trim()) {
-      setError('Email, company name, first name, and last name are required.');
+    if (
+      !email.trim() ||
+      !companyName.trim() ||
+      !firstName.trim() ||
+      !lastName.trim() ||
+      !phone.trim()
+    ) {
+      setError('Email, company name, first name, last name, and phone number are required.');
       return;
     }
 
@@ -123,8 +129,14 @@ export default function SignupForm() {
             required
           />
 
-          <label htmlFor="signup-phone">Phone number (optional)</label>
-          <input id="signup-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <label htmlFor="signup-phone">Phone number</label>
+          <input
+            id="signup-phone"
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            required
+          />
 
           {error && (
             <p role="alert" className={styles.error}>

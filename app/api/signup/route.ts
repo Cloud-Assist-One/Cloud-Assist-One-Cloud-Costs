@@ -56,6 +56,13 @@ export async function POST(request: NextRequest) {
   if (!cleanFirstName || !cleanLastName) {
     return NextResponse.json({ error: 'First and last name are required.' }, { status: 400 });
   }
+  // Any non-empty value is accepted deliberately: phone numbers vary too much
+  // by country for a format check to reject junk without also rejecting real
+  // people. This is a lead-quality gate, not a bot defence -- a bot posting
+  // straight to this route fills every field it is given.
+  if (!cleanPhone) {
+    return NextResponse.json({ error: 'A phone number is required.' }, { status: 400 });
+  }
 
   const adminClient = createAdminClient();
 
