@@ -22,12 +22,16 @@ export interface LineItemFilters {
   costMin?: number;
   costMax?: number;
   /**
-   * Drop rows costing exactly zero.
+   * Drop rows that show as $0.00.
    *
-   * CUR emits a great many $0 lines -- free tier, zero usage, metadata-only
-   * rows -- which bury the rows worth looking at. Deliberately "not equal to
-   * zero" rather than "greater than zero": a negative cost is a credit or
-   * refund, which is real money and worth seeing.
+   * CUR emits a great many near-zero lines -- free tier, trivial usage,
+   * metadata-only rows -- which bury the rows worth looking at. Matched
+   * against what the grid displays rather than against exact zero: costs run
+   * to ten decimal places, so filtering on `cost <> 0` left a quarter of the
+   * rows on screen still reading $0.00, which looks like a broken checkbox.
+   *
+   * Symmetric around zero, because a negative cost is a credit or refund and
+   * that is real money worth seeing.
    */
   excludeZeroCost?: boolean;
 }
@@ -42,11 +46,19 @@ export interface LineItemFilters {
 export interface FilterableQuery {
   eq(column: string, value: unknown): FilterableQuery;
   neq(column: string, value: unknown): FilterableQuery;
+  or(predicate: string): FilterableQuery;
   in(column: string, values: readonly unknown[]): FilterableQuery;
   ilike(column: string, pattern: string): FilterableQuery;
   gte(column: string, value: unknown): FilterableQuery;
   lte(column: string, value: unknown): FilterableQuery;
 }
+
+/**
+ * Half a cent: the point where a two-decimal display flips from $0.00 to
+ * $0.01. Anything below this reads as nothing on screen, so hiding "zero"
+ * lines has to mean hiding these too.
+ */
+export const DISPLAYED_ZERO_THRESHOLD = 0.005;
 
 // "%" and "_" are LIKE wildcards, so a user searching for "100%" would
 // otherwise match every row instead of the one they meant.
@@ -102,7 +114,11 @@ export function applyLineItemFilters<Q extends object>(query: Q, filters: LineIt
     next = next.lte('cost', filters.costMax);
   }
   if (filters.excludeZeroCost) {
-    next = next.neq('cost', 0);
+    // Either side of zero, so credits survive while the sub-cent dust that
+    // renders as $0.00 does not.
+    next = next.or(
+      `cost.gte.${DISPLAYED_ZERO_THRESHOLD},cost.lte.-${DISPLAYED_ZERO_THRESHOLD}`
+    );
   }
 
   return next as unknown as Q;

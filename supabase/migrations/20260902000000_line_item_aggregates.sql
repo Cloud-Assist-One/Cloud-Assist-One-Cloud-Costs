@@ -48,9 +48,10 @@ as $$
     and (p_date_to is null or c.usage_date <= p_date_to)
     and (p_cost_min is null or c.cost >= p_cost_min)
     and (p_cost_max is null or c.cost <= p_cost_max)
-    -- Not equal to zero rather than greater than: a negative cost is a credit
-    -- or a refund, which is real money and must survive this filter.
-    and (not p_exclude_zero_cost or c.cost <> 0)
+    -- Matched against what the grid displays: costs run to ten decimal
+    -- places, so "<> 0" left rows reading $0.00 on screen. Symmetric, because
+    -- a negative cost is a credit and that is real money.
+    and (not p_exclude_zero_cost or abs(c.cost) >= 0.005)
 $$;
 
 create or replace function public.line_items_grouped(
@@ -101,7 +102,7 @@ as $$
     and (p_date_to is null or c.usage_date <= p_date_to)
     and (p_cost_min is null or c.cost >= p_cost_min)
     and (p_cost_max is null or c.cost <= p_cost_max)
-    and (not p_exclude_zero_cost or c.cost <> 0)
+    and (not p_exclude_zero_cost or abs(c.cost) >= 0.005)
   group by 1
   -- Biggest spend first: the point of grouping is to see where the money went.
   order by 3 desc
