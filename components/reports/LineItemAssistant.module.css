@@ -218,7 +218,12 @@
   font-size: 0.82rem;
 }
 
-/* Two dark surfaces stacked would lose the panel's edge. */
+/* In light mode the dark ground is what separates this panel from the page.
+   In dark mode the page is already dark, so the separation comes from a
+   slightly deeper surface plus the border -- tuned against the theme's
+   #151b26 background, not the near-black it used to sit on, where the old
+   value now reads as a hole rather than a panel. */
 :global(.dark) .assistant {
-  background: #0a1729;
+  --console-ground: #111825;
+  --console-line: #2f3a4d;
 }

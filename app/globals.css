@@ -57,28 +57,28 @@
      also darkens correctly. Light-mode values are untouched (still exactly
      the original 3 colors), so this only adds dark-mode reactivity; it
      doesn't change what any component looks like today. */
-  --color-bg: #0b1220;
-  --color-bg-alt: #121b2e;
+  --color-bg: #151b26;
+  --color-bg-alt: #1e2634;
   --color-fg: #e6edf7;
 
-  --background: #0b1220;
+  --background: #151b26;
   --foreground: #e6edf7;
-  --card: #121b2e;
+  --card: #1e2634;
   --card-foreground: #e6edf7;
-  --popover: #121b2e;
+  --popover: #1e2634;
   --popover-foreground: #e6edf7;
   --primary: #5b8def;
-  --primary-foreground: #0b1220;
-  --secondary: #121b2e;
+  --primary-foreground: #151b26;
+  --secondary: #1e2634;
   --secondary-foreground: #e6edf7;
-  --muted: #121b2e;
+  --muted: #1e2634;
   --muted-foreground: #94a3b8;
   --accent: #5b8def;
-  --accent-foreground: #0b1220;
+  --accent-foreground: #151b26;
   --destructive: #f2596b;
-  --destructive-foreground: #0b1220;
-  --border: #243248;
-  --input: #243248;
+  --destructive-foreground: #151b26;
+  --border: #2f3a4d;
+  --input: #2f3a4d;
   --ring: #94a3b8;
 }
 
