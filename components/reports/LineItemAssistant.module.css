@@ -1,0 +1,26 @@
+.assistant {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.label {
+  font-weight: 600;
+}
+
+/* Questions are sentences, so this gets the room the search box does. */
+.question {
+  flex: 1 1 26rem;
+  min-width: 12rem;
+}
+
+.applied {
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+}
+
+.error {
+  font-size: 0.85rem;
+  color: var(--destructive, #b3261e);
+}

@@ -16,6 +16,7 @@ import { formatTags } from '@/lib/billingCode';
 import LineItemFilterBar, { type EditableFilters } from './LineItemFilterBar';
 import LineItemTotals from './LineItemTotals';
 import LineItemExportActions from './LineItemExportActions';
+import LineItemAssistant from './LineItemAssistant';
 import type { LineItemFilters } from '@/lib/lineItemFilters';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import styles from './LineItemsTab.module.css';
@@ -227,6 +228,17 @@ export default function LineItemsTab({ companyId, periodId, initialServiceFilter
 
   return (
     <div className={styles.wrapper}>
+      <LineItemAssistant
+        companyId={companyId}
+        onFilters={(next) => {
+          // Replaces the filter rather than merging: a question describes a
+          // whole request, and merging would silently keep a filter from the
+          // previous question that the new one never mentioned.
+          setFilters(next);
+          setPageIndex(0);
+        }}
+      />
+
       <LineItemFilterBar
         filters={filters}
         onChange={(next) => {
