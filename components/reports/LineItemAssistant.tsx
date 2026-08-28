@@ -10,29 +10,38 @@ interface LineItemAssistantProps {
   onFilters: (filters: AssistantFilters) => void;
 }
 
-/** Human-readable summary of what the assistant actually applied. */
-function describe(filters: AssistantFilters): string {
-  const parts: string[] = [];
-  if (filters.searchText) parts.push(`matching “${filters.searchText}”`);
-  if (filters.cloudProvider) parts.push(filters.cloudProvider.toUpperCase());
-  if (filters.serviceNames?.length) parts.push(filters.serviceNames.join(', '));
-  if (filters.billingCode) parts.push(`billing code ${filters.billingCode}`);
-  if (filters.accountId) parts.push(`account ${filters.accountId}`);
-  if (filters.region) parts.push(filters.region);
-  if (filters.dateFrom || filters.dateTo) {
-    parts.push(`${filters.dateFrom ?? 'the start'} to ${filters.dateTo ?? 'the end'}`);
-  }
-  if (filters.costMin !== undefined) parts.push(`at least $${filters.costMin}`);
-  if (filters.costMax !== undefined) parts.push(`at most $${filters.costMax}`);
-  if (filters.excludeZeroCost) parts.push('excluding $0 lines');
+/**
+ * The filter as the tokens it compiled to.
+ *
+ * Field names as the grid knows them, not prose: this is the query that ran,
+ * and showing it is what makes an assistant that silently changes your view
+ * into one you can check.
+ */
+export function compiledTokens(filters: AssistantFilters): { key: string; value: string }[] {
+  const tokens: { key: string; value: string }[] = [];
+  const add = (key: string, value: string | number | undefined) => {
+    if (value !== undefined && value !== '') tokens.push({ key, value: String(value) });
+  };
 
-  return parts.length > 0 ? `Filtered to ${parts.join(' · ')}` : 'No filter needed for that — showing everything.';
+  add('search', filters.searchText);
+  add('provider', filters.cloudProvider);
+  if (filters.serviceNames?.length) add('service', filters.serviceNames.join(' | '));
+  add('billing_code', filters.billingCode);
+  add('account', filters.accountId);
+  add('region', filters.region);
+  add('from', filters.dateFrom);
+  add('to', filters.dateTo);
+  add('cost >=', filters.costMin);
+  add('cost <=', filters.costMax);
+  if (filters.excludeZeroCost) add('cost', '!= 0');
+
+  return tokens;
 }
 
 export default function LineItemAssistant({ companyId, onFilters }: LineItemAssistantProps) {
   const [question, setQuestion] = useState('');
   const [asking, setAsking] = useState(false);
-  const [applied, setApplied] = useState<string | null>(null);
+  const [applied, setApplied] = useState<{ key: string; value: string }[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(event: FormEvent) {
@@ -58,10 +67,10 @@ export default function LineItemAssistant({ companyId, onFilters }: LineItemAssi
       }
 
       onFilters(body.filters ?? {});
-      // Stated rather than silently applied: the filter bar below shows every
-      // field that was set, and this says it in words. An assistant that
-      // changes what you are looking at without saying how is a black box.
-      setApplied(describe(body.filters ?? {}));
+      // Shown rather than silently applied: these are the fields that were
+      // set, spelled as the grid names them. An assistant that changes what
+      // you are looking at without showing how is a black box.
+      setApplied(compiledTokens(body.filters ?? {}));
     } catch {
       setError('Could not reach the assistant.');
     } finally {
@@ -71,30 +80,45 @@ export default function LineItemAssistant({ companyId, onFilters }: LineItemAssi
 
   return (
     <form className={`${styles.assistant} print-hidden`} onSubmit={handleSubmit}>
-      <label className={styles.label} htmlFor="line-items-question">
-        Ask
-      </label>
-      <input
-        id="line-items-question"
-        className={styles.question}
-        value={question}
-        onChange={(e) => setQuestion(e.target.value)}
-        placeholder="What did we spend on EC2 in us-east-1 over $100?"
-        disabled={asking}
-      />
-      <button type="submit" disabled={asking || question.trim() === ''}>
-        {asking ? 'Thinking…' : 'Ask'}
-      </button>
+      <div className={styles.row}>
+        <span className={`${styles.marker} ${asking ? styles.thinking : ''}`} aria-hidden="true">
+          &gt;_
+        </span>
+        <label className="sr-only" htmlFor="line-items-question">
+          Ask
+        </label>
+        <input
+          id="line-items-question"
+          className={styles.question}
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          placeholder="What did we spend on EC2 in us-east-1 over $100?"
+          disabled={asking}
+        />
+        <button type="submit" className={styles.ask} disabled={asking || question.trim() === ''}>
+          {asking ? 'Reading' : 'Ask'}
+        </button>
+      </div>
 
       {error && (
         <span role="alert" className={styles.error}>
           {error}
         </span>
       )}
+
       {applied && !error && (
-        <span role="status" className={styles.applied}>
-          {applied}
-        </span>
+        <div role="status" className={styles.tokens}>
+          {applied.length > 0 ? (
+            applied.map((token) => (
+              <span key={token.key} className={styles.token}>
+                <span className={styles.tokenKey}>{token.key}</span>
+                {token.value}
+              </span>
+            ))
+          ) : (
+            <span className={styles.empty}>no filter needed — showing everything</span>
+          )}
+        </div>
       )}
     </form>
   );

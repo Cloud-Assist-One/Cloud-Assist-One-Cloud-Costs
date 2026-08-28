@@ -1,26 +1,148 @@
+/*
+ * A console surface in an otherwise light tab.
+ *
+ * Every other control here filters. This one compiles a sentence into a
+ * filter, which is a different kind of act, and the dark ground is what says
+ * so before you read a word. Colours stay in the app's navy/blue family so it
+ * reads as part of the product rather than a widget bolted on.
+ */
 .assistant {
+  --console-ground: #0f2540;
+  --console-line: #1d3a5f;
+  --console-token: #7aa7ff;
+  --console-dim: #8ea6c4;
+
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: var(--radius, 0.5rem);
+  background: var(--console-ground);
+  border: 1px solid var(--console-line);
+}
+
+.row {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
+  gap: 0.6rem;
 }
 
-.label {
-  font-weight: 600;
+/* Monospace because what follows is a query, not prose. */
+.marker {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.95rem;
+  /* Matches the input's line box, so the caret sits on the text baseline
+     rather than a fraction below it. */
+  line-height: 1.5;
+  color: var(--console-token);
+  user-select: none;
+  flex: 0 0 auto;
 }
 
-/* Questions are sentences, so this gets the room the search box does. */
+.thinking {
+  animation: blink 1s steps(2, start) infinite;
+}
+
+@keyframes blink {
+  to {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
 .question {
-  flex: 1 1 26rem;
-  min-width: 12rem;
+  flex: 1 1 auto;
+  min-width: 8rem;
+  background: transparent;
+  border: none;
+  color: #ffffff;
+  font-size: 0.95rem;
+  padding: 0.25rem 0;
 }
 
-.applied {
-  font-size: 0.85rem;
-  color: var(--muted-foreground);
+.question::placeholder {
+  color: var(--console-dim);
+}
+
+.question:focus {
+  outline: none;
+}
+
+/* The focus ring lives on the panel, so the whole console lights up rather
+   than a rectangle appearing around a borderless input. */
+.assistant:focus-within {
+  border-color: var(--console-token);
+}
+
+.ask {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--console-ground);
+  background: var(--console-token);
+  border: none;
+  border-radius: var(--radius-pill, 999px);
+  padding: 0.35rem 0.9rem;
+  cursor: pointer;
+}
+
+/* Disabled should read as "not yet", not as "absent" -- at the darker tone
+   the button all but vanished against the panel. */
+.ask:disabled {
+  background: #24456f;
+  color: #b6c9e0;
+  cursor: default;
+}
+
+.ask:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
+/* The compiled query. These are the real field names and values that were
+   applied, which is what makes the box worth trusting. */
+.tokens {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+}
+
+.token {
+  display: inline-flex;
+  gap: 0.3rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.25rem;
+  background: var(--console-line);
+  color: var(--console-token);
+  white-space: nowrap;
+}
+
+.tokenKey {
+  color: var(--console-dim);
+}
+
+.empty {
+  color: var(--console-dim);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
 }
 
 .error {
-  font-size: 0.85rem;
-  color: var(--destructive, #b3261e);
+  color: #ff9db1;
+  font-size: 0.82rem;
+}
+
+/* Two dark surfaces stacked would lose the panel's edge. */
+:global(.dark) .assistant {
+  background: #0a1729;
 }

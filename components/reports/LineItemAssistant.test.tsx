@@ -39,9 +39,9 @@ describe('LineItemAssistant', () => {
     await waitFor(() => expect(onFilters).toHaveBeenCalledWith({ searchText: 'ec2', costMin: 100 }));
   });
 
-  // An assistant that changes what you are looking at without saying how is a
-  // black box. The filter bar shows the fields; this says it in words.
-  it('states in words what it applied', async () => {
+  // An assistant that changes what you are looking at without showing how is
+  // a black box. These are the fields it set, named as the grid names them.
+  it('shows the filter it compiled, field by field', async () => {
     reply({ cloudProvider: 'aws', region: 'us-east-1', costMin: 100 });
     setup();
 
@@ -49,9 +49,40 @@ describe('LineItemAssistant', () => {
     await userEvent.click(screen.getByRole('button', { name: /^ask$/i }));
 
     const status = await screen.findByRole('status');
-    expect(status).toHaveTextContent(/AWS/);
-    expect(status).toHaveTextContent(/us-east-1/);
-    expect(status).toHaveTextContent(/at least \$100/);
+    expect(status).toHaveTextContent('provider');
+    expect(status).toHaveTextContent('aws');
+    expect(status).toHaveTextContent('region');
+    expect(status).toHaveTextContent('us-east-1');
+    expect(status).toHaveTextContent('cost >=');
+    expect(status).toHaveTextContent('100');
+  });
+
+  // Every filter the parser can return needs a token, or the box would apply
+  // something it does not show.
+  it('has a token for every filter it can be handed', async () => {
+    reply({
+      searchText: 'ec2',
+      cloudProvider: 'azure',
+      serviceNames: ['Amazon EC2'],
+      billingCode: 'CC-1',
+      accountId: '123',
+      region: 'eastus',
+      dateFrom: '2026-08-01',
+      dateTo: '2026-08-31',
+      costMin: 1,
+      costMax: 2,
+      excludeZeroCost: true,
+    });
+    setup();
+
+    await userEvent.type(screen.getByLabelText(/^ask$/i), 'everything at once');
+    await userEvent.click(screen.getByRole('button', { name: /^ask$/i }));
+
+    const status = await screen.findByRole('status');
+    for (const key of ['search', 'provider', 'service', 'billing_code', 'account', 'region', 'from', 'to', 'cost >=', 'cost <=']) {
+      expect(status).toHaveTextContent(key);
+    }
+    expect(status).toHaveTextContent('!= 0');
   });
 
   it('says so when the question needed no filter at all', async () => {
