@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { parseCostFile } from './parseCostFile';
+import { COST_FILE_COLUMNS, describeCostFileColumns, parseCostFile } from './parseCostFile';
 
 function buildWorkbookBuffer(rows: (string | number | Date)[][]): Buffer {
   const worksheet = XLSX.utils.aoa_to_sheet(rows);
@@ -482,6 +482,87 @@ describe('parseCostFile', () => {
 
       expect(result.rows[0].service_name).toBe('Azure Database for PostgreSQL');
       expect(result.rows[0].meter_category).toBe('Storage');
+    });
+  });
+
+  // What the container-inspect diagnostic reports. Its whole value is that it
+  // answers for the SAME alias lists parseCostFile resolves against, so these
+  // tests are mostly about the two not drifting apart.
+  describe('describeCostFileColumns', () => {
+    it('names the header each field resolved to, and null for the ones absent', () => {
+      const report = describeCostFileColumns(
+        buildWorkbookBuffer([
+          ['ServiceName', 'ChargePeriodStart', 'BilledCost', 'x_ResourceGroupName'],
+          ['Virtual Machines', '2026-08-03', 18.4, 'rg-app'],
+        ])
+      );
+
+      const headerFor = (field: string) => report.columns.find((c) => c.field === field)?.header;
+
+      expect(report.headers).toEqual(['ServiceName', 'ChargePeriodStart', 'BilledCost', 'x_ResourceGroupName']);
+      expect(headerFor('service_name')).toBe('ServiceName');
+      expect(headerFor('usage_date')).toBe('ChargePeriodStart');
+      expect(headerFor('cost')).toBe('BilledCost');
+      expect(headerFor('resource_group')).toBe('x_ResourceGroupName');
+      expect(headerFor('instance_type')).toBeNull();
+      expect(report.missingRequired).toEqual([]);
+    });
+
+    // The point of the diagnostic is to explain a failed pull, so its labels
+    // have to be the words that pull actually printed. If someone renames a
+    // label without touching the parser's error, this fails.
+    it('reports missing columns under the same names parseCostFile puts in its errors', () => {
+      const buffer = buildWorkbookBuffer([
+        ['Widget', 'When', 'HowMuch'],
+        ['a', 'b', 'c'],
+      ]);
+
+      const { missingRequired } = describeCostFileColumns(buffer);
+      const { errors } = parseCostFile(buffer);
+
+      expect(missingRequired).toEqual(['Service', 'Date', 'Cost']);
+      expect(missingRequired.map((label) => `Could not find a "${label}" column.`)).toEqual(errors);
+    });
+
+    // A FOCUS export resolves Service but not Date or Cost, which is exactly
+    // the two-error shape the pull reported before FOCUS was recognised.
+    it('reports only the required columns that are genuinely absent', () => {
+      const { missingRequired } = describeCostFileColumns(
+        buildWorkbookBuffer([['ServiceName', 'Widget'], ['Virtual Machines', 'x']])
+      );
+
+      expect(missingRequired).toEqual(['Date', 'Cost']);
+    });
+
+    it('lists CUR-style per-tag columns by their key', () => {
+      const report = describeCostFileColumns(
+        buildWorkbookBuffer([
+          ['Service', 'Date', 'Cost', 'resourceTags/user:env', 'resource_tags/user_owner'],
+          ['EC2', '2026-08-01', 1, 'prod', 'platform'],
+        ])
+      );
+
+      expect(report.tagColumns).toEqual(['env', 'owner']);
+    });
+
+    // A field the table forgets is a field the diagnostic silently never
+    // mentions, which is the one failure mode nobody would notice.
+    it('covers every field a parsed row carries', () => {
+      const parsed = parseCostFile(
+        buildWorkbookBuffer([
+          ['Service', 'Date', 'Cost'],
+          ['EC2', '2026-08-01', 1],
+        ])
+      );
+
+      expect([...COST_FILE_COLUMNS].map((c) => c.field).sort()).toEqual(Object.keys(parsed.rows[0]).sort());
+    });
+
+    it('reports an empty sheet without inventing columns', () => {
+      const report = describeCostFileColumns(buildWorkbookBuffer([]));
+
+      expect(report.headers).toEqual([]);
+      expect(report.missingRequired).toEqual(['Service', 'Date', 'Cost']);
     });
   });
 });

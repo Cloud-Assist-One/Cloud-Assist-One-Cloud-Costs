@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { BillingFileSource } from '@/lib/types';
+import type { BillingFileSource, BillingSourceInspection } from '@/lib/types';
+import BillingSourceInspectionReport from './BillingSourceInspectionReport';
 import styles from './BillingFileSourcesPanel.module.css';
 
 // Bucket pulls only support these two providers today (see the pull route),
@@ -35,6 +36,11 @@ export default function BillingFileSourcesPanel({ companyId }: BillingFileSource
   const [error, setError] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [testingId, setTestingId] = useState<string | null>(null);
+  // Keyed by source so testing a second bucket does not blank the first
+  // one's report, which is the whole point when comparing two of them.
+  const [inspections, setInspections] = useState<Record<string, BillingSourceInspection>>({});
+  const [testErrors, setTestErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -111,6 +117,44 @@ export default function BillingFileSourcesPanel({ companyId }: BillingFileSource
     }
   }
 
+  // Reads the bucket and reports what is in it, without importing any of it.
+  // Deliberately separate from the pull: the pull's summary can only describe
+  // an import it already committed to, which is no use when the question is
+  // why there was nothing to import.
+  async function handleTest(sourceId: string) {
+    setTestingId(sourceId);
+    setTestErrors((prev) => {
+      const next = { ...prev };
+      delete next[sourceId];
+      return next;
+    });
+    try {
+      const response = await fetch(`/api/billing-sources/${sourceId}/inspect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId }),
+      });
+      const body = await response.json();
+      if (!response.ok) {
+        // A failure here IS the answer -- the credential, the storage account
+        // or the container name is wrong -- so it belongs beside the bucket
+        // it is about, not in the panel-wide error above.
+        setTestErrors((prev) => ({ ...prev, [sourceId]: body.error ?? 'Could not read this bucket.' }));
+        setInspections((prev) => {
+          const next = { ...prev };
+          delete next[sourceId];
+          return next;
+        });
+        return;
+      }
+      setInspections((prev) => ({ ...prev, [sourceId]: body.inspection as BillingSourceInspection }));
+    } catch {
+      setTestErrors((prev) => ({ ...prev, [sourceId]: 'Could not reach the server to test this bucket.' }));
+    } finally {
+      setTestingId(null);
+    }
+  }
+
   async function handleDelete(sourceId: string) {
     setError(null);
     setDeletingId(sourceId);
@@ -177,14 +221,32 @@ export default function BillingFileSourcesPanel({ companyId }: BillingFileSource
                   </button>
                 </span>
               ) : (
-                <button
-                  type="button"
-                  className={styles.dangerButton}
-                  onClick={() => setConfirmingDeleteId(source.id)}
-                >
-                  Remove
-                </button>
+                <span className={styles.cardActions}>
+                  <button
+                    type="button"
+                    className={styles.secondaryButton}
+                    disabled={testingId === source.id}
+                    onClick={() => handleTest(source.id)}
+                  >
+                    {testingId === source.id ? 'Testing…' : 'Test connection'}
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.dangerButton}
+                    onClick={() => setConfirmingDeleteId(source.id)}
+                  >
+                    Remove
+                  </button>
+                </span>
               )}
+
+              {testErrors[source.id] && (
+                <p role="alert" className={styles.testError}>
+                  {testErrors[source.id]}
+                </p>
+              )}
+
+              {inspections[source.id] && <BillingSourceInspectionReport inspection={inspections[source.id]} />}
             </li>
           ))}
         </ul>

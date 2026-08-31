@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireCompanyAccess } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { decryptCredentials } from '@/lib/cloudCredentialsCrypto';
-import { createS3ObjectStore } from '@/lib/objectStoreS3';
-import { createAzureBlobObjectStore } from '@/lib/objectStoreAzureBlob';
-import type { AzureCredentials } from '@/lib/azureCostQuery';
+import { createStoreForSource, errorMessage, permissionHint } from '@/lib/billingSourceStore';
 import { discoverRuns } from '@/lib/exportDiscovery';
 import { gunzipIfNeeded } from '@/lib/gunzipIfNeeded';
 import { deriveBillingMonth } from '@/lib/deriveBillingMonth';
@@ -13,7 +10,6 @@ import { periodForMonth } from '@/lib/periodForMonth';
 import { parseCostFile } from '@/lib/parseCostFile';
 import { planPlacement } from '@/lib/pullPlacement';
 import type { ResolvedRun } from '@/lib/pullPlacement';
-import type { ObjectStore } from '@/lib/objectStore';
 import type {
   BillingSourcePullRun,
   BillingSourcePullResult,
@@ -35,22 +31,6 @@ const MAX_PARTS_PER_RUN = 200;
 // pull downloads, not how much decompressed data it produces — do not treat
 // it as a decompressed-size limit.
 const MAX_TOTAL_COMPRESSED_BYTES = 500 * 1024 * 1024;
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : 'Unknown error.';
-}
-
-/** Names the role rather than echoing the SDK, which is the usual cause of a first pull failing. */
-function permissionHint(provider: CloudProvider, err: unknown): string {
-  const message = errorMessage(err);
-  const status = (err as { statusCode?: number; $metadata?: { httpStatusCode?: number } });
-  const denied = status?.statusCode === 403 || status?.$metadata?.httpStatusCode === 403;
-  if (!denied) return message;
-
-  return provider === 'aws'
-    ? `${message} The credential needs s3:ListBucket on the bucket and s3:GetObject on its contents.`
-    : `${message} The app registration needs the Storage Blob Data Reader role on the storage account — a data-plane role the Reader and Cost Management Reader roles do not grant.`;
-}
 
 export async function POST(request: NextRequest, context: RouteContext<'/api/billing-sources/[sourceId]/pull'>) {
   const { sourceId } = await context.params;
@@ -96,46 +76,18 @@ export async function POST(request: NextRequest, context: RouteContext<'/api/bil
   }
 
   const provider = source.cloud_provider as CloudProvider;
-  let store: ObjectStore;
-  try {
-    if (provider === 'aws') {
-      const secrets = decryptCredentials<{ accessKeyId: string; secretAccessKey: string }>(credRow.encrypted_payload);
-      store = createS3ObjectStore({
-        accessKeyId: secrets.accessKeyId,
-        secretAccessKey: secrets.secretAccessKey,
-        region: credRow.region ?? 'us-east-1',
-        bucket: source.container,
-      });
-    } else if (provider === 'azure') {
-      const secrets = decryptCredentials<AzureCredentials>(credRow.encrypted_payload);
-      // An Azure container name can never itself contain "/", so anything
-      // past the second segment is not a nested path we can safely rejoin —
-      // it means the stored value is wrong. Reject rather than silently
-      // dropping the extra segments and pointing at the wrong container.
-      const containerParts = String(source.container).split('/');
-      if (containerParts.length > 2) {
-        return NextResponse.json(
-          {
-            error: `The container "${source.container}" has more than one "/" — expected "account/container".`,
-          },
-          { status: 400 }
-        );
-      }
-      const [account, container] = containerParts;
-      store = createAzureBlobObjectStore({
-        tenantId: secrets.tenantId,
-        clientId: secrets.clientId,
-        clientSecret: secrets.clientSecret,
-        account,
-        container,
-      });
-    } else {
-      return NextResponse.json({ error: `Pulling from a ${provider} bucket is not supported yet.` }, { status: 400 });
-    }
-  } catch (err) {
-    console.error('Failed to build the object store:', err);
-    return NextResponse.json({ error: 'Could not read the stored credentials for this bucket.' }, { status: 500 });
+  const resolved = createStoreForSource({
+    provider,
+    container: source.container,
+    encryptedPayload: credRow.encrypted_payload,
+    region: credRow.region ?? null,
+  });
+
+  if (!resolved.ok) {
+    return NextResponse.json({ error: resolved.error }, { status: resolved.status });
   }
+
+  const store = resolved.store;
 
   // --- Active period first: everything below needs a fixed id to compare
   // against and to write into ---
