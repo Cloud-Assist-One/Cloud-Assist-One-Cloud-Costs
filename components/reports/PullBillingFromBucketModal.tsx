@@ -169,12 +169,12 @@ export default function PullBillingFromBucketModal({ companyId, provider, onClos
           <div className={styles.confirm}>
             <h3>Detail Pull from {selectedSource.label}</h3>
             <p>
-              Pulling will archive the current period&apos;s data first. The archived copy stays readable under the
-              Archive tab.
+              If this bucket&apos;s newest month is the one already in the current period, it is imported alongside
+              what is there — pulling your other cloud does not displace this one.
             </p>
             <p>
-              If an archive already exists for the same month, that existing archive is replaced. The newest month
-              found in the bucket becomes the new active period.
+              A newer month archives the current period first, both clouds together, and the archived copy stays
+              readable under the Archive tab. If an archive already exists for that month, it is replaced.
             </p>
             <p>
               Importing into an archived period that already exists for its month overwrites that provider&apos;s
