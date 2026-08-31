@@ -90,4 +90,74 @@ describe('AdminUserEmails', () => {
 
     confirmSpy.mockRestore();
   });
+
+  describe('sign-up and sign-in state', () => {
+    /** A free sign-up whose magic link is still sitting unopened in an inbox. */
+    const pendingSignup = {
+      users: [
+        {
+          id: 'u2',
+          email: 'pending@example.com',
+          role: 'client',
+          company_id: 'c1',
+          created_at: '2026-08-25T00:00:00.000Z',
+          email_confirmed_at: null,
+          last_sign_in_at: null,
+        },
+      ],
+    };
+
+    const activeUser = {
+      users: [
+        {
+          id: 'u3',
+          email: 'active@example.com',
+          role: 'client',
+          company_id: 'c1',
+          created_at: '2026-08-01T00:00:00.000Z',
+          email_confirmed_at: '2026-08-02T10:00:00.000Z',
+          last_sign_in_at: '2026-08-30T09:00:00.000Z',
+        },
+      ],
+    };
+
+    it('shows an unopened magic link as a sign-up that never completed', async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => pendingSignup });
+
+      render(<AdminUserEmails />);
+
+      await screen.findByText('pending@example.com');
+
+      // Scoped to the row: the intro paragraph explains what the label means
+      // and so contains the same words.
+      const row = screen.getByRole('row', { name: /pending@example\.com/ });
+      expect(row).toHaveTextContent('Link not used yet');
+      expect(row).toHaveTextContent('Not confirmed');
+      expect(row).toHaveTextContent('Never');
+    });
+
+    it('shows when a confirmed account last signed in', async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => activeUser });
+
+      render(<AdminUserEmails />);
+
+      await screen.findByText('active@example.com');
+      const row = screen.getByRole('row', { name: /active@example\.com/ });
+      expect(row).toHaveTextContent('Active');
+      expect(row).toHaveTextContent(new Date('2026-08-30T09:00:00.000Z').toLocaleString());
+      expect(row).toHaveTextContent(new Date('2026-08-02T10:00:00.000Z').toLocaleString());
+    });
+
+    // The existing rows predate these columns, and a list that throws on one
+    // is worse than a list that admits it does not know.
+    it('renders a row that carries no sign-in data at all', async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => oneUser });
+
+      render(<AdminUserEmails />);
+
+      await screen.findByText('client@example.com');
+
+      expect(screen.getByRole('row', { name: /client@example\.com/ })).toHaveTextContent('Link not used yet');
+    });
+  });
 });
