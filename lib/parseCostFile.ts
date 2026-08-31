@@ -38,8 +38,16 @@ export interface ParseResult {
 }
 
 // Aliases are tried in order, so the earliest match wins. Azure Cost Details
-// names are appended to each list rather than inserted, which keeps the
-// column an existing spreadsheet resolves to unchanged.
+// and FOCUS names are appended to each list rather than inserted, which keeps
+// the column an existing spreadsheet resolves to unchanged.
+//
+// FOCUS is the FinOps Open Cost and Usage Specification, and is the export
+// type the current Azure Cost Management "Exports" wizard offers first. It
+// renames nearly every column: ChargePeriodStart for the date, BilledCost for
+// the cost, SubAccountId for the subscription, and x_-prefixed columns for
+// the Azure-specific ones. ServiceName was the only required column whose
+// FOCUS name already matched, which is why a FOCUS export used to fail with
+// exactly two errors -- Date and Cost -- and never mentioned Service.
 const SERVICE_HEADER_ALIASES = [
   'service',
   'service name',
@@ -56,7 +64,18 @@ const SERVICE_HEADER_ALIASES = [
   'line_item_product_code',
   'product_servicecode',
 ];
-const DATE_HEADER_ALIASES = ['date', 'usage date', 'start date', 'month', 'usagedatetime', 'line_item_usage_start_date'];
+const DATE_HEADER_ALIASES = [
+  'date',
+  'usage date',
+  'start date',
+  'month',
+  'usagedatetime',
+  'line_item_usage_start_date',
+  // FOCUS. ChargePeriodStart is the day the charge covers; BillingPeriodStart
+  // is deliberately NOT an alias, because it is the same month-start on every
+  // row and would collapse a whole month onto the 1st.
+  'chargeperiodstart',
+];
 const COST_HEADER_ALIASES = [
   'cost',
   'amount',
@@ -68,33 +87,51 @@ const COST_HEADER_ALIASES = [
   'pretaxcost',
   // AWS CUR 2.0 / Data Exports.
   'line_item_unblended_cost',
+  // FOCUS. BilledCost first: it is the invoiced amount, which is what the
+  // legacy Azure aliases above ("actual cost") already resolved to, so a
+  // company that re-creates its export as FOCUS sees the same totals rather
+  // than silently switching to amortized. EffectiveCost is the amortized
+  // figure and only stands in when an export omits BilledCost.
+  'billedcost',
+  'effectivecost',
 ];
-const ACCOUNT_HEADER_ALIASES = ['account id', 'linked account', 'subscription id', 'subscription name', 'line_item_usage_account_id'];
+const ACCOUNT_HEADER_ALIASES = [
+  'account id',
+  'linked account',
+  'subscription id',
+  'subscription name',
+  'line_item_usage_account_id',
+  // FOCUS calls the subscription a sub-account.
+  'subaccountid',
+  'subaccountname',
+];
 
 // Line-item detail aliases, covering both AWS Cost and Usage Report (CUR)
 // and Azure usage-export naming. Matched case-insensitively via
 // normalizeHeader, same as the four aliases above.
 const RESOURCE_ID_HEADER_ALIASES = ['resource id', 'resourceid', 'lineitem/resourceid', 'line_item_resource_id', 'instance id', 'instancename'];
-const RESOURCE_GROUP_HEADER_ALIASES = ['resource group', 'resourcegroup', 'resourcegroupname'];
-const REGION_HEADER_ALIASES = ['region', 'resourcelocation', 'resource location', 'location', 'product/region', 'product_region', 'meterregion', 'product_region_code'];
-const AVAILABILITY_ZONE_HEADER_ALIASES = ['availability zone', 'az', 'lineitem/availabilityzone', 'line_item_availability_zone'];
+const RESOURCE_GROUP_HEADER_ALIASES = ['resource group', 'resourcegroup', 'resourcegroupname', 'x_resourcegroupname'];
+const REGION_HEADER_ALIASES = ['region', 'resourcelocation', 'resource location', 'location', 'product/region', 'product_region', 'meterregion', 'product_region_code', 'regionid', 'regionname'];
+const AVAILABILITY_ZONE_HEADER_ALIASES = ['availability zone', 'availabilityzone', 'az', 'lineitem/availabilityzone', 'line_item_availability_zone'];
 const INSTANCE_TYPE_HEADER_ALIASES = ['instance type', 'instancetype', 'product/instancetype', 'product_instance_type'];
 const DATABASE_ENGINE_HEADER_ALIASES = ['database engine', 'databaseengine', 'product/databaseengine', 'product_database_engine'];
-const METER_CATEGORY_HEADER_ALIASES = ['meter category', 'metercategory'];
-const METER_NAME_HEADER_ALIASES = ['meter name', 'metername', 'meter'];
+const METER_CATEGORY_HEADER_ALIASES = ['meter category', 'metercategory', 'x_skumetercategory'];
+const METER_NAME_HEADER_ALIASES = ['meter name', 'metername', 'meter', 'x_skumetername'];
 const USAGE_TYPE_HEADER_ALIASES = ['usage type', 'usagetype', 'lineitem/usagetype', 'line_item_usage_type'];
 const OPERATION_HEADER_ALIASES = ['operation', 'lineitem/operation', 'line_item_operation'];
-const SUBSCRIPTION_ID_HEADER_ALIASES = ['subscription id', 'subscriptionid', 'subscriptionguid'];
-const SUBSCRIPTION_NAME_HEADER_ALIASES = ['subscription name', 'subscriptionname'];
-const PURCHASE_TYPE_HEADER_ALIASES = ['purchase type', 'purchaseoption', 'pricingmodel', 'pricing model', 'lineitem/lineitemtype', 'charge type', 'pricing_purchase_option'];
-const RESERVATION_ID_HEADER_ALIASES = ['reservation id', 'reservationid', 'reservation_reservation_a_r_n'];
-const RESERVATION_NAME_HEADER_ALIASES = ['reservation name', 'reservationname', 'savings_plan_savings_plan_a_r_n'];
-const QUANTITY_HEADER_ALIASES = ['quantity', 'usagequantity', 'lineitem/usageamount', 'line_item_usage_amount'];
-const UNIT_HEADER_ALIASES = ['unit', 'unitofmeasure', 'pricing/unit', 'pricing_unit'];
-const UNIT_PRICE_HEADER_ALIASES = ['unit price', 'unitprice', 'pricing/publicondemandrate', 'pricing_public_on_demand_rate'];
-const EFFECTIVE_PRICE_HEADER_ALIASES = ['effective price', 'effectiveprice', 'lineitem/netunblendedcost', 'line_item_net_unblended_cost'];
+const SUBSCRIPTION_ID_HEADER_ALIASES = ['subscription id', 'subscriptionid', 'subscriptionguid', 'subaccountid'];
+const SUBSCRIPTION_NAME_HEADER_ALIASES = ['subscription name', 'subscriptionname', 'subaccountname'];
+const PURCHASE_TYPE_HEADER_ALIASES = ['purchase type', 'purchaseoption', 'pricingmodel', 'pricing model', 'lineitem/lineitemtype', 'charge type', 'pricing_purchase_option', 'pricingcategory'];
+const RESERVATION_ID_HEADER_ALIASES = ['reservation id', 'reservationid', 'reservation_reservation_a_r_n', 'commitmentdiscountid'];
+const RESERVATION_NAME_HEADER_ALIASES = ['reservation name', 'reservationname', 'savings_plan_savings_plan_a_r_n', 'commitmentdiscountname'];
+// FOCUS pricing* before consumed*: PricingQuantity is the quantity the unit
+// price is charged against, so quantity x unit_price reconciles to cost.
+const QUANTITY_HEADER_ALIASES = ['quantity', 'usagequantity', 'lineitem/usageamount', 'line_item_usage_amount', 'pricingquantity', 'consumedquantity'];
+const UNIT_HEADER_ALIASES = ['unit', 'unitofmeasure', 'pricing/unit', 'pricing_unit', 'pricingunit', 'consumedunit'];
+const UNIT_PRICE_HEADER_ALIASES = ['unit price', 'unitprice', 'pricing/publicondemandrate', 'pricing_public_on_demand_rate', 'listunitprice'];
+const EFFECTIVE_PRICE_HEADER_ALIASES = ['effective price', 'effectiveprice', 'lineitem/netunblendedcost', 'line_item_net_unblended_cost', 'contractedunitprice'];
 const CURRENCY_HEADER_ALIASES = ['currency', 'billingcurrency', 'currencycode', 'pricing/currency', 'line_item_currency_code'];
-const CHARGE_TYPE_HEADER_ALIASES = ['charge type', 'chargetype', 'lineitem/lineitemtype', 'line_item_line_item_type'];
+const CHARGE_TYPE_HEADER_ALIASES = ['charge type', 'chargetype', 'lineitem/lineitemtype', 'line_item_line_item_type', 'chargecategory'];
 const TAGS_HEADER_ALIASES = ['tags', 'resource tags', 'resourcetags'];
 
 // CUR-style per-tag columns: `resource_tags/user_<key>` (Azure-flavored
