@@ -47,6 +47,10 @@ jest.mock('./../settings/SettingsTab', () => ({
   __esModule: true,
   default: () => <div>settings-tab-content</div>,
 }));
+jest.mock('./../billing/BillingPanel', () => ({
+  __esModule: true,
+  default: () => <div>billing-panel-content</div>,
+}));
 jest.mock('./../support/SupportRequestsTab', () => ({
   __esModule: true,
   default: () => <div>support-requests-content</div>,
@@ -302,6 +306,7 @@ describe('AppShell', () => {
     expect(screen.queryByRole('tab', { name: /uploaded files/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: /archive/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: /settings/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /billing/i })).not.toBeInTheDocument();
   });
 
   it('hides the admin tabs while mirroring a client, and restores them on the way back', async () => {
@@ -384,6 +389,16 @@ describe('AppShell', () => {
     await screen.findByText('report-tab-content for aws');
     await user.click(screen.getByRole('tab', { name: /settings/i }));
     expect(await screen.findByText('settings-tab-content')).toBeInTheDocument();
+  });
+
+  it('shows the Billing tab for a client, and hides it in the Admin Portal', async () => {
+    listCompanies.mockResolvedValueOnce({ data: [{ id: 'c1', name: 'Acme Corp', created_at: '2026-07-01T00:00:00.000Z' }] });
+    const user = userEvent.setup();
+    render(<AppShell userId="client-1" role="client" companyId="c1" userEmail="client@example.com" />);
+
+    await screen.findByText('report-tab-content for aws');
+    await user.click(screen.getByRole('tab', { name: /billing/i }));
+    expect(await screen.findByText('billing-panel-content')).toBeInTheDocument();
   });
 
   it('shows an Overview/Resources/IAM Users sub-tab strip on the AWS tab, defaulting to Overview', async () => {

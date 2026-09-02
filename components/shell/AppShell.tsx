@@ -18,6 +18,7 @@ import ArchiveTab from './ArchiveTab';
 import SupportTab from '../support/SupportTab';
 import SupportRequestsTab from '../support/SupportRequestsTab';
 import SettingsTab from '../settings/SettingsTab';
+import BillingPanel from '../billing/BillingPanel';
 import AwsResourcesTab from '../reports/AwsResourcesTab';
 import AwsIamUsersTab from '../reports/AwsIamUsersTab';
 import AzureResourcesTab from '../reports/AzureResourcesTab';
@@ -41,6 +42,7 @@ type TabKey =
   | 'support'
   | 'archive'
   | 'settings'
+  | 'billing'
   | 'supportRequests'
   | 'admin';
 
@@ -325,6 +327,7 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
               <TabsTrigger value="support">Support</TabsTrigger>
               <TabsTrigger value="archive">Archive</TabsTrigger>
               <TabsTrigger value="settings">Settings</TabsTrigger>
+              <TabsTrigger value="billing">Billing</TabsTrigger>
             </>
           )}
         </TabsList>
@@ -396,6 +399,12 @@ export default function AppShell({ userId, role, companyId, userEmail }: AppShel
         ) : activeTab === 'settings' ? (
           effectiveCompanyId ? (
             <SettingsTab companyId={effectiveCompanyId} />
+          ) : (
+            <p>Select a company to view its data.</p>
+          )
+        ) : activeTab === 'billing' ? (
+          effectiveCompanyId ? (
+            <BillingPanel companyId={effectiveCompanyId} />
           ) : (
             <p>Select a company to view its data.</p>
           )
