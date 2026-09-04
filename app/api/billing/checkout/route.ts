@@ -55,7 +55,12 @@ export async function POST(request: NextRequest) {
       .eq('id', companyId);
   }
 
-  const origin = request.nextUrl?.origin ?? process.env.NEXT_PUBLIC_SITE_URL ?? '';
+  // NEXT_PUBLIC_SITE_URL is preferred: request.nextUrl.origin is derived from
+  // the incoming Host/X-Forwarded-Host header, which a caller can forge. The
+  // request origin is kept only as a local-development fallback -- a forged
+  // Host must never be able to steer where a paying customer lands right
+  // after checkout.
+  const origin = (process.env.NEXT_PUBLIC_SITE_URL ?? '').trim() || request.nextUrl?.origin || '';
 
   const session = await stripe.checkout.sessions.create({
     mode: 'subscription',

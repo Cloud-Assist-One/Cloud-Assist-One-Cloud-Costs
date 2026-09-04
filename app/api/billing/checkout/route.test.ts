@@ -58,6 +58,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   process.env.STRIPE_PRICE_SUB4 = 'price_sub4';
   process.env.STRIPE_PRICE_SUB20 = 'price_sub20';
+  delete process.env.NEXT_PUBLIC_SITE_URL;
   (requireCompanyAccess as jest.Mock).mockResolvedValue({
     authorized: true,
     userId: 'user-1',
@@ -120,5 +121,26 @@ describe('POST /api/billing/checkout', () => {
     expect(args.mode).toBe('subscription');
     expect(args.customer).toBe('cus_existing');
     expect(args.metadata).toEqual({ company_id: 'company-1', tier: 'subscription_4' });
+  });
+
+  it('builds the redirect urls from the trusted site url, not a forged request origin', async () => {
+    // request.nextUrl.origin is derived from the incoming Host header, which
+    // a caller can forge. NEXT_PUBLIC_SITE_URL must win whenever it is set,
+    // or a forged Host could send a paying customer to an attacker's page
+    // the instant they finish checkout.
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://trusted.example.com';
+    stubAdminClient();
+    const create = jest.fn().mockResolvedValue({ url: 'https://checkout.stripe.com/c/pay/123' });
+    (getStripe as jest.Mock).mockReturnValue({ checkout: { sessions: { create } } });
+
+    const req = request({ companyId: 'company-1', tier: 'subscription_4' });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (req as any).nextUrl = { origin: 'https://attacker.example' };
+
+    await POST(req);
+
+    const args = create.mock.calls[0][0];
+    expect(args.success_url).toBe('https://trusted.example.com/billing?checkout=success');
+    expect(args.cancel_url).toBe('https://trusted.example.com/billing?checkout=cancelled');
   });
 });
