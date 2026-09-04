@@ -46,4 +46,33 @@ describe('requireActiveBilling', () => {
 
     expect(result).toEqual({ allowed: true });
   });
+
+  // Regression test for Critical 1's second half: app/page.tsx never shows
+  // staff or admins the trial lock, so the enforcement layer must match --
+  // otherwise an admin acting on behalf of an expired client gets a 403 the
+  // UI never predicted.
+  it.each(['staff', 'admin'] as const)(
+    'never gates a %s, even when the company itself is trial_expired',
+    async (role) => {
+      mockedFetchCompanyAccess.mockResolvedValue({ state: 'trial_expired', trialEndsAt: null });
+
+      const result = await requireActiveBilling('company-1', role);
+
+      expect(result).toEqual({ allowed: true });
+      // The exemption must short-circuit before any lookup happens.
+      expect(mockedFetchCompanyAccess).not.toHaveBeenCalled();
+    }
+  );
+
+  it('still gates a client role explicitly, matching the default', async () => {
+    mockedFetchCompanyAccess.mockResolvedValue({ state: 'trial_expired', trialEndsAt: null });
+
+    const result = await requireActiveBilling('company-1', 'client');
+
+    expect(result).toEqual({
+      allowed: false,
+      status: 403,
+      message: 'Your free trial has ended. Add a payment method to continue.',
+    });
+  });
 });

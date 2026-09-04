@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
 
   // Billing is checked after identity: a caller must be authenticated and
   // entitled to this company before we tell them anything about its plan.
-  const billing = await requireActiveBilling(companyId);
+  const billing = await requireActiveBilling(companyId, guard.role);
   if (!billing.allowed) {
     return NextResponse.json({ error: billing.message }, { status: billing.status });
   }

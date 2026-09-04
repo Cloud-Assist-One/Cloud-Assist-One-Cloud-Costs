@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireCompanyAccess } from '@/lib/admin-guard';
+import { requireActiveBilling } from '@/lib/billingGuard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { deletePeriodAndContents } from '@/lib/deletePeriod';
 
@@ -26,6 +27,11 @@ export async function DELETE(_request: Request, context: RouteContext<'/api/peri
   const guard = await requireCompanyAccess(period.company_id);
   if (!guard.authorized) {
     return NextResponse.json({ error: guard.message }, { status: guard.status });
+  }
+
+  const billing = await requireActiveBilling(period.company_id, guard.role);
+  if (!billing.allowed) {
+    return NextResponse.json({ error: billing.message }, { status: billing.status });
   }
 
   // The active period is exactly-one-per-company and drives the whole app's
