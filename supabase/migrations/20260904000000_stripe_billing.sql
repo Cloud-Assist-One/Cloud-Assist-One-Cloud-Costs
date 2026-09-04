@@ -55,14 +55,17 @@ create table public.stripe_events (
 
 -- RLS on with no policies, plus a grant scoped to exactly what the webhook
 -- handler does: insert the claim row, and delete it again if processing
--- fails after the insert so a retry can reclaim the same event id. No
--- select or update, and no grant to authenticated -- RLS policies are never
--- evaluated without a base-table grant (see Global Constraints), so the
--- combination of RLS-with-no-policies and a service_role-only grant is what
--- actually makes this table service-role only.
+-- fails after the insert so a retry can reclaim the same event id. select
+-- is included not because anything reads rows back, but because the delete
+-- filters on id (delete from stripe_events where id = $1), and Postgres
+-- requires select on any column referenced in a delete's WHERE clause. No
+-- update, and no grant to authenticated -- RLS policies are never evaluated
+-- without a base-table grant (see Global Constraints), so the combination
+-- of RLS-with-no-policies and a service_role-only grant is what actually
+-- makes this table service-role only.
 alter table public.stripe_events enable row level security;
 
-grant insert, delete on public.stripe_events to service_role;
+grant insert, select, delete on public.stripe_events to service_role;
 
 -- No new policies on companies. companies_update_staff is the only update
 -- policy, so a client cannot write its own tier or trial date, and
