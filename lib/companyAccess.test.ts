@@ -78,13 +78,55 @@ describe('resolveCompanyAccess', () => {
     expect(access.state).toBe('trial_expired');
   });
 
-  it('locks a canceled subscription, which the webhook returns to free', () => {
+  it('locks a free company whose trial is long past', () => {
     const access = resolveCompanyAccess(
       {
         subscription_tier: 'free',
         trial_ends_at: daysFromNow(-60),
+        stripe_subscription_id: null,
+        subscription_status: null,
+      },
+      NOW
+    );
+
+    expect(access.state).toBe('trial_expired');
+  });
+
+  it('locks a paid tier whose subscription is canceled', () => {
+    const access = resolveCompanyAccess(
+      {
+        subscription_tier: 'subscription_4',
+        trial_ends_at: null,
         stripe_subscription_id: 'sub_123',
         subscription_status: 'canceled',
+      },
+      NOW
+    );
+
+    expect(access.state).toBe('trial_expired');
+  });
+
+  it('locks a paid tier whose subscription is incomplete', () => {
+    const access = resolveCompanyAccess(
+      {
+        subscription_tier: 'subscription_20',
+        trial_ends_at: null,
+        stripe_subscription_id: 'sub_123',
+        subscription_status: 'incomplete',
+      },
+      NOW
+    );
+
+    expect(access.state).toBe('trial_expired');
+  });
+
+  it('locks a paid tier whose subscription status is null', () => {
+    const access = resolveCompanyAccess(
+      {
+        subscription_tier: 'subscription_4',
+        trial_ends_at: null,
+        stripe_subscription_id: 'sub_123',
+        subscription_status: null,
       },
       NOW
     );
@@ -136,5 +178,25 @@ describe('trialDaysLeft', () => {
 
   it('is 0 for a null date', () => {
     expect(trialDaysLeft(null, NOW)).toBe(0);
+  });
+
+  it('is 0 for a malformed date string', () => {
+    expect(trialDaysLeft('not-a-date', NOW)).toBe(0);
+  });
+});
+
+describe('resolveCompanyAccess with malformed data', () => {
+  it('locks rather than opens when trial_ends_at is malformed', () => {
+    const access = resolveCompanyAccess(
+      {
+        subscription_tier: 'free',
+        trial_ends_at: 'garbage-date',
+        stripe_subscription_id: null,
+        subscription_status: null,
+      },
+      NOW
+    );
+
+    expect(access.state).toBe('trial_expired');
   });
 });
