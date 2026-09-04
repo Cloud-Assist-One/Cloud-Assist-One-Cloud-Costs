@@ -74,9 +74,16 @@ alter table public.companies
   add column trial_ends_at timestamptz default now() + interval '30 days',
   add column stripe_customer_id text unique,
   add column stripe_subscription_id text unique,
-  add column subscription_status text
-    check (subscription_status in
-      ('trialing','active','past_due','canceled','incomplete'));
+  -- Deliberately unconstrained. The value's domain is owned by Stripe, not
+  -- by us: their own SDK types this as the eight known statuses PLUS an open
+  -- `OtherString`, because they add new ones. A CHECK listing today's values
+  -- would make customer.subscription.updated fail on 'unpaid', 'paused' or
+  -- 'incomplete_expired', and since the webhook releases its claim and 500s
+  -- on a failed write, Stripe would retry that event forever while the
+  -- customer's status never updated. resolveCompanyAccess already treats
+  -- anything it does not positively recognise as locked, so an unknown value
+  -- fails closed without needing the database to enforce it.
+  add column subscription_status text;
 
 update public.companies
    set trial_ends_at = now() + interval '30 days'
@@ -217,7 +224,13 @@ unauthenticated.
    subscribed.
 3. Create one Stripe invoice item per entry at
    `Math.round(minutes / 60 * rate_cents)`, integer cents throughout, described
-   as `2026-09-02 — Cost review call (1.5h)`.
+   as `2026-09-02 — Cost review call (90 min)`.
+
+   The quantity is stated in **minutes**, not decimal hours. Rounded hours do
+   not reconcile with the exact cents charged on the same line: 50 minutes
+   displays as `0.83h` but is charged `$145.83`, and a customer multiplying
+   `0.83 x $175` arrives at `$145.25`. Minutes are also the unit staff
+   actually log, so nothing is lost.
 4. Finalize and send the invoice with 14-day terms.
 5. Stamp each entry with `stripe_invoice_id`, `invoiced_at`, and
    `rate_cents_at_invoice`.
@@ -240,7 +253,16 @@ STRIPE_SECRET_KEY=sk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 STRIPE_PRICE_SUB4=price_...
 STRIPE_PRICE_SUB20=price_...
+NEXT_PUBLIC_SITE_URL=https://your-domain.example
 ```
+
+`NEXT_PUBLIC_SITE_URL` is the trusted origin used to build Stripe's
+`success_url`, `cancel_url` and portal `return_url`. It must be preferred over
+the request's own origin: `NextRequest.nextUrl.origin` is derived from the
+incoming `Host` / `X-Forwarded-Host` header, so a forged header could otherwise
+send a paying customer to an attacker-controlled page immediately after
+payment. The request origin remains a fallback for local development only, when
+this variable is unset.
 
 The two price ids come from recurring prices created in the Stripe dashboard. No
 publishable key is needed: Checkout is Stripe-hosted.

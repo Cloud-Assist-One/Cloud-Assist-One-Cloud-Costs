@@ -19,18 +19,42 @@ export async function deletePeriodAndContents(
   // Storage paths aren't period-scoped folders (they're keyed by company_id),
   // so the exact files to remove must come from this period's own rows, not a
   // prefix sweep — a company-wide sweep would delete other periods' files too.
-  const [{ data: files, error: filesError }, { data: notes, error: notesError }] = await Promise.all([
+  const [
+    { data: files, error: filesError },
+    { data: notes, error: notesError },
+    { data: invoicedEntries, error: invoicedError },
+  ] = await Promise.all([
     adminClient.from('uploaded_files').select('storage_path').eq('period_id', periodId),
     adminClient
       .from('review_notes')
       .select('voice_note_path')
       .eq('period_id', periodId)
       .not('voice_note_path', 'is', null),
+    // A stamped stripe_invoice_id is the only link between a sent Stripe
+    // invoice and the work it billed. Hard-deleting these rows would sever
+    // that link permanently, so this has to be checked before anything is
+    // destroyed, not skipped or done best-effort.
+    adminClient
+      .from('time_entries')
+      .select('id')
+      .eq('period_id', periodId)
+      .not('stripe_invoice_id', 'is', null),
   ]);
 
-  if (filesError || notesError) {
-    console.error('Failed to look up period files before delete:', filesError ?? notesError);
+  if (filesError || notesError || invoicedError) {
+    console.error('Failed to look up period files before delete:', filesError ?? notesError ?? invoicedError);
     return { ok: false, status: 500, error: "Could not look up this period's stored files." };
+  }
+
+  const invoicedCount = (invoicedEntries ?? []).length;
+  if (invoicedCount > 0) {
+    return {
+      ok: false,
+      status: 409,
+      error:
+        `Cannot delete this period: ${invoicedCount} time ${invoicedCount === 1 ? 'entry has' : 'entries have'} ` +
+        `already been invoiced. Deleting them would destroy the only link to the sent Stripe invoice.`,
+    };
   }
 
   const filePaths = (files ?? []).map((f) => f.storage_path);

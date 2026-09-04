@@ -1,0 +1,163 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { requireAdmin } from '@/lib/admin-guard';
+import { createAdminClient } from '@/lib/supabase/admin';
+import { getStripe } from '@/lib/stripe';
+import { hourlyRateCentsFor } from '@/lib/consultingRate';
+import {
+  buildInvoiceLines,
+  buildInvoiceIdempotencyKey,
+  type TimeEntryRow,
+} from '@/lib/consultingInvoice';
+
+export const runtime = 'nodejs';
+
+export async function POST(request: NextRequest) {
+  const guard = await requireAdmin();
+  if (!guard.authorized) {
+    return NextResponse.json({ error: guard.message }, { status: guard.status });
+  }
+
+  const body = await request.json().catch(() => null);
+  const companyId = typeof body?.companyId === 'string' ? body.companyId : null;
+  if (!companyId) {
+    return NextResponse.json({ error: 'companyId is required.' }, { status: 400 });
+  }
+
+  const adminClient = createAdminClient();
+
+  const { data: company } = await adminClient
+    .from('companies')
+    .select('id, name, stripe_customer_id, hourly_rate_cents')
+    .eq('id', companyId)
+    .maybeSingle();
+
+  if (!company) {
+    return NextResponse.json({ error: 'Company not found.' }, { status: 404 });
+  }
+
+  // Re-select rather than trusting ids from the browser: the source of truth
+  // for "not yet billed" is the database, not the request.
+  const { data: entries } = await adminClient
+    .from('time_entries')
+    .select('id, entry_date, minutes_spent, description')
+    .eq('company_id', companyId)
+    .eq('billable', true)
+    .is('stripe_invoice_id', null)
+    .order('entry_date', { ascending: true });
+
+  const unbilled = (entries ?? []) as TimeEntryRow[];
+  if (unbilled.length === 0) {
+    return NextResponse.json({ error: 'No unbilled hours for this company.' }, { status: 400 });
+  }
+
+  const stripe = getStripe();
+  let customerId = company.stripe_customer_id as string | null;
+
+  // A consulting-only client may never have subscribed.
+  if (!customerId) {
+    const customer = await stripe.customers.create({
+      name: company.name as string,
+      metadata: { company_id: companyId },
+    });
+    customerId = customer.id;
+    await adminClient
+      .from('companies')
+      .update({ stripe_customer_id: customerId })
+      .eq('id', companyId);
+  }
+
+  const rateCents = hourlyRateCentsFor(company.hourly_rate_cents as number | null);
+  const lines = buildInvoiceLines(unbilled, rateCents);
+
+  // Tracks which Stripe call was in flight when something threw, so a
+  // mid-sequence failure (say item 3 of 5) reports a structured 500 naming
+  // the stage rather than surfacing as a bare, unhandled framework error.
+  let stage = 'creating invoice items';
+  let invoice: { id: string } | undefined;
+
+  try {
+    for (const line of lines) {
+      await stripe.invoiceItems.create(
+        {
+          customer: customerId,
+          amount: line.amountCents,
+          currency: 'usd',
+          description: line.description,
+        },
+        { idempotencyKey: line.idempotencyKey }
+      );
+    }
+
+    stage = 'creating the invoice';
+
+    // Idempotency key derived from the company and the exact entry set being
+    // billed -- not just the item keys above. Without this, a crash between
+    // invoice creation and finalize/send means a retry finds every item
+    // already attached to the first draft, so this call would otherwise mint
+    // a second, empty invoice that finalizes and sends at $0 while the
+    // entries get stamped as billed against it: the client is billed
+    // nothing, the real invoice sits abandoned, and nothing surfaces it.
+    invoice = await stripe.invoices.create(
+      {
+        customer: customerId,
+        collection_method: 'send_invoice',
+        days_until_due: 14,
+        metadata: { company_id: companyId },
+      },
+      {
+        idempotencyKey: buildInvoiceIdempotencyKey(
+          companyId,
+          lines.map((line) => line.entryId)
+        ),
+      }
+    );
+
+    stage = 'finalizing the invoice';
+    await stripe.invoices.finalizeInvoice(invoice.id);
+
+    stage = 'sending the invoice';
+    await stripe.invoices.sendInvoice(invoice.id);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return NextResponse.json({ error: `Invoicing failed while ${stage}: ${message}` }, { status: 500 });
+  }
+
+  const { error: stampError } = await adminClient
+    .from('time_entries')
+    .update({
+      stripe_invoice_id: invoice.id,
+      invoiced_at: new Date().toISOString(),
+      rate_cents_at_invoice: rateCents,
+    })
+    .in(
+      'id',
+      lines.map((line) => line.entryId)
+    );
+
+  if (stampError) {
+    // The invoice exists and was sent. The entries are unstamped, so a naive
+    // retry would re-run the loop above -- each item's idempotency key
+    // (ti_<entry_id>) makes THAT safe, but only for the roughly 24 hours
+    // Stripe retains an idempotency key. A retry attempted after a key has
+    // expired creates fresh invoice items AND, since the invoice-level key is
+    // derived from this same entry set, a fresh invoice too -- billing the
+    // client twice for the same hours. Past 24 hours this must be reconciled
+    // by hand, not retried.
+    return NextResponse.json(
+      {
+        error:
+          'Invoice sent, but the time entries could not be marked billed. Retrying is safe only within ' +
+          '24 hours, while Stripe still recognises the idempotency keys used above -- after that, ' +
+          'reconcile this invoice by hand rather than retrying.',
+        invoiceId: invoice.id,
+      },
+      { status: 500 }
+    );
+  }
+
+  return NextResponse.json({
+    invoiceId: invoice.id,
+    entryCount: lines.length,
+    totalCents: lines.reduce((sum, line) => sum + line.amountCents, 0),
+  });
+}

@@ -1,27 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Stripe from 'stripe';
 import { requireCompanyAccess } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { createStripeClient } from '@/lib/stripe';
+import { getStripe } from '@/lib/stripe';
 
-/**
- * Everything past "start a subscription" -- upgrade, downgrade, cancel,
- * update the card on file, view past invoices -- goes through Stripe's own
- * hosted Billing Portal rather than being rebuilt here. Switching a company
- * between tiers by calling Checkout a second time would attach a SECOND
- * subscription to the same customer instead of changing the first one, so
- * once a company has an active subscription, every further plan change
- * comes through this route instead.
- *
- * Which prices a customer is allowed to switch between in the portal is
- * configured in the Stripe dashboard (Settings -> Billing -> Customer
- * portal), not in code here.
- */
+// Stripe's SDK needs Node crypto and fails on the Edge runtime. Node is the
+// default runtime in this Next.js version, but pinning it explicitly guards
+// this route if that default ever changes.
+export const runtime = 'nodejs';
+
 export async function POST(request: NextRequest) {
-  const body = await request.json().catch(() => ({}));
-  const companyId = body?.companyId;
+  const body = await request.json().catch(() => null);
+  const companyId = typeof body?.companyId === 'string' ? body.companyId : null;
 
-  if (typeof companyId !== 'string' || !companyId) {
+  if (!companyId) {
     return NextResponse.json({ error: 'companyId is required.' }, { status: 400 });
   }
 
@@ -30,8 +21,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: guard.message }, { status: guard.status });
   }
 
-  const adminClient = createAdminClient();
-  const { data: company } = await adminClient
+  const { data: company } = await createAdminClient()
     .from('companies')
     .select('stripe_customer_id')
     .eq('id', companyId)
@@ -39,28 +29,20 @@ export async function POST(request: NextRequest) {
 
   const customerId = company?.stripe_customer_id as string | null | undefined;
   if (!customerId) {
-    return NextResponse.json(
-      { error: 'This company has no billing account yet. Subscribe to a paid plan first.' },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: 'No billing account yet.' }, { status: 400 });
   }
 
-  let stripe: Stripe;
-  try {
-    stripe = createStripeClient();
-  } catch (err) {
-    console.error('billing/portal: Stripe is not configured:', err);
-    return NextResponse.json({ error: 'Billing is not set up yet. Contact support.' }, { status: 500 });
-  }
+  // NEXT_PUBLIC_SITE_URL is preferred: request.nextUrl.origin is derived from
+  // the incoming Host/X-Forwarded-Host header, which a caller can forge. The
+  // request origin is kept only as a local-development fallback -- a forged
+  // Host must never be able to steer where the customer lands after they
+  // finish managing billing (invoices, saved card details are one click away).
+  const origin = (process.env.NEXT_PUBLIC_SITE_URL ?? '').trim() || request.nextUrl?.origin || '';
 
-  try {
-    const session = await stripe.billingPortal.sessions.create({
-      customer: customerId,
-      return_url: `${request.nextUrl.origin}/?billing=portal`,
-    });
-    return NextResponse.json({ url: session.url });
-  } catch (err) {
-    console.error('billing/portal: failed to create a billing portal session:', err);
-    return NextResponse.json({ error: 'Could not open billing management. Please try again.' }, { status: 502 });
-  }
+  const session = await getStripe().billingPortal.sessions.create({
+    customer: customerId,
+    return_url: `${origin}/billing`,
+  });
+
+  return NextResponse.json({ url: session.url });
 }

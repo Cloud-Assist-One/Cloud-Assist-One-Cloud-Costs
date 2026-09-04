@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { requireCompanyAccess } from '@/lib/admin-guard';
+import { requireActiveBilling } from '@/lib/billingGuard';
 import { ASSISTANT_FILTER_PROPERTIES, parseAssistantFilters } from '@/lib/assistantFilters';
 
 /**
@@ -57,6 +58,14 @@ export async function POST(request: NextRequest) {
   const guard = await requireCompanyAccess(companyId);
   if (!guard.authorized) {
     return NextResponse.json({ error: guard.message }, { status: guard.status });
+  }
+
+  // The assistant burns a paid API call and is a mutating side effect of
+  // using the product, not merely a read -- it must lock the same as every
+  // other company-scoped route.
+  const billing = await requireActiveBilling(companyId, guard.role);
+  if (!billing.allowed) {
+    return NextResponse.json({ error: billing.message }, { status: billing.status });
   }
 
   const asked = typeof question === 'string' ? question.trim().slice(0, 500) : '';

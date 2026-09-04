@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireCompanyAccess } from '@/lib/admin-guard';
+import { requireActiveBilling } from '@/lib/billingGuard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { CLOUD_PROVIDERS } from '@/lib/cloudProvider';
 import type { CloudProvider } from '@/lib/types';
@@ -76,6 +77,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: guard.message }, { status: guard.status });
   }
 
+  const billing = await requireActiveBilling(companyId, guard.role);
+  if (!billing.allowed) {
+    return NextResponse.json({ error: billing.message }, { status: billing.status });
+  }
+
   const adminClient = createAdminClient();
 
   // The connection is what the bucket is read with, so a source pointing at
@@ -124,6 +130,11 @@ export async function DELETE(request: NextRequest) {
   const guard = await requireCompanyAccess(companyId);
   if (!guard.authorized) {
     return NextResponse.json({ error: guard.message }, { status: guard.status });
+  }
+
+  const billing = await requireActiveBilling(companyId, guard.role);
+  if (!billing.allowed) {
+    return NextResponse.json({ error: billing.message }, { status: billing.status });
   }
 
   const adminClient = createAdminClient();

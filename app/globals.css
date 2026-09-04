@@ -44,6 +44,12 @@
   --accent-foreground: #ffffff;
   --destructive: #d1274b;
   --destructive-foreground: #ffffff;
+  /* Warning follows the same shape as destructive: a saturated, dark-enough
+     tone paired with white text in light mode (5.0:1 contrast). Used by the
+     trial banner's mid-urgency tier -- there is no other "something needs
+     attention but isn't broken yet" state in the app today. */
+  --warning: #b45309;
+  --warning-foreground: #ffffff;
   --border: #dce3ec;
   --input: #dce3ec;
   --ring: #64748b;
@@ -77,6 +83,10 @@
   --accent-foreground: #151b26;
   --destructive: #f2596b;
   --destructive-foreground: #151b26;
+  /* Same brighten-and-flip-to-dark-text treatment destructive gets above
+     (10.3:1 contrast). */
+  --warning: #fbbf24;
+  --warning-foreground: #151b26;
   --border: #2f3a4d;
   --input: #2f3a4d;
   --ring: #94a3b8;
@@ -103,6 +113,8 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

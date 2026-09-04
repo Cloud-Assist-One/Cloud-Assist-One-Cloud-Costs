@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { CostExplorerClient, GetCostAndUsageCommand } from '@aws-sdk/client-cost-explorer';
 import type { GetCostAndUsageCommandOutput } from '@aws-sdk/client-cost-explorer';
 import { requireCompanyAccess } from '@/lib/admin-guard';
+import { requireActiveBilling } from '@/lib/billingGuard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { decryptCredentials } from '@/lib/cloudCredentialsCrypto';
 import { resolvePullDateRange } from '@/lib/billingPullDateRange';
@@ -40,6 +41,14 @@ export async function POST(request: NextRequest) {
   const guard = await requireCompanyAccess(companyId);
   if (!guard.authorized) {
     return NextResponse.json({ error: guard.message }, { status: guard.status });
+  }
+
+  // Pulling cost data is a mutating side effect on the company's cost
+  // records -- an expired client must not keep it working via a direct API
+  // call after the UI has locked them out.
+  const billing = await requireActiveBilling(companyId, guard.role);
+  if (!billing.allowed) {
+    return NextResponse.json({ error: billing.message }, { status: billing.status });
   }
 
   const now = new Date();

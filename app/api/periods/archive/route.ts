@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireCompanyAccess } from '@/lib/admin-guard';
+import { requireActiveBilling } from '@/lib/billingGuard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { billingMonthForPeriod, deletePeriodAndContents } from '@/lib/deletePeriod';
 
@@ -14,6 +15,11 @@ export async function POST(request: NextRequest) {
   const guard = await requireCompanyAccess(companyId);
   if (!guard.authorized) {
     return NextResponse.json({ error: guard.message }, { status: guard.status });
+  }
+
+  const billing = await requireActiveBilling(companyId, guard.role);
+  if (!billing.allowed) {
+    return NextResponse.json({ error: billing.message }, { status: billing.status });
   }
 
   const adminClient = createAdminClient();

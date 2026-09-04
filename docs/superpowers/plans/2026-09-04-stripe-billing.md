@@ -20,7 +20,11 @@
 - Route tests use the recording-fake pattern from `lib/connectionAllowance.test.ts`, not network mocks.
 - Tests run with `npm test`. Every task ends green before its commit.
 - Tier to price: `subscription_4` = $150/mo, `subscription_20` = $250/mo. `subscription_unlimited` has **no** Stripe price and is admin-granted only.
-- Env var names, exactly: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_SUB4`, `STRIPE_PRICE_SUB20`. None carry `NEXT_PUBLIC_`.
+- Env var names, exactly: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_SUB4`, `STRIPE_PRICE_SUB20`, `NEXT_PUBLIC_SITE_URL`. None of the
+  four Stripe values carry a `NEXT_PUBLIC_` prefix -- nothing in the browser reads
+  them. `NEXT_PUBLIC_SITE_URL` is the trusted origin for Stripe redirect URLs and
+  must be preferred over the request's own origin, which is derived from the
+  `Host` header and therefore attacker-influencable.
 
 ## Refinement from the spec, decided while planning
 
@@ -78,9 +82,16 @@ alter table public.companies
   add column trial_ends_at timestamptz default now() + interval '30 days',
   add column stripe_customer_id text unique,
   add column stripe_subscription_id text unique,
-  add column subscription_status text
-    check (subscription_status in
-      ('trialing','active','past_due','canceled','incomplete'));
+  -- Deliberately unconstrained. The value's domain is owned by Stripe, not
+  -- by us: their own SDK types this as the eight known statuses PLUS an open
+  -- `OtherString`, because they add new ones. A CHECK listing today's values
+  -- would make customer.subscription.updated fail on 'unpaid', 'paused' or
+  -- 'incomplete_expired', and since the webhook releases its claim and 500s
+  -- on a failed write, Stripe would retry that event forever while the
+  -- customer's status never updated. resolveCompanyAccess already treats
+  -- anything it does not positively recognise as locked, so an unknown value
+  -- fails closed without needing the database to enforce it.
+  add column subscription_status text;
 
 -- Existing free companies start their 30 days at deploy rather than at
 -- signup, so shipping this locks nobody out on day one. Companies an admin
@@ -169,6 +180,10 @@ STRIPE_WEBHOOK_SECRET=
 # No NEXT_PUBLIC_ prefix: nothing in the browser reads these.
 STRIPE_PRICE_SUB4=
 STRIPE_PRICE_SUB20=
+# Trusted public origin, e.g. https://costs.cloudassistone.com . Used to build
+# Stripe's success_url, cancel_url and portal return_url. Preferred over the
+# request origin, which comes from the Host header and can be forged.
+NEXT_PUBLIC_SITE_URL=
 ```
 
 - [ ] **Step 5: Commit**
@@ -438,7 +453,16 @@ git commit -m "Resolve company billing access from tier and trial date" -- lib/c
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `DEFAULT_HOURLY_RATE_CENTS`, `hourlyRateCentsFor(companyRate: number | null | undefined): number`, `invoiceAmountCents(minutes: number, rateCents: number): number`, `formatHours(minutes: number): string`.
+- Produces: `DEFAULT_HOURLY_RATE_CENTS`, `hourlyRateCentsFor(companyRate: number | null | undefined): number`, `invoiceAmountCents(minutes: number, rateCents: number): number`.
+
+**There is deliberately no `formatHours`.** An earlier draft rendered the
+invoice line's quantity as decimal hours rounded to two places while charging
+the exact cents for the raw minutes. Those two disagree for any duration that
+is not a clean fraction of an hour: 50 minutes displays as `0.83h` but is
+charged `$145.83`, and a customer multiplying `0.83 x $175` gets `$145.25`.
+Invoice lines therefore state the billable time in **minutes**, the same unit
+staff actually log, so the displayed quantity and the charged amount always
+reconcile exactly.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -447,7 +471,6 @@ Create `lib/consultingRate.test.ts`:
 ```ts
 import {
   DEFAULT_HOURLY_RATE_CENTS,
-  formatHours,
   hourlyRateCentsFor,
   invoiceAmountCents,
 } from './consultingRate';
@@ -491,13 +514,24 @@ describe('invoiceAmountCents', () => {
   it('is 0 for zero minutes', () => {
     expect(invoiceAmountCents(0, 17500)).toBe(0);
   });
-});
 
-describe('formatHours', () => {
-  it('renders minutes as decimal hours for the invoice line', () => {
-    expect(formatHours(90)).toBe('1.5');
-    expect(formatHours(60)).toBe('1');
-    expect(formatHours(50)).toBe('0.83');
+  // These feed real Stripe invoice items. A defect upstream must not become a
+  // negative or NaN charge on a customer's card.
+  it('never produces a negative charge', () => {
+    expect(invoiceAmountCents(-30, 17500)).toBe(0);
+  });
+
+  it('is 0 for non-finite minutes rather than propagating NaN', () => {
+    expect(invoiceAmountCents(Number.NaN, 17500)).toBe(0);
+    expect(invoiceAmountCents(Number.POSITIVE_INFINITY, 17500)).toBe(0);
+  });
+
+  it('is 0 for a non-finite rate', () => {
+    expect(invoiceAmountCents(60, Number.NaN)).toBe(0);
+  });
+
+  it('never returns -0', () => {
+    expect(Object.is(invoiceAmountCents(0, 17500), -0)).toBe(false);
   });
 });
 ```
@@ -525,22 +559,25 @@ export function hourlyRateCentsFor(companyRate: number | null | undefined): numb
   return Math.round(companyRate);
 }
 
-/** Integer cents throughout -- money never touches a float we keep. */
+/**
+ * Integer cents throughout -- money never touches a float we keep.
+ *
+ * Guarded, unlike a naive multiply: these amounts become real Stripe invoice
+ * items, so a negative duration or a NaN leaking in from upstream must resolve
+ * to zero rather than becoming a negative charge or a NaN on a customer's
+ * invoice. `|| 0` also normalises -0 to 0.
+ */
 export function invoiceAmountCents(minutes: number, rateCents: number): number {
-  return Math.round((minutes / 60) * rateCents);
-}
-
-/** Decimal hours for the human-readable invoice line, e.g. "1.5". */
-export function formatHours(minutes: number): string {
-  const hours = minutes / 60;
-  return String(Number(hours.toFixed(2)));
+  if (!Number.isFinite(minutes) || !Number.isFinite(rateCents)) return 0;
+  if (minutes <= 0 || rateCents <= 0) return 0;
+  return Math.round((minutes / 60) * rateCents) || 0;
 }
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npm test -- consultingRate`
-Expected: PASS, 9 tests.
+Expected: PASS, 12 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1624,9 +1661,19 @@ git commit -m "Add billing page with plan cards and portal link" -- app/billing/
 
 **Interfaces:**
 - Consumes: `tierForPriceId` from `lib/stripe.ts`.
-- Produces: `companyUpdateForEvent(event: { type: string; data: { object: Record<string, unknown> } }): { companyId: string | null; values: Record<string, unknown> } | null`; `POST /api/billing/webhook`.
+- Produces: `CompanyUpdate = { match: { column: 'id' | 'stripe_customer_id'; value: string }; values: Record<string, unknown> }`; `companyUpdateForEvent(event: { type: string; data: { object: Record<string, unknown> } }): CompanyUpdate | null`; `POST /api/billing/webhook`.
 
 The decision of what each event writes is pulled into a pure function so it can be tested without mocking Stripe's signature verification.
+
+**Why the update carries a `match` rather than a company id.** Stripe invoice
+objects do **not** inherit their subscription's metadata. Reading
+`metadata.company_id` works for `checkout.session.completed` and for
+`customer.subscription.*` (Task 7 sets metadata on both the session and the
+subscription), but on `invoice.payment_failed` and `invoice.payment_succeeded`
+it is absent — so a metadata-only lookup would silently skip those events and
+`past_due` would never be recorded, leaving a failed card invisible. Invoice
+events therefore match the company by `stripe_customer_id`, which is always
+present on an invoice. Everything else matches by `id`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1654,7 +1701,7 @@ describe('companyUpdateForEvent', () => {
     });
 
     expect(update).toEqual({
-      companyId: 'company-1',
+      match: { column: 'id', value: 'company-1' },
       values: {
         stripe_customer_id: 'cus_1',
         stripe_subscription_id: 'sub_1',
@@ -1699,22 +1746,31 @@ describe('companyUpdateForEvent', () => {
     });
   });
 
-  it('marks past_due on a failed payment without touching the tier', () => {
+  // Invoices do not inherit subscription metadata, so these two match on the
+  // customer id instead. Matching on metadata here would skip the event and
+  // leave a failed card invisible.
+  it('marks past_due on a failed payment, matching by customer', () => {
     const update = companyUpdateForEvent({
       type: 'invoice.payment_failed',
-      data: { object: { subscription: 'sub_1', metadata: { company_id: 'company-1' } } },
+      data: { object: { customer: 'cus_1', subscription: 'sub_1' } },
     });
 
-    expect(update?.values).toEqual({ subscription_status: 'past_due' });
+    expect(update).toEqual({
+      match: { column: 'stripe_customer_id', value: 'cus_1' },
+      values: { subscription_status: 'past_due' },
+    });
   });
 
-  it('restores active on a successful payment', () => {
+  it('restores active on a successful payment, matching by customer', () => {
     const update = companyUpdateForEvent({
       type: 'invoice.payment_succeeded',
-      data: { object: { subscription: 'sub_1', metadata: { company_id: 'company-1' } } },
+      data: { object: { customer: 'cus_1', subscription: 'sub_1' } },
     });
 
-    expect(update?.values).toEqual({ subscription_status: 'active' });
+    expect(update).toEqual({
+      match: { column: 'stripe_customer_id', value: 'cus_1' },
+      values: { subscription_status: 'active' },
+    });
   });
 
   it('ignores events it does not handle', () => {
@@ -1723,11 +1779,20 @@ describe('companyUpdateForEvent', () => {
     ).toBeNull();
   });
 
-  it('ignores a handled event carrying no company id', () => {
+  it('ignores an invoice event carrying no customer', () => {
     expect(
       companyUpdateForEvent({
         type: 'invoice.payment_failed',
         data: { object: { subscription: 'sub_1' } },
+      })
+    ).toBeNull();
+  });
+
+  it('ignores a subscription event carrying no company id', () => {
+    expect(
+      companyUpdateForEvent({
+        type: 'customer.subscription.updated',
+        data: { object: { id: 'sub_1', status: 'active', items: { data: [] } } },
       })
     ).toBeNull();
   });
@@ -1771,14 +1836,20 @@ interface MinimalEvent {
 }
 
 export interface CompanyUpdate {
-  companyId: string;
+  match: { column: 'id' | 'stripe_customer_id'; value: string };
   values: Record<string, unknown>;
 }
 
+/** Company id from an object's own metadata, set by the checkout route. */
 function companyIdOf(object: Record<string, unknown>): string | null {
   const metadata = object.metadata as Record<string, unknown> | undefined;
   const id = metadata?.company_id;
   return typeof id === 'string' && id ? id : null;
+}
+
+function customerIdOf(object: Record<string, unknown>): string | null {
+  const customer = object.customer;
+  return typeof customer === 'string' && customer ? customer : null;
 }
 
 /**
@@ -1788,14 +1859,14 @@ function companyIdOf(object: Record<string, unknown>): string | null {
  */
 export function companyUpdateForEvent(event: MinimalEvent): CompanyUpdate | null {
   const object = event.data.object;
-  const companyId = companyIdOf(object);
-  if (!companyId) return null;
 
   switch (event.type) {
     case 'checkout.session.completed': {
+      const companyId = companyIdOf(object);
+      if (!companyId) return null;
       const metadata = object.metadata as Record<string, unknown>;
       return {
-        companyId,
+        match: { column: 'id', value: companyId },
         values: {
           stripe_customer_id: object.customer,
           stripe_subscription_id: object.subscription,
@@ -1806,6 +1877,9 @@ export function companyUpdateForEvent(event: MinimalEvent): CompanyUpdate | null
     }
 
     case 'customer.subscription.updated': {
+      const companyId = companyIdOf(object);
+      if (!companyId) return null;
+
       const items = object.items as { data?: { price?: { id?: string } }[] } | undefined;
       const priceId = items?.data?.[0]?.price?.id;
       const tier = priceId ? tierForPriceId(priceId) : null;
@@ -1819,26 +1893,44 @@ export function companyUpdateForEvent(event: MinimalEvent): CompanyUpdate | null
       // than guessing a limit.
       if (tier) values.subscription_tier = tier;
 
-      return { companyId, values };
+      return { match: { column: 'id', value: companyId }, values };
     }
 
-    case 'customer.subscription.deleted':
+    case 'customer.subscription.deleted': {
+      const companyId = companyIdOf(object);
+      if (!companyId) return null;
       // Back to free with a long-past trial_ends_at, which resolveCompanyAccess
       // turns into trial_expired. Cancellation needs no separate path.
       return {
-        companyId,
+        match: { column: 'id', value: companyId },
         values: {
           subscription_tier: 'free',
           subscription_status: 'canceled',
           stripe_subscription_id: null,
         },
       };
+    }
 
-    case 'invoice.payment_failed':
-      return { companyId, values: { subscription_status: 'past_due' } };
+    // Stripe invoices do NOT inherit their subscription's metadata, so these
+    // two must find the company by customer id. Matching on metadata here
+    // would silently skip the event and leave a failed card invisible.
+    case 'invoice.payment_failed': {
+      const customerId = customerIdOf(object);
+      if (!customerId) return null;
+      return {
+        match: { column: 'stripe_customer_id', value: customerId },
+        values: { subscription_status: 'past_due' },
+      };
+    }
 
-    case 'invoice.payment_succeeded':
-      return { companyId, values: { subscription_status: 'active' } };
+    case 'invoice.payment_succeeded': {
+      const customerId = customerIdOf(object);
+      if (!customerId) return null;
+      return {
+        match: { column: 'stripe_customer_id', value: customerId },
+        values: { subscription_status: 'active' },
+      };
+    }
 
     default:
       return null;
@@ -1849,7 +1941,7 @@ export function companyUpdateForEvent(event: MinimalEvent): CompanyUpdate | null
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npm test -- stripeWebhook`
-Expected: PASS, 8 tests.
+Expected: PASS, 9 tests.
 
 - [ ] **Step 5: Write the route**
 
@@ -1886,29 +1978,58 @@ export async function POST(request: NextRequest) {
   const adminClient = createAdminClient();
 
   // Claim the event id first. Stripe can deliver the same event more than
-  // once; a primary-key conflict means we already handled it, so acknowledge
-  // and do nothing rather than upgrading a company twice.
+  // once; a primary-key conflict means we already handled it.
   const { error: claimError } = await adminClient
     .from('stripe_events')
     .insert({ id: event.id });
 
   if (claimError) {
-    return NextResponse.json({ received: true, duplicate: true });
+    // 23505 is unique_violation -- genuine proof this event was already
+    // processed. ANY OTHER error is not proof of anything: a network blip or
+    // a permission problem would otherwise be reported to Stripe as success,
+    // stopping its retries and dropping a real payment event permanently.
+    if (claimError.code === '23505') {
+      return NextResponse.json({ received: true, duplicate: true });
+    }
+
+    console.error(`webhook: could not claim event ${event.id}`, claimError);
+    return NextResponse.json({ error: 'Could not claim event.' }, { status: 500 });
   }
 
-  const update = companyUpdateForEvent(event as never);
+  try {
+    const update = companyUpdateForEvent(event as never);
 
-  if (update) {
-    const { error } = await adminClient
-      .from('companies')
-      .update(update.values)
-      .eq('id', update.companyId);
+    if (update) {
+      const { error } = await adminClient
+        .from('companies')
+        .update(update.values)
+        .eq(update.match.column, update.match.value);
 
-    if (error) {
-      // Release the claim so Stripe's retry can try again, then fail loudly.
-      await adminClient.from('stripe_events').delete().eq('id', event.id);
-      return NextResponse.json({ error: 'Could not apply update.' }, { status: 500 });
+      if (error) throw new Error(`companies update failed: ${error.message}`);
     }
+  } catch (processingError) {
+    // Everything after the claim runs inside this try, because a throw is as
+    // damaging as a returned error: companyUpdateForEvent calls
+    // tierForPriceId, which throws on a duplicate-price misconfiguration. An
+    // escaping throw would leave the claim row in place, so Stripe's retry of
+    // this same event id would hit the conflict above and be dismissed as a
+    // duplicate -- the update lost permanently, with a 500 in the logs that
+    // looks transient.
+    const { error: releaseError } = await adminClient
+      .from('stripe_events')
+      .delete()
+      .eq('id', event.id);
+
+    if (releaseError) {
+      console.error(
+        `webhook: processing failed AND claim release failed for event ${event.id}. ` +
+          `This event will be treated as a duplicate on retry and must be replayed by hand.`,
+        releaseError
+      );
+    }
+
+    console.error(`webhook: failed to process event ${event.id}`, processingError);
+    return NextResponse.json({ error: 'Could not apply update.' }, { status: 500 });
   }
 
   return NextResponse.json({ received: true });
@@ -1955,7 +2076,7 @@ git commit -m "Handle Stripe webhooks with duplicate-safe event claiming" -- lib
 - Test: `lib/consultingInvoice.test.ts`
 
 **Interfaces:**
-- Consumes: `hourlyRateCentsFor`, `invoiceAmountCents`, `formatHours` from `lib/consultingRate.ts`; `getStripe` from `lib/stripe.ts`; `requireAdmin` from `lib/admin-guard.ts`.
+- Consumes: `hourlyRateCentsFor`, `invoiceAmountCents` from `lib/consultingRate.ts`; `getStripe` from `lib/stripe.ts`; `requireAdmin` from `lib/admin-guard.ts`.
 - Produces: `TimeEntryRow`, `buildInvoiceLines(entries: TimeEntryRow[], rateCents: number): InvoiceLine[]`; `POST /api/billing/consulting/invoice`.
 
 - [ ] **Step 1: Write the failing test**
@@ -1978,10 +2099,24 @@ describe('buildInvoiceLines', () => {
     expect(lines[1].amountCents).toBe(8750);
   });
 
-  it('describes the line with date, work and hours', () => {
+  // Minutes, not decimal hours: a rounded hours figure would not reconcile
+  // with the exact cents charged on the same line.
+  it('describes the line with date, work and billable minutes', () => {
     const lines = buildInvoiceLines(entries, 17500);
 
-    expect(lines[0].description).toBe('2026-09-02 — Cost review call (1.5h)');
+    expect(lines[0].description).toBe('2026-09-02 — Cost review call (90 min)');
+    expect(lines[1].description).toBe('2026-09-03 — Tag cleanup (30 min)');
+  });
+
+  it('keeps the displayed minutes and the charged amount reconcilable', () => {
+    // 50 minutes is the case that exposed the old decimal-hours bug.
+    const lines = buildInvoiceLines(
+      [{ id: 'e', entry_date: '2026-09-04', minutes_spent: 50, description: 'Advice' }],
+      17500
+    );
+
+    expect(lines[0].description).toContain('(50 min)');
+    expect(lines[0].amountCents).toBe(Math.round((50 / 60) * 17500));
   });
 
   it('derives an idempotency key from the entry id, so a retry cannot double-bill', () => {
@@ -2007,7 +2142,7 @@ Expected: FAIL, cannot find module `./consultingInvoice`.
 Create `lib/consultingInvoice.ts`:
 
 ```ts
-import { formatHours, invoiceAmountCents } from '@/lib/consultingRate';
+import { invoiceAmountCents } from '@/lib/consultingRate';
 
 export interface TimeEntryRow {
   id: string;
@@ -2027,7 +2162,9 @@ export function buildInvoiceLines(entries: TimeEntryRow[], rateCents: number): I
   return entries.map((entry) => ({
     entryId: entry.id,
     amountCents: invoiceAmountCents(entry.minutes_spent, rateCents),
-    description: `${entry.entry_date} — ${entry.description} (${formatHours(entry.minutes_spent)}h)`,
+    // Minutes, the unit staff actually log. Decimal hours rounded for display
+    // would not reconcile with the exact cents charged on this same line.
+    description: `${entry.entry_date} — ${entry.description} (${entry.minutes_spent} min)`,
     // Keyed on the entry id so that if we crash after Stripe creates the item
     // but before we stamp the row, the retry returns the same item instead of
     // billing the work twice.
@@ -2039,7 +2176,7 @@ export function buildInvoiceLines(entries: TimeEntryRow[], rateCents: number): I
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npm test -- consultingInvoice`
-Expected: PASS, 4 tests.
+Expected: PASS, 6 tests.
 
 - [ ] **Step 5: Write the route**
 

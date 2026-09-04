@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Stripe from 'stripe';
 import { requireCompanyAccess } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { createStripeClient } from '@/lib/stripe';
-import { isPaidSubscriptionTier, priceIdForTier } from '@/lib/stripePricing';
+import { getStripe, isPurchasableTier, priceIdForTier } from '@/lib/stripe';
+
+// Stripe's SDK needs Node crypto and fails on the Edge runtime. Node is the
+// default runtime in this Next.js version, but pinning it explicitly guards
+// this route if that default ever changes.
+export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
-  const body = await request.json().catch(() => ({}));
-  const companyId = body?.companyId;
+  const body = await request.json().catch(() => null);
+  const companyId = typeof body?.companyId === 'string' ? body.companyId : null;
   const tier = body?.tier;
 
-  if (typeof companyId !== 'string' || !companyId) {
+  if (!companyId) {
     return NextResponse.json({ error: 'companyId is required.' }, { status: 400 });
   }
 
@@ -19,98 +22,73 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: guard.message }, { status: guard.status });
   }
 
-  if (!isPaidSubscriptionTier(tier)) {
-    return NextResponse.json({ error: 'tier must be one of the paid subscription tiers.' }, { status: 400 });
-  }
-
-  const priceId = priceIdForTier(tier);
-  if (!priceId) {
-    console.error(`billing/checkout: no Stripe price configured for ${tier}.`);
-    return NextResponse.json({ error: 'This plan is not available for checkout yet. Contact support.' }, { status: 500 });
-  }
-
-  let stripe: Stripe;
-  try {
-    stripe = createStripeClient();
-  } catch (err) {
-    console.error('billing/checkout: Stripe is not configured:', err);
-    return NextResponse.json({ error: 'Billing is not set up yet. Contact support.' }, { status: 500 });
+  // The price id is derived from the tier server-side and never read from the
+  // request. Trusting a client-supplied price would let a caller pass a $0
+  // price from another Stripe account and take a paid tier for nothing.
+  if (!isPurchasableTier(tier)) {
+    return NextResponse.json({ error: 'That plan is not available to buy.' }, { status: 400 });
   }
 
   const adminClient = createAdminClient();
-  const { data: company } = await adminClient
+  const { data: company, error } = await adminClient
     .from('companies')
-    .select('id, name, stripe_customer_id, stripe_subscription_id')
+    .select('id, name, stripe_customer_id, stripe_subscription_id, subscription_status')
     .eq('id', companyId)
     .maybeSingle();
 
-  if (!company) {
+  if (error || !company) {
     return NextResponse.json({ error: 'Company not found.' }, { status: 404 });
   }
 
-  // Starting a second Checkout session while one is already active would
-  // attach a SECOND subscription to the same customer rather than changing
-  // the first -- double billing, not an upgrade. The UI already hides the
-  // Subscribe buttons once a company is on a paid tier; this is the same
-  // rule enforced server-side, since that UI guard is only a courtesy a
-  // direct POST could skip.
-  if (company.stripe_subscription_id) {
+  // A second Checkout Session for a company that already has a live
+  // subscription would create a second, concurrent Stripe subscription --
+  // the webhook only overwrites subscription_tier, so nothing in the app
+  // would reveal the duplicate, and the customer would be billed twice.
+  // Stripe's Billing Portal already prorates plan changes correctly, so an
+  // existing active/trialing/past_due subscription is refused here rather
+  // than rebuilding that logic ourselves.
+  const existingStatus = company.subscription_status as string | null;
+  if (
+    company.stripe_subscription_id &&
+    (existingStatus === 'active' || existingStatus === 'trialing' || existingStatus === 'past_due')
+  ) {
     return NextResponse.json(
-      { error: 'This company already has an active subscription. Use Manage billing to change plans.' },
-      { status: 409 }
+      { error: 'You already have a subscription. Use Manage Billing to change plans.' },
+      { status: 400 }
     );
   }
 
-  // Reused across every checkout attempt for this company, never re-minted:
-  // a fresh customer per attempt would split payment history across
-  // duplicates in the Stripe dashboard, and the webhook resolves companies
-  // by this id.
+  const stripe = getStripe();
   let customerId = company.stripe_customer_id as string | null;
-  if (!customerId) {
-    try {
-      const customer = await stripe.customers.create({ name: company.name, metadata: { companyId } });
-      customerId = customer.id;
-    } catch (err) {
-      console.error('billing/checkout: failed to create a Stripe customer:', err);
-      return NextResponse.json({ error: 'Could not start checkout. Please try again.' }, { status: 502 });
-    }
 
-    const { error: saveError } = await adminClient
+  if (!customerId) {
+    const customer = await stripe.customers.create({
+      name: company.name as string,
+      metadata: { company_id: companyId },
+    });
+    customerId = customer.id;
+    await adminClient
       .from('companies')
       .update({ stripe_customer_id: customerId })
       .eq('id', companyId);
-    if (saveError) {
-      // Not fatal to this request -- checkout can still proceed on the
-      // customer id just created. But left unsaved, the NEXT checkout
-      // attempt will not find it and will mint a second Stripe customer for
-      // the same company, so this is worth knowing about.
-      console.error('billing/checkout: created a Stripe customer but could not save its id:', saveError);
-    }
   }
 
-  const origin = request.nextUrl.origin;
-  try {
-    const session = await stripe.checkout.sessions.create({
-      mode: 'subscription',
-      customer: customerId,
-      line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `${origin}/?billing=success`,
-      cancel_url: `${origin}/?billing=cancelled`,
-      // Metadata is not how the webhook resolves the company -- it looks the
-      // subscription's customer id up against stripe_customer_id instead, one
-      // path for every event type. This is only a debugging aid for reading
-      // a session in the Stripe dashboard.
-      metadata: { companyId },
-    });
+  // NEXT_PUBLIC_SITE_URL is preferred: request.nextUrl.origin is derived from
+  // the incoming Host/X-Forwarded-Host header, which a caller can forge. The
+  // request origin is kept only as a local-development fallback -- a forged
+  // Host must never be able to steer where a paying customer lands right
+  // after checkout.
+  const origin = (process.env.NEXT_PUBLIC_SITE_URL ?? '').trim() || request.nextUrl?.origin || '';
 
-    if (!session.url) {
-      console.error('billing/checkout: Stripe created a session with no url.');
-      return NextResponse.json({ error: 'Could not start checkout. Please try again.' }, { status: 502 });
-    }
+  const session = await stripe.checkout.sessions.create({
+    mode: 'subscription',
+    customer: customerId,
+    line_items: [{ price: priceIdForTier(tier), quantity: 1 }],
+    success_url: `${origin}/billing?checkout=success`,
+    cancel_url: `${origin}/billing?checkout=cancelled`,
+    metadata: { company_id: companyId, tier },
+    subscription_data: { metadata: { company_id: companyId, tier } },
+  });
 
-    return NextResponse.json({ url: session.url });
-  } catch (err) {
-    console.error('billing/checkout: failed to create a checkout session:', err);
-    return NextResponse.json({ error: 'Could not start checkout. Please try again.' }, { status: 502 });
-  }
+  return NextResponse.json({ url: session.url });
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireCompanyAccess } from '@/lib/admin-guard';
+import { requireActiveBilling } from '@/lib/billingGuard';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 export async function DELETE(_request: Request, context: RouteContext<'/api/upload/[fileId]'>) {
@@ -25,6 +26,11 @@ export async function DELETE(_request: Request, context: RouteContext<'/api/uplo
   const guard = await requireCompanyAccess(file.company_id);
   if (!guard.authorized) {
     return NextResponse.json({ error: guard.message }, { status: guard.status });
+  }
+
+  const billing = await requireActiveBilling(file.company_id, guard.role);
+  if (!billing.allowed) {
+    return NextResponse.json({ error: billing.message }, { status: billing.status });
   }
 
   // Only a failed upload can be self-served away — a processed file's cost
