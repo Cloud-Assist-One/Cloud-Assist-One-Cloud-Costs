@@ -7,6 +7,7 @@ function createFakeAdminClient(
   options: {
     files?: { storage_path: string }[];
     notes?: { voice_note_path: string }[];
+    invoicedEntries?: { id: string }[];
     billingMonth?: string | null;
     lookupError?: boolean;
     removeError?: boolean;
@@ -22,7 +23,9 @@ function createFakeAdminClient(
     const result =
       table === 'uploaded_files'
         ? { data: options.files ?? [], error: null }
-        : { data: options.notes ?? [], error: null };
+        : table === 'time_entries'
+          ? { data: options.invoicedEntries ?? [], error: null }
+          : { data: options.notes ?? [], error: null };
 
     const builder: Record<string, unknown> = {
       select: () => builder,
@@ -130,6 +133,41 @@ describe('deletePeriodAndContents', () => {
     await deletePeriodAndContents(fake as unknown as Parameters<typeof deletePeriodAndContents>[0], 'period-1');
 
     expect(fake.calls[fake.calls.length - 1]).toBe('delete:billing_periods');
+  });
+
+  // Regression test for Minor 6: a stamped stripe_invoice_id is the only
+  // link between a sent Stripe invoice and the work it billed. Hard-deleting
+  // it must be refused outright, not silently skipped, so the count is named
+  // in the error rather than the entries quietly surviving or vanishing.
+  it('refuses to delete a period with invoiced time entries, naming how many', async () => {
+    const fake = createFakeAdminClient({
+      invoicedEntries: [{ id: 'entry-1' }, { id: 'entry-2' }],
+    });
+
+    const result = await deletePeriodAndContents(
+      fake as unknown as Parameters<typeof deletePeriodAndContents>[0],
+      'period-1'
+    );
+
+    if (result.ok) throw new Error('expected the delete to be refused');
+    expect(result.status).toBe(409);
+    expect(result.error).toMatch(/2 time entries/);
+    expect(result.error).toMatch(/invoiced/i);
+    // Nothing was destroyed: no storage removal and no row deletes ran.
+    expect(fake.calls.some((c) => c.startsWith('storage:remove'))).toBe(false);
+    expect(fake.calls.some((c) => c.startsWith('delete:'))).toBe(false);
+  });
+
+  it('allows deleting a period whose time entries were never invoiced', async () => {
+    const fake = createFakeAdminClient({ invoicedEntries: [] });
+
+    const result = await deletePeriodAndContents(
+      fake as unknown as Parameters<typeof deletePeriodAndContents>[0],
+      'period-1'
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(fake.calls).toContain('delete:time_entries');
   });
 
   it('stops and reports when storage removal fails, leaving the rows intact', async () => {
