@@ -135,12 +135,22 @@ export async function POST(request: NextRequest) {
     );
 
   if (stampError) {
-    // The invoice exists and was sent. The entries are unstamped, so a retry
-    // would re-run the loop above -- but each item carries an idempotency key
-    // derived from its entry id, so Stripe returns the existing item rather
-    // than billing the work twice. Surface the failure for a manual re-run.
+    // The invoice exists and was sent. The entries are unstamped, so a naive
+    // retry would re-run the loop above -- each item's idempotency key
+    // (ti_<entry_id>) makes THAT safe, but only for the roughly 24 hours
+    // Stripe retains an idempotency key. A retry attempted after a key has
+    // expired creates fresh invoice items AND, since the invoice-level key is
+    // derived from this same entry set, a fresh invoice too -- billing the
+    // client twice for the same hours. Past 24 hours this must be reconciled
+    // by hand, not retried.
     return NextResponse.json(
-      { error: 'Invoice sent, but the time entries could not be marked billed.', invoiceId: invoice.id },
+      {
+        error:
+          'Invoice sent, but the time entries could not be marked billed. Retrying is safe only within ' +
+          '24 hours, while Stripe still recognises the idempotency keys used above -- after that, ' +
+          'reconcile this invoice by hand rather than retrying.',
+        invoiceId: invoice.id,
+      },
       { status: 500 }
     );
   }

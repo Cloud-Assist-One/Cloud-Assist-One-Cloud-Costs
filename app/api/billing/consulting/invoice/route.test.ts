@@ -221,6 +221,11 @@ describe('POST /api/billing/consulting/invoice', () => {
     expect(stripe.invoiceItems.create).toHaveBeenCalledTimes(2);
     expect(stripe.finalizeInvoice).toHaveBeenCalledWith('in_1');
     expect(stripe.sendInvoice).toHaveBeenCalledWith('in_1');
+    // Regression test for Important 5: the message must not claim a retry is
+    // unconditionally safe -- Stripe's idempotency keys expire after ~24
+    // hours, past which a retry would create a second invoice.
+    expect(body.error).toMatch(/24 hours/);
+    expect(body.error).toMatch(/reconcile/i);
   });
 
   describe('invoice-level idempotency key on stripe.invoices.create', () => {
