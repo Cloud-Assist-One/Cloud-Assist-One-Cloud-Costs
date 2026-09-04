@@ -39,10 +39,24 @@ export async function POST(request: NextRequest) {
   // finish managing billing (invoices, saved card details are one click away).
   const origin = (process.env.NEXT_PUBLIC_SITE_URL ?? '').trim() || request.nextUrl?.origin || '';
 
-  const session = await getStripe().billingPortal.sessions.create({
-    customer: customerId,
-    return_url: `${origin}/billing`,
-  });
+  try {
+    const session = await getStripe().billingPortal.sessions.create({
+      customer: customerId,
+      return_url: `${origin}/billing`,
+    });
 
-  return NextResponse.json({ url: session.url });
+    return NextResponse.json({ url: session.url });
+  } catch (error) {
+    // Same reasoning as the checkout route: an unhandled throw returns an
+    // empty body, and the browser's response.json() then fails with
+    // "Unexpected end of JSON input" instead of anything actionable. A stored
+    // customer id that Stripe no longer recognises lands here too -- unlike
+    // checkout there is nothing to re-mint, since the portal exists to show a
+    // history this company would not have under a new customer.
+    console.error(`billing/portal: could not open the billing portal for ${companyId}`, error);
+    return NextResponse.json(
+      { error: 'Could not open billing. Please try again, or contact support if it persists.' },
+      { status: 500 }
+    );
+  }
 }

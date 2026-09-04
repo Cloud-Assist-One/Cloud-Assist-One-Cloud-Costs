@@ -43,8 +43,19 @@ export default function PlanCards({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? 'Something went wrong.');
+      // A route that throws without a handler returns an empty body, and
+      // .json() on that rejects with "Unexpected end of JSON input" -- a
+      // message that says nothing to someone who is trying to pay. Treat an
+      // unparseable body as "no details" and fall through to the checks below,
+      // which produce something a human can act on.
+      let data: { url?: string; error?: string } = {};
+      try {
+        data = await response.json();
+      } catch {
+        data = {};
+      }
+
+      if (!response.ok) throw new Error(data.error ?? 'Something went wrong. Please try again.');
       // Stripe types session.url as `string | null`; a falsy url here would
       // otherwise leave busy set forever with the button stuck on "Opening
       // Stripe..." and no explanation, since nothing would throw to reach

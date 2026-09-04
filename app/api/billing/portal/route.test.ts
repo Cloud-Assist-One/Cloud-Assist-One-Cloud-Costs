@@ -108,4 +108,25 @@ describe('POST /api/billing/portal', () => {
     expect(args.customer).toBe('cus_existing');
     expect(args.return_url).toBe('https://trusted.example.com/billing');
   });
+
+  it('reports a Stripe failure as JSON, never a bare 500', async () => {
+    // An unhandled throw returns an empty body, and the browser's
+    // response.json() then fails with "Unexpected end of JSON input".
+    (requireCompanyAccess as jest.Mock).mockResolvedValue({
+      authorized: true,
+      userId: 'user-1',
+      role: 'client',
+    });
+    stubAdminClient({ stripe_customer_id: 'cus_stale' });
+    (getStripe as jest.Mock).mockReturnValue({
+      billingPortal: { sessions: { create: jest.fn().mockRejectedValue(new Error('boom')) } },
+    });
+
+    const response = await POST(request({ companyId: 'company-1' }));
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(typeof body.error).toBe('string');
+    expect(body.error).not.toMatch(/JSON/i);
+  });
 });

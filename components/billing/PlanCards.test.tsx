@@ -61,6 +61,29 @@ describe('PlanCards', () => {
     expect(screen.getByRole('button', { name: /choose subscription 4/i })).not.toBeDisabled();
   });
 
+  it('stays readable when the server returns a body that is not JSON', async () => {
+    // A route that throws without a handler returns an empty body. Calling
+    // .json() on it rejects with "Unexpected end of JSON input" -- a message
+    // that reached a real customer and told them nothing about their payment.
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: async () => {
+        throw new SyntaxError('Unexpected end of JSON input');
+      },
+    });
+    const user = userEvent.setup();
+
+    render(<PlanCards companyId="company-1" access={trialingAccess} hasCustomer={false} />);
+
+    await user.click(screen.getByRole('button', { name: /choose subscription 4/i }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).not.toHaveTextContent(/JSON/i);
+    expect(alert).toHaveTextContent(/went wrong|try again/i);
+    expect(screen.getByRole('button', { name: /choose subscription 4/i })).not.toBeDisabled();
+  });
+
   it('falls back to a generic message when the failed response has no error field', async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false, json: async () => ({}) });
     const user = userEvent.setup();

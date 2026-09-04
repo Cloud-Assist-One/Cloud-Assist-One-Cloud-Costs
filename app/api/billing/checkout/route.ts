@@ -59,19 +59,6 @@ export async function POST(request: NextRequest) {
   }
 
   const stripe = getStripe();
-  let customerId = company.stripe_customer_id as string | null;
-
-  if (!customerId) {
-    const customer = await stripe.customers.create({
-      name: company.name as string,
-      metadata: { company_id: companyId },
-    });
-    customerId = customer.id;
-    await adminClient
-      .from('companies')
-      .update({ stripe_customer_id: customerId })
-      .eq('id', companyId);
-  }
 
   // NEXT_PUBLIC_SITE_URL is preferred: request.nextUrl.origin is derived from
   // the incoming Host/X-Forwarded-Host header, which a caller can forge. The
@@ -80,15 +67,61 @@ export async function POST(request: NextRequest) {
   // after checkout.
   const origin = (process.env.NEXT_PUBLIC_SITE_URL ?? '').trim() || request.nextUrl?.origin || '';
 
-  const session = await stripe.checkout.sessions.create({
-    mode: 'subscription',
-    customer: customerId,
-    line_items: [{ price: priceIdForTier(tier), quantity: 1 }],
-    success_url: `${origin}/billing?checkout=success`,
-    cancel_url: `${origin}/billing?checkout=cancelled`,
-    metadata: { company_id: companyId, tier },
-    subscription_data: { metadata: { company_id: companyId, tier } },
-  });
+  async function mintCustomer(): Promise<string> {
+    const customer = await stripe.customers.create({
+      name: company!.name as string,
+      metadata: { company_id: companyId! },
+    });
+    await adminClient
+      .from('companies')
+      .update({ stripe_customer_id: customer.id })
+      .eq('id', companyId!);
+    return customer.id;
+  }
 
-  return NextResponse.json({ url: session.url });
+  function openCheckout(customerId: string) {
+    return stripe.checkout.sessions.create({
+      mode: 'subscription',
+      customer: customerId,
+      line_items: [{ price: priceIdForTier(tier), quantity: 1 }],
+      success_url: `${origin}/billing?checkout=success`,
+      cancel_url: `${origin}/billing?checkout=cancelled`,
+      metadata: { company_id: companyId!, tier },
+      subscription_data: { metadata: { company_id: companyId!, tier } },
+    });
+  }
+
+  // A stored customer id can be unusable: created against a Stripe sandbox and
+  // then read back under a live key, or deleted in the dashboard. Stripe calls
+  // that `resource_missing`, and it is recoverable -- the company simply needs
+  // a fresh customer -- so it must not surface as a failed payment attempt.
+  function isMissingCustomer(error: unknown): boolean {
+    const e = error as { code?: string; param?: string } | null;
+    return e?.code === 'resource_missing' && e?.param === 'customer';
+  }
+
+  try {
+    let customerId = (company.stripe_customer_id as string | null) ?? (await mintCustomer());
+
+    let session;
+    try {
+      session = await openCheckout(customerId);
+    } catch (error) {
+      if (!isMissingCustomer(error)) throw error;
+      customerId = await mintCustomer();
+      session = await openCheckout(customerId);
+    }
+
+    return NextResponse.json({ url: session.url });
+  } catch (error) {
+    // Every failure past this point returns JSON. An unhandled throw would
+    // give the browser an empty body, and its response.json() then fails with
+    // "Unexpected end of JSON input" -- which tells whoever is trying to pay
+    // nothing at all, and hides the real cause from us too.
+    console.error(`billing/checkout: could not open checkout for ${companyId}`, error);
+    return NextResponse.json(
+      { error: 'Could not start checkout. Please try again, or contact support if it persists.' },
+      { status: 500 }
+    );
+  }
 }

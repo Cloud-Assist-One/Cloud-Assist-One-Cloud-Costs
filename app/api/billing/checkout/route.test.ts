@@ -190,4 +190,66 @@ describe('POST /api/billing/checkout', () => {
       expect(create).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('when the stored Stripe customer is unusable', () => {
+    // This is not hypothetical: a customer created while testing against a
+    // Stripe sandbox is persisted to the company row, and the same row is then
+    // read in production against the live key, where that id does not exist.
+    function resourceMissing() {
+      const error = new Error("No such customer: 'cus_stale'") as Error & {
+        type: string;
+        code: string;
+        param: string;
+      };
+      error.type = 'StripeInvalidRequestError';
+      error.code = 'resource_missing';
+      error.param = 'customer';
+      return error;
+    }
+
+    it('replaces the dead customer and still opens checkout', async () => {
+      const updates = stubAdminClient({ stripe_customer_id: 'cus_stale' });
+      const sessionCreate = jest
+        .fn()
+        .mockRejectedValueOnce(resourceMissing())
+        .mockResolvedValueOnce({ url: 'https://checkout.stripe.com/c/pay/ok' });
+      const customerCreate = jest.fn().mockResolvedValue({ id: 'cus_fresh' });
+      (getStripe as jest.Mock).mockReturnValue({
+        customers: { create: customerCreate },
+        checkout: { sessions: { create: sessionCreate } },
+      });
+
+      const response = await POST(request({ companyId: 'company-1', tier: 'subscription_4' }));
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.url).toBe('https://checkout.stripe.com/c/pay/ok');
+      // A fresh customer was minted and written back, so the dead id cannot
+      // break the next attempt either.
+      expect(customerCreate).toHaveBeenCalledTimes(1);
+      expect(updates).toContainEqual({ stripe_customer_id: 'cus_fresh' });
+      expect(sessionCreate).toHaveBeenCalledTimes(2);
+      expect(sessionCreate.mock.calls[1][0].customer).toBe('cus_fresh');
+    });
+
+    it('reports any other Stripe failure as JSON, never a bare 500', async () => {
+      stubAdminClient();
+      (getStripe as jest.Mock).mockReturnValue({
+        customers: { create: jest.fn() },
+        checkout: {
+          sessions: { create: jest.fn().mockRejectedValue(new Error('Stripe is down')) },
+        },
+      });
+
+      const response = await POST(request({ companyId: 'company-1', tier: 'subscription_4' }));
+      // An unhandled throw yields an empty body, and the browser's
+      // response.json() then fails with "Unexpected end of JSON input" --
+      // hiding the real cause from whoever is trying to pay.
+      const body = await response.json();
+
+      expect(response.status).toBe(500);
+      expect(typeof body.error).toBe('string');
+      expect(body.error.length).toBeGreaterThan(0);
+    });
+  });
 });
