@@ -1624,9 +1624,19 @@ git commit -m "Add billing page with plan cards and portal link" -- app/billing/
 
 **Interfaces:**
 - Consumes: `tierForPriceId` from `lib/stripe.ts`.
-- Produces: `companyUpdateForEvent(event: { type: string; data: { object: Record<string, unknown> } }): { companyId: string | null; values: Record<string, unknown> } | null`; `POST /api/billing/webhook`.
+- Produces: `CompanyUpdate = { match: { column: 'id' | 'stripe_customer_id'; value: string }; values: Record<string, unknown> }`; `companyUpdateForEvent(event: { type: string; data: { object: Record<string, unknown> } }): CompanyUpdate | null`; `POST /api/billing/webhook`.
 
 The decision of what each event writes is pulled into a pure function so it can be tested without mocking Stripe's signature verification.
+
+**Why the update carries a `match` rather than a company id.** Stripe invoice
+objects do **not** inherit their subscription's metadata. Reading
+`metadata.company_id` works for `checkout.session.completed` and for
+`customer.subscription.*` (Task 7 sets metadata on both the session and the
+subscription), but on `invoice.payment_failed` and `invoice.payment_succeeded`
+it is absent — so a metadata-only lookup would silently skip those events and
+`past_due` would never be recorded, leaving a failed card invisible. Invoice
+events therefore match the company by `stripe_customer_id`, which is always
+present on an invoice. Everything else matches by `id`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1654,7 +1664,7 @@ describe('companyUpdateForEvent', () => {
     });
 
     expect(update).toEqual({
-      companyId: 'company-1',
+      match: { column: 'id', value: 'company-1' },
       values: {
         stripe_customer_id: 'cus_1',
         stripe_subscription_id: 'sub_1',
@@ -1699,22 +1709,31 @@ describe('companyUpdateForEvent', () => {
     });
   });
 
-  it('marks past_due on a failed payment without touching the tier', () => {
+  // Invoices do not inherit subscription metadata, so these two match on the
+  // customer id instead. Matching on metadata here would skip the event and
+  // leave a failed card invisible.
+  it('marks past_due on a failed payment, matching by customer', () => {
     const update = companyUpdateForEvent({
       type: 'invoice.payment_failed',
-      data: { object: { subscription: 'sub_1', metadata: { company_id: 'company-1' } } },
+      data: { object: { customer: 'cus_1', subscription: 'sub_1' } },
     });
 
-    expect(update?.values).toEqual({ subscription_status: 'past_due' });
+    expect(update).toEqual({
+      match: { column: 'stripe_customer_id', value: 'cus_1' },
+      values: { subscription_status: 'past_due' },
+    });
   });
 
-  it('restores active on a successful payment', () => {
+  it('restores active on a successful payment, matching by customer', () => {
     const update = companyUpdateForEvent({
       type: 'invoice.payment_succeeded',
-      data: { object: { subscription: 'sub_1', metadata: { company_id: 'company-1' } } },
+      data: { object: { customer: 'cus_1', subscription: 'sub_1' } },
     });
 
-    expect(update?.values).toEqual({ subscription_status: 'active' });
+    expect(update).toEqual({
+      match: { column: 'stripe_customer_id', value: 'cus_1' },
+      values: { subscription_status: 'active' },
+    });
   });
 
   it('ignores events it does not handle', () => {
@@ -1723,11 +1742,20 @@ describe('companyUpdateForEvent', () => {
     ).toBeNull();
   });
 
-  it('ignores a handled event carrying no company id', () => {
+  it('ignores an invoice event carrying no customer', () => {
     expect(
       companyUpdateForEvent({
         type: 'invoice.payment_failed',
         data: { object: { subscription: 'sub_1' } },
+      })
+    ).toBeNull();
+  });
+
+  it('ignores a subscription event carrying no company id', () => {
+    expect(
+      companyUpdateForEvent({
+        type: 'customer.subscription.updated',
+        data: { object: { id: 'sub_1', status: 'active', items: { data: [] } } },
       })
     ).toBeNull();
   });
@@ -1771,14 +1799,20 @@ interface MinimalEvent {
 }
 
 export interface CompanyUpdate {
-  companyId: string;
+  match: { column: 'id' | 'stripe_customer_id'; value: string };
   values: Record<string, unknown>;
 }
 
+/** Company id from an object's own metadata, set by the checkout route. */
 function companyIdOf(object: Record<string, unknown>): string | null {
   const metadata = object.metadata as Record<string, unknown> | undefined;
   const id = metadata?.company_id;
   return typeof id === 'string' && id ? id : null;
+}
+
+function customerIdOf(object: Record<string, unknown>): string | null {
+  const customer = object.customer;
+  return typeof customer === 'string' && customer ? customer : null;
 }
 
 /**
@@ -1788,14 +1822,14 @@ function companyIdOf(object: Record<string, unknown>): string | null {
  */
 export function companyUpdateForEvent(event: MinimalEvent): CompanyUpdate | null {
   const object = event.data.object;
-  const companyId = companyIdOf(object);
-  if (!companyId) return null;
 
   switch (event.type) {
     case 'checkout.session.completed': {
+      const companyId = companyIdOf(object);
+      if (!companyId) return null;
       const metadata = object.metadata as Record<string, unknown>;
       return {
-        companyId,
+        match: { column: 'id', value: companyId },
         values: {
           stripe_customer_id: object.customer,
           stripe_subscription_id: object.subscription,
@@ -1806,6 +1840,9 @@ export function companyUpdateForEvent(event: MinimalEvent): CompanyUpdate | null
     }
 
     case 'customer.subscription.updated': {
+      const companyId = companyIdOf(object);
+      if (!companyId) return null;
+
       const items = object.items as { data?: { price?: { id?: string } }[] } | undefined;
       const priceId = items?.data?.[0]?.price?.id;
       const tier = priceId ? tierForPriceId(priceId) : null;
@@ -1819,26 +1856,44 @@ export function companyUpdateForEvent(event: MinimalEvent): CompanyUpdate | null
       // than guessing a limit.
       if (tier) values.subscription_tier = tier;
 
-      return { companyId, values };
+      return { match: { column: 'id', value: companyId }, values };
     }
 
-    case 'customer.subscription.deleted':
+    case 'customer.subscription.deleted': {
+      const companyId = companyIdOf(object);
+      if (!companyId) return null;
       // Back to free with a long-past trial_ends_at, which resolveCompanyAccess
       // turns into trial_expired. Cancellation needs no separate path.
       return {
-        companyId,
+        match: { column: 'id', value: companyId },
         values: {
           subscription_tier: 'free',
           subscription_status: 'canceled',
           stripe_subscription_id: null,
         },
       };
+    }
 
-    case 'invoice.payment_failed':
-      return { companyId, values: { subscription_status: 'past_due' } };
+    // Stripe invoices do NOT inherit their subscription's metadata, so these
+    // two must find the company by customer id. Matching on metadata here
+    // would silently skip the event and leave a failed card invisible.
+    case 'invoice.payment_failed': {
+      const customerId = customerIdOf(object);
+      if (!customerId) return null;
+      return {
+        match: { column: 'stripe_customer_id', value: customerId },
+        values: { subscription_status: 'past_due' },
+      };
+    }
 
-    case 'invoice.payment_succeeded':
-      return { companyId, values: { subscription_status: 'active' } };
+    case 'invoice.payment_succeeded': {
+      const customerId = customerIdOf(object);
+      if (!customerId) return null;
+      return {
+        match: { column: 'stripe_customer_id', value: customerId },
+        values: { subscription_status: 'active' },
+      };
+    }
 
     default:
       return null;
@@ -1849,7 +1904,7 @@ export function companyUpdateForEvent(event: MinimalEvent): CompanyUpdate | null
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npm test -- stripeWebhook`
-Expected: PASS, 8 tests.
+Expected: PASS, 9 tests.
 
 - [ ] **Step 5: Write the route**
 
@@ -1902,7 +1957,7 @@ export async function POST(request: NextRequest) {
     const { error } = await adminClient
       .from('companies')
       .update(update.values)
-      .eq('id', update.companyId);
+      .eq(update.match.column, update.match.value);
 
     if (error) {
       // Release the claim so Stripe's retry can try again, then fail loudly.
