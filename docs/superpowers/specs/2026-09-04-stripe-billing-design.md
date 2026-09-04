@@ -74,9 +74,16 @@ alter table public.companies
   add column trial_ends_at timestamptz default now() + interval '30 days',
   add column stripe_customer_id text unique,
   add column stripe_subscription_id text unique,
-  add column subscription_status text
-    check (subscription_status in
-      ('trialing','active','past_due','canceled','incomplete'));
+  -- Deliberately unconstrained. The value's domain is owned by Stripe, not
+  -- by us: their own SDK types this as the eight known statuses PLUS an open
+  -- `OtherString`, because they add new ones. A CHECK listing today's values
+  -- would make customer.subscription.updated fail on 'unpaid', 'paused' or
+  -- 'incomplete_expired', and since the webhook releases its claim and 500s
+  -- on a failed write, Stripe would retry that event forever while the
+  -- customer's status never updated. resolveCompanyAccess already treats
+  -- anything it does not positively recognise as locked, so an unknown value
+  -- fails closed without needing the database to enforce it.
+  add column subscription_status text;
 
 update public.companies
    set trial_ends_at = now() + interval '30 days'
