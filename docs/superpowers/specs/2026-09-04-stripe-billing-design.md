@@ -217,7 +217,13 @@ unauthenticated.
    subscribed.
 3. Create one Stripe invoice item per entry at
    `Math.round(minutes / 60 * rate_cents)`, integer cents throughout, described
-   as `2026-09-02 — Cost review call (1.5h)`.
+   as `2026-09-02 — Cost review call (90 min)`.
+
+   The quantity is stated in **minutes**, not decimal hours. Rounded hours do
+   not reconcile with the exact cents charged on the same line: 50 minutes
+   displays as `0.83h` but is charged `$145.83`, and a customer multiplying
+   `0.83 x $175` arrives at `$145.25`. Minutes are also the unit staff
+   actually log, so nothing is lost.
 4. Finalize and send the invoice with 14-day terms.
 5. Stamp each entry with `stripe_invoice_id`, `invoiced_at`, and
    `rate_cents_at_invoice`.

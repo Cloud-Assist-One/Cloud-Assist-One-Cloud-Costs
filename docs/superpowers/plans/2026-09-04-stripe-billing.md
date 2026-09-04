@@ -438,7 +438,16 @@ git commit -m "Resolve company billing access from tier and trial date" -- lib/c
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `DEFAULT_HOURLY_RATE_CENTS`, `hourlyRateCentsFor(companyRate: number | null | undefined): number`, `invoiceAmountCents(minutes: number, rateCents: number): number`, `formatHours(minutes: number): string`.
+- Produces: `DEFAULT_HOURLY_RATE_CENTS`, `hourlyRateCentsFor(companyRate: number | null | undefined): number`, `invoiceAmountCents(minutes: number, rateCents: number): number`.
+
+**There is deliberately no `formatHours`.** An earlier draft rendered the
+invoice line's quantity as decimal hours rounded to two places while charging
+the exact cents for the raw minutes. Those two disagree for any duration that
+is not a clean fraction of an hour: 50 minutes displays as `0.83h` but is
+charged `$145.83`, and a customer multiplying `0.83 x $175` gets `$145.25`.
+Invoice lines therefore state the billable time in **minutes**, the same unit
+staff actually log, so the displayed quantity and the charged amount always
+reconcile exactly.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -447,7 +456,6 @@ Create `lib/consultingRate.test.ts`:
 ```ts
 import {
   DEFAULT_HOURLY_RATE_CENTS,
-  formatHours,
   hourlyRateCentsFor,
   invoiceAmountCents,
 } from './consultingRate';
@@ -491,13 +499,24 @@ describe('invoiceAmountCents', () => {
   it('is 0 for zero minutes', () => {
     expect(invoiceAmountCents(0, 17500)).toBe(0);
   });
-});
 
-describe('formatHours', () => {
-  it('renders minutes as decimal hours for the invoice line', () => {
-    expect(formatHours(90)).toBe('1.5');
-    expect(formatHours(60)).toBe('1');
-    expect(formatHours(50)).toBe('0.83');
+  // These feed real Stripe invoice items. A defect upstream must not become a
+  // negative or NaN charge on a customer's card.
+  it('never produces a negative charge', () => {
+    expect(invoiceAmountCents(-30, 17500)).toBe(0);
+  });
+
+  it('is 0 for non-finite minutes rather than propagating NaN', () => {
+    expect(invoiceAmountCents(Number.NaN, 17500)).toBe(0);
+    expect(invoiceAmountCents(Number.POSITIVE_INFINITY, 17500)).toBe(0);
+  });
+
+  it('is 0 for a non-finite rate', () => {
+    expect(invoiceAmountCents(60, Number.NaN)).toBe(0);
+  });
+
+  it('never returns -0', () => {
+    expect(Object.is(invoiceAmountCents(0, 17500), -0)).toBe(false);
   });
 });
 ```
@@ -525,22 +544,25 @@ export function hourlyRateCentsFor(companyRate: number | null | undefined): numb
   return Math.round(companyRate);
 }
 
-/** Integer cents throughout -- money never touches a float we keep. */
+/**
+ * Integer cents throughout -- money never touches a float we keep.
+ *
+ * Guarded, unlike a naive multiply: these amounts become real Stripe invoice
+ * items, so a negative duration or a NaN leaking in from upstream must resolve
+ * to zero rather than becoming a negative charge or a NaN on a customer's
+ * invoice. `|| 0` also normalises -0 to 0.
+ */
 export function invoiceAmountCents(minutes: number, rateCents: number): number {
-  return Math.round((minutes / 60) * rateCents);
-}
-
-/** Decimal hours for the human-readable invoice line, e.g. "1.5". */
-export function formatHours(minutes: number): string {
-  const hours = minutes / 60;
-  return String(Number(hours.toFixed(2)));
+  if (!Number.isFinite(minutes) || !Number.isFinite(rateCents)) return 0;
+  if (minutes <= 0 || rateCents <= 0) return 0;
+  return Math.round((minutes / 60) * rateCents) || 0;
 }
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npm test -- consultingRate`
-Expected: PASS, 9 tests.
+Expected: PASS, 12 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -2027,7 +2049,7 @@ git commit -m "Handle Stripe webhooks with duplicate-safe event claiming" -- lib
 - Test: `lib/consultingInvoice.test.ts`
 
 **Interfaces:**
-- Consumes: `hourlyRateCentsFor`, `invoiceAmountCents`, `formatHours` from `lib/consultingRate.ts`; `getStripe` from `lib/stripe.ts`; `requireAdmin` from `lib/admin-guard.ts`.
+- Consumes: `hourlyRateCentsFor`, `invoiceAmountCents` from `lib/consultingRate.ts`; `getStripe` from `lib/stripe.ts`; `requireAdmin` from `lib/admin-guard.ts`.
 - Produces: `TimeEntryRow`, `buildInvoiceLines(entries: TimeEntryRow[], rateCents: number): InvoiceLine[]`; `POST /api/billing/consulting/invoice`.
 
 - [ ] **Step 1: Write the failing test**
@@ -2050,10 +2072,24 @@ describe('buildInvoiceLines', () => {
     expect(lines[1].amountCents).toBe(8750);
   });
 
-  it('describes the line with date, work and hours', () => {
+  // Minutes, not decimal hours: a rounded hours figure would not reconcile
+  // with the exact cents charged on the same line.
+  it('describes the line with date, work and billable minutes', () => {
     const lines = buildInvoiceLines(entries, 17500);
 
-    expect(lines[0].description).toBe('2026-09-02 — Cost review call (1.5h)');
+    expect(lines[0].description).toBe('2026-09-02 — Cost review call (90 min)');
+    expect(lines[1].description).toBe('2026-09-03 — Tag cleanup (30 min)');
+  });
+
+  it('keeps the displayed minutes and the charged amount reconcilable', () => {
+    // 50 minutes is the case that exposed the old decimal-hours bug.
+    const lines = buildInvoiceLines(
+      [{ id: 'e', entry_date: '2026-09-04', minutes_spent: 50, description: 'Advice' }],
+      17500
+    );
+
+    expect(lines[0].description).toContain('(50 min)');
+    expect(lines[0].amountCents).toBe(Math.round((50 / 60) * 17500));
   });
 
   it('derives an idempotency key from the entry id, so a retry cannot double-bill', () => {
@@ -2079,7 +2115,7 @@ Expected: FAIL, cannot find module `./consultingInvoice`.
 Create `lib/consultingInvoice.ts`:
 
 ```ts
-import { formatHours, invoiceAmountCents } from '@/lib/consultingRate';
+import { invoiceAmountCents } from '@/lib/consultingRate';
 
 export interface TimeEntryRow {
   id: string;
@@ -2099,7 +2135,9 @@ export function buildInvoiceLines(entries: TimeEntryRow[], rateCents: number): I
   return entries.map((entry) => ({
     entryId: entry.id,
     amountCents: invoiceAmountCents(entry.minutes_spent, rateCents),
-    description: `${entry.entry_date} — ${entry.description} (${formatHours(entry.minutes_spent)}h)`,
+    // Minutes, the unit staff actually log. Decimal hours rounded for display
+    // would not reconcile with the exact cents charged on this same line.
+    description: `${entry.entry_date} — ${entry.description} (${entry.minutes_spent} min)`,
     // Keyed on the entry id so that if we crash after Stripe creates the item
     // but before we stamp the row, the retry returns the same item instead of
     // billing the work twice.
@@ -2111,7 +2149,7 @@ export function buildInvoiceLines(entries: TimeEntryRow[], rateCents: number): I
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npm test -- consultingInvoice`
-Expected: PASS, 4 tests.
+Expected: PASS, 6 tests.
 
 - [ ] **Step 5: Write the route**
 
