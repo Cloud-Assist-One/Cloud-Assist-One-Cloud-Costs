@@ -5,6 +5,7 @@ import LoginForm from '@/components/auth/LoginForm';
 import AppShell from '@/components/shell/AppShell';
 import TrialBanner from '@/components/billing/TrialBanner';
 import TrialExpired from '@/components/billing/TrialExpired';
+import TrialWalkthrough from '@/components/walkthrough/TrialWalkthrough';
 
 export default async function Home() {
   const supabase = await createClient();
@@ -18,7 +19,7 @@ export default async function Home() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, company_id')
+    .select('role, company_id, walkthrough_dismissed_at')
     .eq('id', user.id)
     .single();
 
@@ -38,9 +39,17 @@ export default async function Home() {
     return <TrialExpired />;
   }
 
+  // Only a paying-to-be client still inside the trial gets the tour. Staff and
+  // admins are excluded for the same reason they skip the banner -- they are
+  // not the customer -- and an expired company never reaches here at all,
+  // because the lock above already returned.
+  const showWalkthrough =
+    !isInternal && access?.state === 'trialing' && !profile?.walkthrough_dismissed_at;
+
   return (
     <>
       {!isInternal && access ? <TrialBanner access={access} /> : null}
+      {showWalkthrough ? <TrialWalkthrough /> : null}
       <AppShell
         userId={user.id}
         role={role}
