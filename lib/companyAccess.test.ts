@@ -165,6 +165,26 @@ describe('resolveCompanyAccess', () => {
 
     expect(access.state).toBe('trial_expired');
   });
+
+  // Regression test for Critical 2: subscribing during the 30-day trial and
+  // then cancelling must not re-grant the remaining trial days. The webhook
+  // handler for customer.subscription.deleted (see stripeWebhook.test.ts)
+  // sets exactly this shape -- free tier, trial_ends_at nulled -- and this
+  // is what proves that shape locks rather than falling through to
+  // 'trialing' on whatever future date the row used to carry.
+  it('locks a company that canceled after subscribing during its trial window', () => {
+    const access = resolveCompanyAccess(
+      {
+        subscription_tier: 'free',
+        trial_ends_at: null,
+        stripe_subscription_id: null,
+        subscription_status: 'canceled',
+      },
+      NOW
+    );
+
+    expect(access.state).toBe('trial_expired');
+  });
 });
 
 describe('trialDaysLeft', () => {
