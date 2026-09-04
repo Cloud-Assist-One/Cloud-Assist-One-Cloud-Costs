@@ -11,13 +11,16 @@ export function hourlyRateCentsFor(companyRate: number | null | undefined): numb
   return Math.round(companyRate);
 }
 
-/** Integer cents throughout -- money never touches a float we keep. */
+/**
+ * Integer cents throughout -- money never touches a float we keep.
+ *
+ * Guarded, unlike a naive multiply: these amounts become real Stripe invoice
+ * items, so a negative duration or a NaN leaking in from upstream must resolve
+ * to zero rather than becoming a negative charge or a NaN on a customer's
+ * invoice. `|| 0` also normalises -0 to 0.
+ */
 export function invoiceAmountCents(minutes: number, rateCents: number): number {
-  return Math.round((minutes / 60) * rateCents);
-}
-
-/** Decimal hours for the human-readable invoice line, e.g. "1.5". */
-export function formatHours(minutes: number): string {
-  const hours = minutes / 60;
-  return String(Number(hours.toFixed(2)));
+  if (!Number.isFinite(minutes) || !Number.isFinite(rateCents)) return 0;
+  if (minutes <= 0 || rateCents <= 0) return 0;
+  return Math.round((minutes / 60) * rateCents) || 0;
 }

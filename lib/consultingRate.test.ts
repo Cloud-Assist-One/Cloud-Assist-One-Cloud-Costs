@@ -1,6 +1,5 @@
 import {
   DEFAULT_HOURLY_RATE_CENTS,
-  formatHours,
   hourlyRateCentsFor,
   invoiceAmountCents,
 } from './consultingRate';
@@ -44,12 +43,23 @@ describe('invoiceAmountCents', () => {
   it('is 0 for zero minutes', () => {
     expect(invoiceAmountCents(0, 17500)).toBe(0);
   });
-});
 
-describe('formatHours', () => {
-  it('renders minutes as decimal hours for the invoice line', () => {
-    expect(formatHours(90)).toBe('1.5');
-    expect(formatHours(60)).toBe('1');
-    expect(formatHours(50)).toBe('0.83');
+  // These feed real Stripe invoice items. A defect upstream must not become a
+  // negative or NaN charge on a customer's card.
+  it('never produces a negative charge', () => {
+    expect(invoiceAmountCents(-30, 17500)).toBe(0);
+  });
+
+  it('is 0 for non-finite minutes rather than propagating NaN', () => {
+    expect(invoiceAmountCents(Number.NaN, 17500)).toBe(0);
+    expect(invoiceAmountCents(Number.POSITIVE_INFINITY, 17500)).toBe(0);
+  });
+
+  it('is 0 for a non-finite rate', () => {
+    expect(invoiceAmountCents(60, Number.NaN)).toBe(0);
+  });
+
+  it('never returns -0', () => {
+    expect(Object.is(invoiceAmountCents(0, 17500), -0)).toBe(false);
   });
 });
