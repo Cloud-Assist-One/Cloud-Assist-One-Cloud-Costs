@@ -29,10 +29,25 @@ export function priceIdForTier(tier: PurchasableTier): string {
 
 /** Reverse lookup for customer.subscription.updated. */
 export function tierForPriceId(priceId: string): SubscriptionTier | null {
+  // Guard against falsy or blank price ids: an empty string from unset env
+  // should not match and return a tier.
+  if (!priceId || !priceId.trim()) return null;
+
+  const matches: PurchasableTier[] = [];
   for (const tier of PURCHASABLE_TIERS) {
-    if ((process.env[PRICE_ENV_VAR[tier]] ?? '').trim() === priceId) return tier;
+    if ((process.env[PRICE_ENV_VAR[tier]] ?? '').trim() === priceId) {
+      matches.push(tier);
+    }
   }
-  return null;
+
+  if (matches.length > 1) {
+    const envVars = matches.map((tier) => PRICE_ENV_VAR[tier]).join(' and ');
+    throw new Error(
+      `Multiple tiers map to price id ${priceId}: ${envVars} must not share a price id.`
+    );
+  }
+
+  return matches.length === 1 ? matches[0] : null;
 }
 
 let cached: Stripe | null = null;
