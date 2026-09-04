@@ -45,6 +45,11 @@ export default function PlanCards({
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? 'Something went wrong.');
+      // Stripe types session.url as `string | null`; a falsy url here would
+      // otherwise leave busy set forever with the button stuck on "Opening
+      // Stripe..." and no explanation, since nothing would throw to reach
+      // the catch below.
+      if (!data.url) throw new Error('Something went wrong. Please try again.');
       window.location.href = data.url;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Something went wrong.');
@@ -61,6 +66,14 @@ export default function PlanCards({
       ? access.tier
       : null;
 
+  // Only 'active'/'past_due' carry a live Stripe subscription (exempt, by
+  // definition in resolveCompanyAccess, never has a stripe_subscription_id),
+  // so only those two states hit the checkout route's existing-subscription
+  // guard. Routing the *other* plan's button through the portal instead of
+  // checkout means the customer is never left clicking something that now
+  // 400s -- Stripe's portal already handles switching plans with proration.
+  const mustUsePortalToSwitch = access.state === 'active' || access.state === 'past_due';
+
   return (
     <div className="flex flex-col gap-6">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -75,18 +88,30 @@ export default function PlanCards({
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               <p className="text-sm text-muted-foreground">{plan.blurb}</p>
-              <Button
-                type="button"
-                disabled={busy !== null || currentTier === plan.tier}
-                onClick={() => go('/api/billing/checkout', { companyId, tier: plan.tier }, plan.tier)}
-                className="w-full"
-              >
-                {currentTier === plan.tier
-                  ? 'Current plan'
-                  : busy === plan.tier
-                    ? 'Opening Stripe...'
-                    : `Choose ${plan.name}`}
-              </Button>
+              {currentTier !== plan.tier && mustUsePortalToSwitch ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy !== null}
+                  onClick={() => go('/api/billing/portal', { companyId }, 'portal')}
+                  className="w-full"
+                >
+                  {busy === 'portal' ? 'Opening Stripe...' : 'Manage billing to switch'}
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  disabled={busy !== null || currentTier === plan.tier}
+                  onClick={() => go('/api/billing/checkout', { companyId, tier: plan.tier }, plan.tier)}
+                  className="w-full"
+                >
+                  {currentTier === plan.tier
+                    ? 'Current plan'
+                    : busy === plan.tier
+                      ? 'Opening Stripe...'
+                      : `Choose ${plan.name}`}
+                </Button>
+              )}
             </CardContent>
           </Card>
         ))}

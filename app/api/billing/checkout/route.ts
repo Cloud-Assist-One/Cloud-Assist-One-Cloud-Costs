@@ -32,12 +32,30 @@ export async function POST(request: NextRequest) {
   const adminClient = createAdminClient();
   const { data: company, error } = await adminClient
     .from('companies')
-    .select('id, name, stripe_customer_id')
+    .select('id, name, stripe_customer_id, stripe_subscription_id, subscription_status')
     .eq('id', companyId)
     .maybeSingle();
 
   if (error || !company) {
     return NextResponse.json({ error: 'Company not found.' }, { status: 404 });
+  }
+
+  // A second Checkout Session for a company that already has a live
+  // subscription would create a second, concurrent Stripe subscription --
+  // the webhook only overwrites subscription_tier, so nothing in the app
+  // would reveal the duplicate, and the customer would be billed twice.
+  // Stripe's Billing Portal already prorates plan changes correctly, so an
+  // existing active/trialing/past_due subscription is refused here rather
+  // than rebuilding that logic ourselves.
+  const existingStatus = company.subscription_status as string | null;
+  if (
+    company.stripe_subscription_id &&
+    (existingStatus === 'active' || existingStatus === 'trialing' || existingStatus === 'past_due')
+  ) {
+    return NextResponse.json(
+      { error: 'You already have a subscription. Use Manage Billing to change plans.' },
+      { status: 400 }
+    );
   }
 
   const stripe = getStripe();

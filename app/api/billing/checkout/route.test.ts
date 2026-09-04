@@ -36,14 +36,19 @@ const companyRow = {
   id: 'company-1',
   stripe_customer_id: 'cus_existing',
   name: 'Acme',
+  stripe_subscription_id: null,
+  subscription_status: null,
 };
 
-function stubAdminClient() {
+function stubAdminClient(overrides: Partial<typeof companyRow> = {}) {
   const updates: Record<string, unknown>[] = [];
   (createAdminClient as jest.Mock).mockReturnValue({
     from: () => ({
       select: () => ({
-        eq: () => ({ maybeSingle: () => Promise.resolve({ data: companyRow, error: null }) }),
+        eq: () => ({
+          maybeSingle: () =>
+            Promise.resolve({ data: { ...companyRow, ...overrides }, error: null }),
+        }),
       }),
       update: (values: Record<string, unknown>) => {
         updates.push(values);
@@ -142,5 +147,47 @@ describe('POST /api/billing/checkout', () => {
     const args = create.mock.calls[0][0];
     expect(args.success_url).toBe('https://trusted.example.com/billing?checkout=success');
     expect(args.cancel_url).toBe('https://trusted.example.com/billing?checkout=cancelled');
+  });
+
+  describe('an existing subscription blocks a second Checkout Session', () => {
+    it.each(['active', 'trialing', 'past_due'])(
+      'refuses with 400 and never calls Stripe when the status is %s',
+      async (status) => {
+        stubAdminClient({ stripe_subscription_id: 'sub_existing', subscription_status: status });
+        const create = jest.fn();
+        (getStripe as jest.Mock).mockReturnValue({ checkout: { sessions: { create } } });
+
+        const response = await POST(
+          request({ companyId: 'company-1', tier: 'subscription_20' })
+        );
+        const body = await response.json();
+
+        expect(response.status).toBe(400);
+        expect(body.error).toMatch(/manage billing/i);
+        expect(create).not.toHaveBeenCalled();
+      }
+    );
+
+    it('still succeeds for a company with no subscription at all', async () => {
+      stubAdminClient({ stripe_subscription_id: null, subscription_status: null });
+      const create = jest.fn().mockResolvedValue({ url: 'https://checkout.stripe.com/c/pay/123' });
+      (getStripe as jest.Mock).mockReturnValue({ checkout: { sessions: { create } } });
+
+      const response = await POST(request({ companyId: 'company-1', tier: 'subscription_4' }));
+
+      expect(response.status).toBe(200);
+      expect(create).toHaveBeenCalledTimes(1);
+    });
+
+    it('still succeeds for a company whose subscription was canceled -- they genuinely need to re-subscribe', async () => {
+      stubAdminClient({ stripe_subscription_id: 'sub_old', subscription_status: 'canceled' });
+      const create = jest.fn().mockResolvedValue({ url: 'https://checkout.stripe.com/c/pay/123' });
+      (getStripe as jest.Mock).mockReturnValue({ checkout: { sessions: { create } } });
+
+      const response = await POST(request({ companyId: 'company-1', tier: 'subscription_4' }));
+
+      expect(response.status).toBe(200);
+      expect(create).toHaveBeenCalledTimes(1);
+    });
   });
 });
