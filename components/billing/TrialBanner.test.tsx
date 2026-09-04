@@ -40,4 +40,22 @@ describe('TrialBanner', () => {
 
     expect(container).toBeEmptyDOMElement();
   });
+
+  describe('urgency tone boundaries', () => {
+    // Pinned day-by-day so a future off-by-one on either threshold fails
+    // here instead of silently reaching production.
+    it.each([
+      [8, 'neutral'],
+      [7, 'warning'],
+      [4, 'warning'],
+      [3, 'urgent'],
+      [1, 'urgent'],
+    ])('daysLeft=%i renders tone=%s', (daysLeft, tone) => {
+      const { container } = render(
+        <TrialBanner access={{ state: 'trialing', daysLeft, trialEndsAt: '2026-09-27T12:00:00Z' }} />
+      );
+
+      expect(container.firstElementChild).toHaveAttribute('data-tone', tone);
+    });
+  });
 });
