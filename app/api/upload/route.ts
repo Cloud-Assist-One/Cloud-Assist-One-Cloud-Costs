@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireCompanyAccess } from '@/lib/admin-guard';
+import { requireActiveBilling } from '@/lib/billingGuard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { ingestCostFile } from '@/lib/ingestCostFile';
 import { checkBillingMonthMatches } from '@/lib/billingMonthCheck';
@@ -34,6 +35,13 @@ export async function POST(request: NextRequest) {
   const guard = await requireCompanyAccess(companyId);
   if (!guard.authorized) {
     return NextResponse.json({ error: guard.message }, { status: guard.status });
+  }
+
+  // Billing is checked after identity: a caller must be authenticated and
+  // entitled to this company before we tell them anything about its plan.
+  const billing = await requireActiveBilling(companyId);
+  if (!billing.allowed) {
+    return NextResponse.json({ error: billing.message }, { status: billing.status });
   }
 
   const adminClient = createAdminClient();
