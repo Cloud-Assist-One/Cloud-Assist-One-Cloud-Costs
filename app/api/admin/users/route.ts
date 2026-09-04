@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireStaff, requireAdmin } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { collectAuthActivity, mergeAuthActivity } from '@/lib/adminUserActivity';
+import type { Profile } from '@/lib/types';
+
+// The admin auth API's own maximum. Fewer, larger pages over many small ones:
+// this list is read whole every time Email Management loads.
+const AUTH_PAGE_SIZE = 1000;
 
 export async function GET() {
   const guard = await requireStaff();
@@ -18,7 +24,32 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ users: data });
+  const profiles = (data ?? []) as Profile[];
+
+  // Whether the magic link was ever used, and when they last signed in, live
+  // in auth.users -- a separate paginated API, since PostgREST does not expose
+  // that schema. Failing the whole request rather than returning the profiles
+  // without it: blank columns are indistinguishable from a genuine "never
+  // signed in", and that is the exact question this list is read to answer.
+  let activity;
+  try {
+    activity = await collectAuthActivity(async (page) => {
+      const { data: authData, error: authError } = await adminClient.auth.admin.listUsers({
+        page,
+        perPage: AUTH_PAGE_SIZE,
+      });
+      if (authError) throw authError;
+      return {
+        users: authData.users,
+        nextPage: 'nextPage' in authData ? authData.nextPage : null,
+      };
+    });
+  } catch (err) {
+    console.error('admin users: failed to read sign-in activity:', err);
+    return NextResponse.json({ error: 'Could not read sign-in activity for these accounts.' }, { status: 500 });
+  }
+
+  return NextResponse.json({ users: mergeAuthActivity(profiles, activity) });
 }
 
 export async function POST(request: NextRequest) {

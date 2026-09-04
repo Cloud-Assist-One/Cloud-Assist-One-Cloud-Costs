@@ -1,0 +1,129 @@
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  max-width: 42rem;
+}
+
+.error {
+  color: #d1274b;
+}
+
+.banner {
+  padding: 0.6rem 0.9rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.success {
+  background: color-mix(in srgb, #1a7f52 15%, transparent);
+  color: #1a7f52;
+}
+
+.info {
+  background: var(--color-bg-alt);
+  color: var(--muted-foreground);
+}
+
+.currentPlan {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  background: var(--color-bg-alt);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+}
+
+.currentPlan > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex: 1;
+}
+
+.currentPlanLabel {
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+}
+
+.muted {
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+}
+
+.statusBadge {
+  padding: 0.15rem 0.6rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.refreshButton {
+  background: none;
+  color: var(--muted-foreground);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  padding: 0.4rem 0.85rem;
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+
+.manage {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.manage button {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+
+.manage button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.plans {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 1rem;
+}
+
+.planCard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  align-items: flex-start;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+}
+
+.planCard button {
+  margin-top: 0.5rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  width: 100%;
+}
+
+.planCard button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

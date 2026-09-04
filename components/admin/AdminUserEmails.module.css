@@ -52,3 +52,26 @@
   border-color: currentColor;
   color: #b3261e;
 }
+
+/* Tone is carried by a border as well as a color, so a stalled sign-up is
+   still distinguishable in print or to anyone who cannot separate the hues. */
+.status {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid currentColor;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.ok {
+  color: #1a7f52;
+}
+
+.warn {
+  color: #b06f00;
+}
+
+.pending {
+  color: #b3261e;
+}

@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { parseCostFile } from './parseCostFile';
+import { COST_FILE_COLUMNS, describeCostFileColumns, parseCostFile } from './parseCostFile';
 
 function buildWorkbookBuffer(rows: (string | number | Date)[][]): Buffer {
   const worksheet = XLSX.utils.aoa_to_sheet(rows);
@@ -382,6 +382,187 @@ describe('parseCostFile', () => {
     // a CUR that parses without it defeats the reason for pulling a CUR.
     it('carries the resource id, which grouped API pulls cannot provide', () => {
       expect(parseCsv(CUR2_CSV).rows[0].resource_id).toContain('i-abc123');
+    });
+  });
+
+  // FOCUS is what the current Azure "Exports" wizard offers first, so it is
+  // what a newly configured container is most likely to be filled with. The
+  // header below is a subset of a real Azure FOCUS 1.0 export.
+  describe('Azure FOCUS export', () => {
+    const FOCUS_CSV = [
+      'BillingAccountId,SubAccountId,SubAccountName,ChargePeriodStart,ChargePeriodEnd,BillingPeriodStart,' +
+        'ServiceName,ServiceCategory,BilledCost,EffectiveCost,ListCost,ContractedCost,BillingCurrency,' +
+        'ChargeCategory,ResourceId,ResourceName,RegionId,AvailabilityZone,PricingQuantity,PricingUnit,' +
+        'ListUnitPrice,ContractedUnitPrice,PricingCategory,CommitmentDiscountId,CommitmentDiscountName,' +
+        'x_ResourceGroupName,x_SkuMeterCategory,x_SkuMeterName,Tags',
+      '9876543,11111111-2222-3333-4444-555555555555,Production,2026-08-03T00:00:00Z,2026-08-04T00:00:00Z,' +
+        '2026-08-01T00:00:00Z,Virtual Machines,Compute,18.40,17.10,22.00,19.50,USD,' +
+        'Usage,/subscriptions/1111/resourceGroups/rg-app/providers/Microsoft.Compute/virtualMachines/vm-web-01,' +
+        'vm-web-01,eastus,eastus-az1,24,1 Hour,0.9167,0.8125,Committed,' +
+        '/providers/Microsoft.Capacity/reservationOrders/abc/reservations/def,vm-ri-3yr,' +
+        'rg-app,Virtual Machines,D2s v3,"{""env"":""prod""}"',
+    ].join('\n');
+
+    function parseCsv(csv: string) {
+      return parseCostFile(Buffer.from(csv, 'utf8'));
+    }
+
+    // The exact failure a FOCUS export produced before these aliases existed:
+    // ServiceName resolved, so Service was never among the errors, and the
+    // report named only Date and Cost.
+    it('resolves the four core columns a real FOCUS export uses', () => {
+      const result = parseCsv(FOCUS_CSV);
+
+      expect(result.errors).toEqual([]);
+      expect(result.rows).toHaveLength(1);
+
+      const row = result.rows[0];
+      expect(row.service_name).toBe('Virtual Machines');
+      expect(row.usage_date).toBe('2026-08-03');
+      expect(row.cost).toBeCloseTo(18.4);
+      expect(row.account_id).toBe('11111111-2222-3333-4444-555555555555');
+    });
+
+    // BilledCost, not EffectiveCost: a company moving an existing export to
+    // FOCUS must keep seeing the invoiced figure the legacy actual-cost
+    // export gave it, rather than silently switching to the amortized one.
+    it('prefers BilledCost over EffectiveCost when both are present', () => {
+      expect(parseCsv(FOCUS_CSV).rows[0].cost).toBeCloseTo(18.4);
+    });
+
+    it('falls back to EffectiveCost when the export omits BilledCost', () => {
+      const result = parseCsv(
+        ['ServiceName,ChargePeriodStart,EffectiveCost', 'Storage,2026-08-03T00:00:00Z,4.25'].join('\n')
+      );
+
+      expect(result.errors).toEqual([]);
+      expect(result.rows[0].cost).toBeCloseTo(4.25);
+    });
+
+    // BillingPeriodStart is the same month-start on every row of the export.
+    // Reading the date from it would report a whole month of usage as landing
+    // on the 1st, which is why only ChargePeriodStart is an alias.
+    it('reads the date from ChargePeriodStart, not BillingPeriodStart', () => {
+      expect(parseCsv(FOCUS_CSV).rows[0].usage_date).toBe('2026-08-03');
+    });
+
+    it('fills the line-item columns from their FOCUS names', () => {
+      const row = parseCsv(FOCUS_CSV).rows[0];
+
+      expect(row.resource_id).toContain('vm-web-01');
+      expect(row.resource_group).toBe('rg-app');
+      expect(row.region).toBe('eastus');
+      expect(row.availability_zone).toBe('eastus-az1');
+      expect(row.meter_category).toBe('Virtual Machines');
+      expect(row.meter_name).toBe('D2s v3');
+      expect(row.subscription_id).toBe('11111111-2222-3333-4444-555555555555');
+      expect(row.subscription_name).toBe('Production');
+      expect(row.purchase_type).toBe('Committed');
+      expect(row.reservation_id).toContain('reservations/def');
+      expect(row.reservation_name).toBe('vm-ri-3yr');
+      expect(row.quantity).toBe(24);
+      expect(row.unit).toBe('1 Hour');
+      expect(row.unit_price).toBeCloseTo(0.9167);
+      expect(row.effective_price).toBeCloseTo(0.8125);
+      expect(row.currency).toBe('USD');
+      expect(row.charge_type).toBe('Usage');
+      expect(row.tags).toEqual({ env: 'prod' });
+    });
+
+    // ServiceName has to win over the x_SkuMeterCategory fallback, or every
+    // FOCUS row would read "Virtual Machines" where the legacy export said
+    // the same thing by accident and a Storage row would not.
+    it('prefers ServiceName over the meter category for the service name', () => {
+      const result = parseCsv(
+        [
+          'ServiceName,ChargePeriodStart,BilledCost,x_SkuMeterCategory',
+          'Azure Database for PostgreSQL,2026-08-03T00:00:00Z,9.99,Storage',
+        ].join('\n')
+      );
+
+      expect(result.rows[0].service_name).toBe('Azure Database for PostgreSQL');
+      expect(result.rows[0].meter_category).toBe('Storage');
+    });
+  });
+
+  // What the container-inspect diagnostic reports. Its whole value is that it
+  // answers for the SAME alias lists parseCostFile resolves against, so these
+  // tests are mostly about the two not drifting apart.
+  describe('describeCostFileColumns', () => {
+    it('names the header each field resolved to, and null for the ones absent', () => {
+      const report = describeCostFileColumns(
+        buildWorkbookBuffer([
+          ['ServiceName', 'ChargePeriodStart', 'BilledCost', 'x_ResourceGroupName'],
+          ['Virtual Machines', '2026-08-03', 18.4, 'rg-app'],
+        ])
+      );
+
+      const headerFor = (field: string) => report.columns.find((c) => c.field === field)?.header;
+
+      expect(report.headers).toEqual(['ServiceName', 'ChargePeriodStart', 'BilledCost', 'x_ResourceGroupName']);
+      expect(headerFor('service_name')).toBe('ServiceName');
+      expect(headerFor('usage_date')).toBe('ChargePeriodStart');
+      expect(headerFor('cost')).toBe('BilledCost');
+      expect(headerFor('resource_group')).toBe('x_ResourceGroupName');
+      expect(headerFor('instance_type')).toBeNull();
+      expect(report.missingRequired).toEqual([]);
+    });
+
+    // The point of the diagnostic is to explain a failed pull, so its labels
+    // have to be the words that pull actually printed. If someone renames a
+    // label without touching the parser's error, this fails.
+    it('reports missing columns under the same names parseCostFile puts in its errors', () => {
+      const buffer = buildWorkbookBuffer([
+        ['Widget', 'When', 'HowMuch'],
+        ['a', 'b', 'c'],
+      ]);
+
+      const { missingRequired } = describeCostFileColumns(buffer);
+      const { errors } = parseCostFile(buffer);
+
+      expect(missingRequired).toEqual(['Service', 'Date', 'Cost']);
+      expect(missingRequired.map((label) => `Could not find a "${label}" column.`)).toEqual(errors);
+    });
+
+    // A FOCUS export resolves Service but not Date or Cost, which is exactly
+    // the two-error shape the pull reported before FOCUS was recognised.
+    it('reports only the required columns that are genuinely absent', () => {
+      const { missingRequired } = describeCostFileColumns(
+        buildWorkbookBuffer([['ServiceName', 'Widget'], ['Virtual Machines', 'x']])
+      );
+
+      expect(missingRequired).toEqual(['Date', 'Cost']);
+    });
+
+    it('lists CUR-style per-tag columns by their key', () => {
+      const report = describeCostFileColumns(
+        buildWorkbookBuffer([
+          ['Service', 'Date', 'Cost', 'resourceTags/user:env', 'resource_tags/user_owner'],
+          ['EC2', '2026-08-01', 1, 'prod', 'platform'],
+        ])
+      );
+
+      expect(report.tagColumns).toEqual(['env', 'owner']);
+    });
+
+    // A field the table forgets is a field the diagnostic silently never
+    // mentions, which is the one failure mode nobody would notice.
+    it('covers every field a parsed row carries', () => {
+      const parsed = parseCostFile(
+        buildWorkbookBuffer([
+          ['Service', 'Date', 'Cost'],
+          ['EC2', '2026-08-01', 1],
+        ])
+      );
+
+      expect([...COST_FILE_COLUMNS].map((c) => c.field).sort()).toEqual(Object.keys(parsed.rows[0]).sort());
+    });
+
+    it('reports an empty sheet without inventing columns', () => {
+      const report = describeCostFileColumns(buildWorkbookBuffer([]));
+
+      expect(report.headers).toEqual([]);
+      expect(report.missingRequired).toEqual(['Service', 'Date', 'Cost']);
     });
   });
 });

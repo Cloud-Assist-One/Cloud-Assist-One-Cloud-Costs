@@ -7,6 +7,9 @@ export interface Company {
   name: string;
   created_at: string;
   subscription_tier: string;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  subscription_status: string | null;
 }
 
 export type BillingPeriodStatus = 'active' | 'archived';
@@ -514,9 +517,65 @@ export interface BillingSourcePullRun {
   rowCount?: number;
 }
 
+// Defined beside the parser, because its `field` is keyed to ParsedCostRow.
+// Re-exported here so a caller needs one import for the whole response shape.
+// Type-only, so this adds no runtime dependency on the xlsx parser.
+import type { InspectedColumn } from './parseCostFile';
+export type { InspectedColumn };
+
 export interface BillingSourcePullResult {
   runs: BillingSourcePullRun[];
   imported: number;
   skipped: number;
   failed: number;
+}
+
+/** A one-sentence reading of an inspection, for the top of the panel. */
+export interface InspectionVerdict {
+  tone: 'ok' | 'warn' | 'problem';
+  headline: string;
+  detail: string;
+}
+
+/** One discovered import unit, as the inspect route reports it. */
+export interface InspectedRun {
+  key: string;
+  month: string | null;
+  partCount: number;
+  totalBytes: number;
+}
+
+/** The header row of one real export, and what the parser made of it. */
+export interface InspectedSample {
+  key: string;
+  /** Size after gunzip, which is what the parser actually read. */
+  byteCount: number;
+  sheetName: string | null;
+  headers: string[];
+  columns: InspectedColumn[];
+  /** Labels of the required columns with no header, e.g. ["Date", "Cost"]. */
+  missingRequired: string[];
+  tagColumns: string[];
+  parsedRowCount: number;
+  /** So a column that resolved to the WRONG header is visible, not just a missing one. */
+  firstRow: { service: string; date: string; cost: number } | null;
+}
+
+/**
+ * What a bucket holds, without importing any of it. Every field answers a
+ * question the pull's own summary cannot: whether the credential can list at
+ * all, whether the prefix points anywhere, whether discovery recognises the
+ * layout, and which columns a real file offers.
+ */
+export interface BillingSourceInspection {
+  prefix: string;
+  objectCount: number;
+  totalBytes: number;
+  /** Newest first, capped — see MAX_LISTED_OBJECTS. */
+  objects: RemoteObject[];
+  listingTruncated: boolean;
+  runs: InspectedRun[];
+  sample: InspectedSample | null;
+  /** Why there is no sample, when there isn't one. */
+  sampleSkipped: string | null;
 }

@@ -1,0 +1,105 @@
+.report {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.75rem;
+}
+
+.headline {
+  font-weight: 600;
+  margin: 0;
+}
+
+/* Tone is carried by a leading rule as well as color, so the verdict still
+   reads on a monochrome display or to anyone who cannot separate the hues. */
+.ok {
+  border-left: 3px solid #1a7f52;
+  padding-left: 0.6rem;
+}
+
+.warn {
+  border-left: 3px solid #b06f00;
+  padding-left: 0.6rem;
+}
+
+.problem {
+  border-left: 3px solid #b3261e;
+  padding-left: 0.6rem;
+}
+
+.detail {
+  margin: 0.25rem 0 0;
+  color: var(--muted-foreground);
+}
+
+.section {
+  margin: 0;
+}
+
+.section > summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 0.2rem 0;
+}
+
+.keyList {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.keyList li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.mono {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  word-break: break-all;
+}
+
+.muted {
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.columnTable {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.4rem;
+}
+
+.columnTable th,
+.columnTable td {
+  text-align: left;
+  padding: 0.2rem 0.5rem 0.2rem 0;
+  vertical-align: top;
+}
+
+.columnTable th {
+  color: var(--muted-foreground);
+  font-weight: 600;
+}
+
+.unmatched {
+  color: var(--muted-foreground);
+}
+
+.headerRow {
+  margin: 0.4rem 0 0;
+  padding: 0.5rem;
+  background: var(--color-bg-alt);
+  border-radius: 4px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

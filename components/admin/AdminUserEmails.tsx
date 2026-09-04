@@ -2,8 +2,25 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import type { Company, Profile } from '@/lib/types';
+import { describeAccountStatus } from '@/lib/adminUserActivity';
+import type { AdminUserRow } from '@/lib/adminUserActivity';
+import type { Company } from '@/lib/types';
 import styles from './AdminUserEmails.module.css';
+
+/**
+ * A timestamp as an admin reads it: the date alone for a signup, date and
+ * time for a sign-in, where "this morning or last week" is the question.
+ * Null renders as an em dash rather than "Invalid Date".
+ */
+function formatDate(value: string | null | undefined): string {
+  if (!value) return '—';
+  return new Date(value).toLocaleDateString();
+}
+
+function formatDateTime(value: string | null | undefined): string {
+  if (!value) return 'Never';
+  return new Date(value).toLocaleString();
+}
 
 /**
  * The list of every email address that can sign in to the portal, with the
@@ -17,7 +34,7 @@ import styles from './AdminUserEmails.module.css';
  * already allows -- the route, not this component, is the real guard.
  */
 export default function AdminUserEmails() {
-  const [users, setUsers] = useState<Profile[]>([]);
+  const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +42,7 @@ export default function AdminUserEmails() {
   const fetchUsers = useCallback(async () => {
     const response = await fetch('/api/admin/users');
     const body = await response.json();
-    return (body.users ?? []) as Profile[];
+    return (body.users ?? []) as AdminUserRow[];
   }, []);
 
   const fetchCompanies = useCallback(async () => {
@@ -63,7 +80,7 @@ export default function AdminUserEmails() {
     return companies.find((c) => c.id === id)?.name ?? id;
   }
 
-  async function handleDelete(user: Profile) {
+  async function handleDelete(user: AdminUserRow) {
     // review_notes.author_id, review_todos.created_by, and time_entries.staff_id
     // all cascade from profiles, so the delete takes billing-relevant data with it.
     const confirmed = window.confirm(
@@ -87,6 +104,11 @@ export default function AdminUserEmails() {
       <p className={styles.intro}>
         Every email address that can sign in to the portal. Deleting one revokes that person&apos;s access.
       </p>
+      <p className={styles.intro}>
+        A free sign-up is created unconfirmed and emailed a magic link; using that link both confirms the address
+        and signs them in, so <strong>Link not used yet</strong> means the sign-up never completed. Accounts created
+        from the Users form above are confirmed outright and never receive a link.
+      </p>
 
       <div className={styles.toolbar}>
         <button type="button" className={styles.refreshButton} onClick={loadUsers}>
@@ -107,22 +129,35 @@ export default function AdminUserEmails() {
               <th>Email</th>
               <th>Role</th>
               <th>Company</th>
+              <th>Signed up</th>
+              <th>Status</th>
+              <th>Email confirmed</th>
+              <th>Last signed in</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {users.map((u) => (
-              <tr key={u.id}>
-                <td>{u.email}</td>
-                <td>{u.role}</td>
-                <td>{companyName(u.company_id)}</td>
-                <td>
-                  <button type="button" className={styles.deleteButton} onClick={() => handleDelete(u)}>
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {users.map((u) => {
+              const status = describeAccountStatus(u);
+              return (
+                <tr key={u.id}>
+                  <td>{u.email}</td>
+                  <td>{u.role}</td>
+                  <td>{companyName(u.company_id)}</td>
+                  <td>{formatDate(u.created_at)}</td>
+                  <td>
+                    <span className={`${styles.status} ${styles[status.tone]}`}>{status.label}</span>
+                  </td>
+                  <td>{u.email_confirmed_at ? formatDateTime(u.email_confirmed_at) : 'Not confirmed'}</td>
+                  <td>{formatDateTime(u.last_sign_in_at)}</td>
+                  <td>
+                    <button type="button" className={styles.deleteButton} onClick={() => handleDelete(u)}>
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}

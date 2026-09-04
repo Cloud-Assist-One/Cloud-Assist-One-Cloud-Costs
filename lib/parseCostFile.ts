@@ -37,9 +37,37 @@ export interface ParseResult {
   errors: string[];
 }
 
+/** One column the parser looks for, and the header a real sheet offered for it. */
+export interface InspectedColumn {
+  field: keyof ParsedCostRow;
+  label: string;
+  /** The sheet's own spelling of the header, or null when it has none. */
+  header: string | null;
+  required: boolean;
+}
+
+/** A header row, read the way parseCostFile reads it but importing nothing. */
+export interface CostFileColumnReport {
+  sheetName: string | null;
+  headers: string[];
+  columns: InspectedColumn[];
+  /** Labels of the required columns with no header, e.g. ["Date", "Cost"]. */
+  missingRequired: string[];
+  /** Keys of any CUR-style per-tag columns, e.g. ["env", "owner"]. */
+  tagColumns: string[];
+}
+
 // Aliases are tried in order, so the earliest match wins. Azure Cost Details
-// names are appended to each list rather than inserted, which keeps the
-// column an existing spreadsheet resolves to unchanged.
+// and FOCUS names are appended to each list rather than inserted, which keeps
+// the column an existing spreadsheet resolves to unchanged.
+//
+// FOCUS is the FinOps Open Cost and Usage Specification, and is the export
+// type the current Azure Cost Management "Exports" wizard offers first. It
+// renames nearly every column: ChargePeriodStart for the date, BilledCost for
+// the cost, SubAccountId for the subscription, and x_-prefixed columns for
+// the Azure-specific ones. ServiceName was the only required column whose
+// FOCUS name already matched, which is why a FOCUS export used to fail with
+// exactly two errors -- Date and Cost -- and never mentioned Service.
 const SERVICE_HEADER_ALIASES = [
   'service',
   'service name',
@@ -56,7 +84,18 @@ const SERVICE_HEADER_ALIASES = [
   'line_item_product_code',
   'product_servicecode',
 ];
-const DATE_HEADER_ALIASES = ['date', 'usage date', 'start date', 'month', 'usagedatetime', 'line_item_usage_start_date'];
+const DATE_HEADER_ALIASES = [
+  'date',
+  'usage date',
+  'start date',
+  'month',
+  'usagedatetime',
+  'line_item_usage_start_date',
+  // FOCUS. ChargePeriodStart is the day the charge covers; BillingPeriodStart
+  // is deliberately NOT an alias, because it is the same month-start on every
+  // row and would collapse a whole month onto the 1st.
+  'chargeperiodstart',
+];
 const COST_HEADER_ALIASES = [
   'cost',
   'amount',
@@ -68,34 +107,98 @@ const COST_HEADER_ALIASES = [
   'pretaxcost',
   // AWS CUR 2.0 / Data Exports.
   'line_item_unblended_cost',
+  // FOCUS. BilledCost first: it is the invoiced amount, which is what the
+  // legacy Azure aliases above ("actual cost") already resolved to, so a
+  // company that re-creates its export as FOCUS sees the same totals rather
+  // than silently switching to amortized. EffectiveCost is the amortized
+  // figure and only stands in when an export omits BilledCost.
+  'billedcost',
+  'effectivecost',
 ];
-const ACCOUNT_HEADER_ALIASES = ['account id', 'linked account', 'subscription id', 'subscription name', 'line_item_usage_account_id'];
+const ACCOUNT_HEADER_ALIASES = [
+  'account id',
+  'linked account',
+  'subscription id',
+  'subscription name',
+  'line_item_usage_account_id',
+  // FOCUS calls the subscription a sub-account.
+  'subaccountid',
+  'subaccountname',
+];
 
 // Line-item detail aliases, covering both AWS Cost and Usage Report (CUR)
 // and Azure usage-export naming. Matched case-insensitively via
 // normalizeHeader, same as the four aliases above.
 const RESOURCE_ID_HEADER_ALIASES = ['resource id', 'resourceid', 'lineitem/resourceid', 'line_item_resource_id', 'instance id', 'instancename'];
-const RESOURCE_GROUP_HEADER_ALIASES = ['resource group', 'resourcegroup', 'resourcegroupname'];
-const REGION_HEADER_ALIASES = ['region', 'resourcelocation', 'resource location', 'location', 'product/region', 'product_region', 'meterregion', 'product_region_code'];
-const AVAILABILITY_ZONE_HEADER_ALIASES = ['availability zone', 'az', 'lineitem/availabilityzone', 'line_item_availability_zone'];
+const RESOURCE_GROUP_HEADER_ALIASES = ['resource group', 'resourcegroup', 'resourcegroupname', 'x_resourcegroupname'];
+const REGION_HEADER_ALIASES = ['region', 'resourcelocation', 'resource location', 'location', 'product/region', 'product_region', 'meterregion', 'product_region_code', 'regionid', 'regionname'];
+const AVAILABILITY_ZONE_HEADER_ALIASES = ['availability zone', 'availabilityzone', 'az', 'lineitem/availabilityzone', 'line_item_availability_zone'];
 const INSTANCE_TYPE_HEADER_ALIASES = ['instance type', 'instancetype', 'product/instancetype', 'product_instance_type'];
 const DATABASE_ENGINE_HEADER_ALIASES = ['database engine', 'databaseengine', 'product/databaseengine', 'product_database_engine'];
-const METER_CATEGORY_HEADER_ALIASES = ['meter category', 'metercategory'];
-const METER_NAME_HEADER_ALIASES = ['meter name', 'metername', 'meter'];
+const METER_CATEGORY_HEADER_ALIASES = ['meter category', 'metercategory', 'x_skumetercategory'];
+const METER_NAME_HEADER_ALIASES = ['meter name', 'metername', 'meter', 'x_skumetername'];
 const USAGE_TYPE_HEADER_ALIASES = ['usage type', 'usagetype', 'lineitem/usagetype', 'line_item_usage_type'];
 const OPERATION_HEADER_ALIASES = ['operation', 'lineitem/operation', 'line_item_operation'];
-const SUBSCRIPTION_ID_HEADER_ALIASES = ['subscription id', 'subscriptionid', 'subscriptionguid'];
-const SUBSCRIPTION_NAME_HEADER_ALIASES = ['subscription name', 'subscriptionname'];
-const PURCHASE_TYPE_HEADER_ALIASES = ['purchase type', 'purchaseoption', 'pricingmodel', 'pricing model', 'lineitem/lineitemtype', 'charge type', 'pricing_purchase_option'];
-const RESERVATION_ID_HEADER_ALIASES = ['reservation id', 'reservationid', 'reservation_reservation_a_r_n'];
-const RESERVATION_NAME_HEADER_ALIASES = ['reservation name', 'reservationname', 'savings_plan_savings_plan_a_r_n'];
-const QUANTITY_HEADER_ALIASES = ['quantity', 'usagequantity', 'lineitem/usageamount', 'line_item_usage_amount'];
-const UNIT_HEADER_ALIASES = ['unit', 'unitofmeasure', 'pricing/unit', 'pricing_unit'];
-const UNIT_PRICE_HEADER_ALIASES = ['unit price', 'unitprice', 'pricing/publicondemandrate', 'pricing_public_on_demand_rate'];
-const EFFECTIVE_PRICE_HEADER_ALIASES = ['effective price', 'effectiveprice', 'lineitem/netunblendedcost', 'line_item_net_unblended_cost'];
+const SUBSCRIPTION_ID_HEADER_ALIASES = ['subscription id', 'subscriptionid', 'subscriptionguid', 'subaccountid'];
+const SUBSCRIPTION_NAME_HEADER_ALIASES = ['subscription name', 'subscriptionname', 'subaccountname'];
+const PURCHASE_TYPE_HEADER_ALIASES = ['purchase type', 'purchaseoption', 'pricingmodel', 'pricing model', 'lineitem/lineitemtype', 'charge type', 'pricing_purchase_option', 'pricingcategory'];
+const RESERVATION_ID_HEADER_ALIASES = ['reservation id', 'reservationid', 'reservation_reservation_a_r_n', 'commitmentdiscountid'];
+const RESERVATION_NAME_HEADER_ALIASES = ['reservation name', 'reservationname', 'savings_plan_savings_plan_a_r_n', 'commitmentdiscountname'];
+// FOCUS pricing* before consumed*: PricingQuantity is the quantity the unit
+// price is charged against, so quantity x unit_price reconciles to cost.
+const QUANTITY_HEADER_ALIASES = ['quantity', 'usagequantity', 'lineitem/usageamount', 'line_item_usage_amount', 'pricingquantity', 'consumedquantity'];
+const UNIT_HEADER_ALIASES = ['unit', 'unitofmeasure', 'pricing/unit', 'pricing_unit', 'pricingunit', 'consumedunit'];
+const UNIT_PRICE_HEADER_ALIASES = ['unit price', 'unitprice', 'pricing/publicondemandrate', 'pricing_public_on_demand_rate', 'listunitprice'];
+const EFFECTIVE_PRICE_HEADER_ALIASES = ['effective price', 'effectiveprice', 'lineitem/netunblendedcost', 'line_item_net_unblended_cost', 'contractedunitprice'];
 const CURRENCY_HEADER_ALIASES = ['currency', 'billingcurrency', 'currencycode', 'pricing/currency', 'line_item_currency_code'];
-const CHARGE_TYPE_HEADER_ALIASES = ['charge type', 'chargetype', 'lineitem/lineitemtype', 'line_item_line_item_type'];
+const CHARGE_TYPE_HEADER_ALIASES = ['charge type', 'chargetype', 'lineitem/lineitemtype', 'line_item_line_item_type', 'chargecategory'];
 const TAGS_HEADER_ALIASES = ['tags', 'resource tags', 'resourcetags'];
+
+/**
+ * Every column the parser looks for, paired with the alias list it looks for
+ * it under. This exists so the container-inspect diagnostic can report what a
+ * real export resolved to WITHOUT keeping a second copy of the aliases -- a
+ * diagnostic that disagreed with the parser it is diagnosing would be worse
+ * than none at all. It references the arrays above rather than restating
+ * them, so the two cannot drift.
+ *
+ * `label` is the human name, and for the three required columns it is also
+ * the exact word parseCostFile puts in its error, which parseCostFile.test.ts
+ * pins.
+ */
+export const COST_FILE_COLUMNS: readonly {
+  field: keyof ParsedCostRow;
+  label: string;
+  aliases: readonly string[];
+  required: boolean;
+}[] = [
+  { field: 'service_name', label: 'Service', aliases: SERVICE_HEADER_ALIASES, required: true },
+  { field: 'usage_date', label: 'Date', aliases: DATE_HEADER_ALIASES, required: true },
+  { field: 'cost', label: 'Cost', aliases: COST_HEADER_ALIASES, required: true },
+  { field: 'account_id', label: 'Account', aliases: ACCOUNT_HEADER_ALIASES, required: false },
+  { field: 'resource_id', label: 'Resource ID', aliases: RESOURCE_ID_HEADER_ALIASES, required: false },
+  { field: 'resource_group', label: 'Resource group', aliases: RESOURCE_GROUP_HEADER_ALIASES, required: false },
+  { field: 'region', label: 'Region', aliases: REGION_HEADER_ALIASES, required: false },
+  { field: 'availability_zone', label: 'Availability zone', aliases: AVAILABILITY_ZONE_HEADER_ALIASES, required: false },
+  { field: 'instance_type', label: 'Instance type', aliases: INSTANCE_TYPE_HEADER_ALIASES, required: false },
+  { field: 'database_engine', label: 'Database engine', aliases: DATABASE_ENGINE_HEADER_ALIASES, required: false },
+  { field: 'meter_category', label: 'Meter category', aliases: METER_CATEGORY_HEADER_ALIASES, required: false },
+  { field: 'meter_name', label: 'Meter name', aliases: METER_NAME_HEADER_ALIASES, required: false },
+  { field: 'usage_type', label: 'Usage type', aliases: USAGE_TYPE_HEADER_ALIASES, required: false },
+  { field: 'operation', label: 'Operation', aliases: OPERATION_HEADER_ALIASES, required: false },
+  { field: 'subscription_id', label: 'Subscription ID', aliases: SUBSCRIPTION_ID_HEADER_ALIASES, required: false },
+  { field: 'subscription_name', label: 'Subscription name', aliases: SUBSCRIPTION_NAME_HEADER_ALIASES, required: false },
+  { field: 'purchase_type', label: 'Purchase type', aliases: PURCHASE_TYPE_HEADER_ALIASES, required: false },
+  { field: 'reservation_id', label: 'Reservation ID', aliases: RESERVATION_ID_HEADER_ALIASES, required: false },
+  { field: 'reservation_name', label: 'Reservation name', aliases: RESERVATION_NAME_HEADER_ALIASES, required: false },
+  { field: 'quantity', label: 'Quantity', aliases: QUANTITY_HEADER_ALIASES, required: false },
+  { field: 'unit', label: 'Unit', aliases: UNIT_HEADER_ALIASES, required: false },
+  { field: 'unit_price', label: 'Unit price', aliases: UNIT_PRICE_HEADER_ALIASES, required: false },
+  { field: 'effective_price', label: 'Effective price', aliases: EFFECTIVE_PRICE_HEADER_ALIASES, required: false },
+  { field: 'currency', label: 'Currency', aliases: CURRENCY_HEADER_ALIASES, required: false },
+  { field: 'charge_type', label: 'Charge type', aliases: CHARGE_TYPE_HEADER_ALIASES, required: false },
+  { field: 'tags', label: 'Tags', aliases: TAGS_HEADER_ALIASES, required: false },
+];
 
 // CUR-style per-tag columns: `resource_tags/user_<key>` (Azure-flavored
 // separators) or `resourceTags/user:<key>` (AWS CUR). Matched against the
@@ -106,7 +209,7 @@ function normalizeHeader(header: string): string {
   return header.trim().toLowerCase();
 }
 
-function findColumnIndex(headers: string[], aliases: string[]): number {
+function findColumnIndex(headers: string[], aliases: readonly string[]): number {
   const normalized = headers.map(normalizeHeader);
   for (const alias of aliases) {
     const idx = normalized.indexOf(alias);
@@ -323,4 +426,37 @@ export function parseCostFile(buffer: ArrayBuffer | Buffer): ParseResult {
   }
 
   return { rows, errors };
+}
+
+/**
+ * What the parser makes of a sheet's header row, without importing anything.
+ *
+ * The container-inspect diagnostic reads this to answer the question a failed
+ * pull cannot: not "did it fail" but "which of my columns did it see, and
+ * what did it call them". Reported for every column, matched or not, because
+ * a header that resolved to the WRONG field is invisible in a list of only
+ * the ones that matched.
+ */
+export function describeCostFileColumns(buffer: ArrayBuffer | Buffer): CostFileColumnReport {
+  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+  const sheetName = workbook.SheetNames[0] ?? null;
+  if (!sheetName) {
+    return { sheetName: null, headers: [], columns: [], missingRequired: [], tagColumns: [] };
+  }
+
+  const data = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[sheetName], { header: 1, raw: true });
+  const headers = data.length > 0 ? (data[0] as unknown[]).map((h) => String(h ?? '')) : [];
+
+  const columns = COST_FILE_COLUMNS.map(({ field, label, required, aliases }) => {
+    const idx = findColumnIndex(headers, aliases);
+    return { field, label, required, header: idx === -1 ? null : headers[idx] };
+  });
+
+  return {
+    sheetName,
+    headers,
+    columns,
+    missingRequired: columns.filter((c) => c.required && c.header === null).map((c) => c.label),
+    tagColumns: findTagUserColumns(headers).map((c) => c.key),
+  };
 }

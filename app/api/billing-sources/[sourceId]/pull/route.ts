@@ -1,19 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireCompanyAccess } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { decryptCredentials } from '@/lib/cloudCredentialsCrypto';
-import { createS3ObjectStore } from '@/lib/objectStoreS3';
-import { createAzureBlobObjectStore } from '@/lib/objectStoreAzureBlob';
-import type { AzureCredentials } from '@/lib/azureCostQuery';
+import { createStoreForSource, errorMessage, permissionHint } from '@/lib/billingSourceStore';
 import { discoverRuns } from '@/lib/exportDiscovery';
 import { gunzipIfNeeded } from '@/lib/gunzipIfNeeded';
 import { deriveBillingMonth } from '@/lib/deriveBillingMonth';
 import { ingestCostFile } from '@/lib/ingestCostFile';
 import { periodForMonth } from '@/lib/periodForMonth';
 import { parseCostFile } from '@/lib/parseCostFile';
-import { planPlacement } from '@/lib/pullPlacement';
-import type { ResolvedRun } from '@/lib/pullPlacement';
-import type { ObjectStore } from '@/lib/objectStore';
+import { planPlacement, resolveAlreadyIngested, shouldArchiveBeforePull } from '@/lib/pullPlacement';
+import { billingMonthForPeriod } from '@/lib/deletePeriod';
 import type {
   BillingSourcePullRun,
   BillingSourcePullResult,
@@ -35,22 +31,6 @@ const MAX_PARTS_PER_RUN = 200;
 // pull downloads, not how much decompressed data it produces — do not treat
 // it as a decompressed-size limit.
 const MAX_TOTAL_COMPRESSED_BYTES = 500 * 1024 * 1024;
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : 'Unknown error.';
-}
-
-/** Names the role rather than echoing the SDK, which is the usual cause of a first pull failing. */
-function permissionHint(provider: CloudProvider, err: unknown): string {
-  const message = errorMessage(err);
-  const status = (err as { statusCode?: number; $metadata?: { httpStatusCode?: number } });
-  const denied = status?.statusCode === 403 || status?.$metadata?.httpStatusCode === 403;
-  if (!denied) return message;
-
-  return provider === 'aws'
-    ? `${message} The credential needs s3:ListBucket on the bucket and s3:GetObject on its contents.`
-    : `${message} The app registration needs the Storage Blob Data Reader role on the storage account — a data-plane role the Reader and Cost Management Reader roles do not grant.`;
-}
 
 export async function POST(request: NextRequest, context: RouteContext<'/api/billing-sources/[sourceId]/pull'>) {
   const { sourceId } = await context.params;
@@ -96,46 +76,18 @@ export async function POST(request: NextRequest, context: RouteContext<'/api/bil
   }
 
   const provider = source.cloud_provider as CloudProvider;
-  let store: ObjectStore;
-  try {
-    if (provider === 'aws') {
-      const secrets = decryptCredentials<{ accessKeyId: string; secretAccessKey: string }>(credRow.encrypted_payload);
-      store = createS3ObjectStore({
-        accessKeyId: secrets.accessKeyId,
-        secretAccessKey: secrets.secretAccessKey,
-        region: credRow.region ?? 'us-east-1',
-        bucket: source.container,
-      });
-    } else if (provider === 'azure') {
-      const secrets = decryptCredentials<AzureCredentials>(credRow.encrypted_payload);
-      // An Azure container name can never itself contain "/", so anything
-      // past the second segment is not a nested path we can safely rejoin —
-      // it means the stored value is wrong. Reject rather than silently
-      // dropping the extra segments and pointing at the wrong container.
-      const containerParts = String(source.container).split('/');
-      if (containerParts.length > 2) {
-        return NextResponse.json(
-          {
-            error: `The container "${source.container}" has more than one "/" — expected "account/container".`,
-          },
-          { status: 400 }
-        );
-      }
-      const [account, container] = containerParts;
-      store = createAzureBlobObjectStore({
-        tenantId: secrets.tenantId,
-        clientId: secrets.clientId,
-        clientSecret: secrets.clientSecret,
-        account,
-        container,
-      });
-    } else {
-      return NextResponse.json({ error: `Pulling from a ${provider} bucket is not supported yet.` }, { status: 400 });
-    }
-  } catch (err) {
-    console.error('Failed to build the object store:', err);
-    return NextResponse.json({ error: 'Could not read the stored credentials for this bucket.' }, { status: 500 });
+  const resolved = createStoreForSource({
+    provider,
+    container: source.container,
+    encryptedPayload: credRow.encrypted_payload,
+    region: credRow.region ?? null,
+  });
+
+  if (!resolved.ok) {
+    return NextResponse.json({ error: resolved.error }, { status: resolved.status });
   }
+
+  const store = resolved.store;
 
   // --- Active period first: everything below needs a fixed id to compare
   // against and to write into ---
@@ -239,25 +191,53 @@ export async function POST(request: NextRequest, context: RouteContext<'/api/bil
     });
   }
 
-  // --- Which runs are already ingested, by (source, key, etag) ---
+  // --- Which runs are already ingested INTO THE PERIOD THEY BELONG IN ---
   //
   // Scoped to status = 'processed': a run that failed mid-import still has a
   // row here (ingestCostFile only ever flips it to 'error', never removes
   // it), and without this filter that row wrongly looks "already ingested"
   // forever, with no way to retry short of the provider rewriting the export.
+  //
+  // period_id is selected because a bare (key, etag) match is not enough: data
+  // archived out of the active period has to be pullable back into it, and a
+  // match that ignored the period made an archive a one-way door. See
+  // resolveAlreadyIngested.
   const { data: alreadyIngested } = await adminClient
     .from('uploaded_files')
-    .select('source_object_key, source_object_etag')
+    .select('source_object_key, source_object_etag, period_id')
     .eq('source_id', sourceId)
     .eq('status', 'processed');
 
-  const seen = new Set((alreadyIngested ?? []).map((row) => `${row.source_object_key}::${row.source_object_etag}`));
-
-  const resolvedRuns: ResolvedRun[] = withinCap.map(({ run, month }) => ({
-    key: run.key,
-    month,
-    alreadyIngested: seen.has(`${run.key}::${run.etag}`),
+  const ingestedRecords = (alreadyIngested ?? []).map((row) => ({
+    key: row.source_object_key as string,
+    etag: row.source_object_etag as string,
+    periodId: (row.period_id as string | null) ?? null,
   }));
+
+  // Every archived period this company already has, by month, so a run can be
+  // matched against the period it would actually land in rather than against
+  // the whole of history.
+  const { data: archivedPeriods } = await adminClient
+    .from('billing_periods')
+    .select('id, billing_month')
+    .eq('company_id', companyId)
+    .eq('status', 'archived')
+    .not('billing_month', 'is', null);
+
+  const archivedByMonth = new Map(
+    (archivedPeriods ?? []).map((row) => [row.billing_month as string, row.id as string])
+  );
+
+  // withinCap is sorted newest month first, so its head is the latest month.
+  // planPlacement derives the same value from the same runs below; it is
+  // needed here first, because which period a run targets depends on it.
+  const latestMonth = withinCap.length > 0 ? withinCap[0].month : null;
+
+  const resolvedRuns = resolveAlreadyIngested(
+    withinCap.map(({ run, month }) => ({ key: run.key, etag: run.etag, month })),
+    ingestedRecords,
+    (month) => (month === latestMonth ? activePeriodId : archivedByMonth.get(month) ?? null)
+  );
 
   // The latest month takes the active period; every earlier month gets an
   // archived one. latestMonth looks at every run within the cap (ingested or
@@ -266,53 +246,69 @@ export async function POST(request: NextRequest, context: RouteContext<'/api/bil
   // re-pull that changes nothing never archives the current period.
   const plan = planPlacement(resolvedRuns);
 
-  // --- Archive, only if something pending will actually take the active
-  // period. Otherwise a no-change re-pull would archive the user's current
-  // period and import nothing — the opposite of a no-op. ---
-  if (archiveFirst && plan.willClaimActive) {
-    // Scoped to THIS period, not the company at large: a company whose data
-    // all sits in already-archived periods must not have its genuinely empty
-    // active period archived too — that is exactly the blank Archive-tab
-    // entry the spec forbids.
-    const { data: activeRows } = await adminClient
-      .from('cost_records')
-      .select('id')
-      .eq('company_id', companyId)
-      .eq('period_id', activePeriodId)
-      .limit(1);
+  // --- Archive, only when a genuinely newer month is arriving ---
+  //
+  // Two sources pulling the same month have to land in the same active period
+  // together; archiving between them is what made each cloud evict the other's
+  // import. See shouldArchiveBeforePull.
+  const { data: activeRows } = await adminClient
+    .from('cost_records')
+    .select('id')
+    .eq('company_id', companyId)
+    .eq('period_id', activePeriodId)
+    .limit(1);
 
-    if ((activeRows ?? []).length > 0) {
-      const archiveResponse = await fetch(new URL('/api/periods/archive', request.nextUrl.origin), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', cookie: request.headers.get('cookie') ?? '' },
-        body: JSON.stringify({ companyId }),
-      });
-      const archiveBody = await archiveResponse.json().catch(() => ({}));
-      if (!archiveResponse.ok) {
-        return NextResponse.json(
-          { error: archiveBody.error ?? 'Could not archive the current period before pulling.' },
-          { status: 500 }
-        );
-      }
-      // Archiving creates a NEW active period. Re-querying for status =
-      // 'active' afterwards would race a concurrent pull or scheduled run and
-      // could pick up a stale id — possibly even the period that was just
-      // archived. The archive route's own response is authoritative.
-      if (typeof archiveBody.newPeriodId !== 'string' || !archiveBody.newPeriodId) {
-        return NextResponse.json(
-          { error: 'The archive step did not return the new active period.' },
-          { status: 500 }
-        );
-      }
-      activePeriodId = archiveBody.newPeriodId;
+  const activeHasRows = (activeRows ?? []).length > 0;
+
+  // Read from the period's own processed files, the same way the archive route
+  // works out which month it is filing away.
+  const activeMonth = activeHasRows ? await billingMonthForPeriod(adminClient, activePeriodId) : null;
+
+  const archiveDecision = shouldArchiveBeforePull({
+    archiveFirst,
+    willClaimActive: plan.willClaimActive,
+    activeMonth,
+    latestMonth: plan.latestMonth,
+    activeHasRows,
+  });
+
+  if (archiveDecision.archive) {
+    const archiveResponse = await fetch(new URL('/api/periods/archive', request.nextUrl.origin), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie: request.headers.get('cookie') ?? '' },
+      body: JSON.stringify({ companyId }),
+    });
+    const archiveBody = await archiveResponse.json().catch(() => ({}));
+    if (!archiveResponse.ok) {
+      return NextResponse.json(
+        { error: archiveBody.error ?? 'Could not archive the current period before pulling.' },
+        { status: 500 }
+      );
     }
+    // Archiving creates a NEW active period. Re-querying for status = 'active'
+    // afterwards would race a concurrent pull or scheduled run and could pick
+    // up a stale id — possibly even the period that was just archived. The
+    // archive route's own response is authoritative.
+    if (typeof archiveBody.newPeriodId !== 'string' || !archiveBody.newPeriodId) {
+      return NextResponse.json(
+        { error: 'The archive step did not return the new active period.' },
+        { status: 500 }
+      );
+    }
+    activePeriodId = archiveBody.newPeriodId;
   }
 
   let bytesUsed = 0;
 
+  // Judged against the period each run targets, not merely against ever
+  // having been imported — see resolveAlreadyIngested.
+  const alreadyInTargetPeriod = new Set(
+    resolvedRuns.filter((run) => run.alreadyIngested).map((run) => run.key)
+  );
+
   for (const { run, month } of withinCap) {
-    if (seen.has(`${run.key}::${run.etag}`)) {
-      runs.push({ key: run.key, month, status: 'skipped', reason: 'Already ingested.' });
+    if (alreadyInTargetPeriod.has(run.key)) {
+      runs.push({ key: run.key, month, status: 'skipped', reason: 'Already ingested into this period.' });
       continue;
     }
 
