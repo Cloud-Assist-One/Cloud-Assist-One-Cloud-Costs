@@ -1961,7 +1961,24 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       // Release the claim so Stripe's retry can try again, then fail loudly.
-      await adminClient.from('stripe_events').delete().eq('id', event.id);
+      // If the release itself fails, the claim row survives and Stripe's retry
+      // of this same event id will hit the primary-key conflict above and be
+      // dismissed as a duplicate -- so the update would be lost silently and
+      // permanently. That is worse than the original failure, so it is logged
+      // explicitly rather than swallowed.
+      const { error: releaseError } = await adminClient
+        .from('stripe_events')
+        .delete()
+        .eq('id', event.id);
+
+      if (releaseError) {
+        console.error(
+          `webhook: applied-update failed AND claim release failed for event ${event.id}. ` +
+            `This event will be treated as a duplicate on retry and must be replayed by hand.`,
+          releaseError
+        );
+      }
+
       return NextResponse.json({ error: 'Could not apply update.' }, { status: 500 });
     }
   }
