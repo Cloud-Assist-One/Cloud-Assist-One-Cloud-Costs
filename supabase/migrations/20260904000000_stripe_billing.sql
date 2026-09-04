@@ -4,8 +4,12 @@
 -- learns about a company only when it pays. The four Stripe columns have
 -- exactly one writer, the webhook handler running as the service role.
 
+-- No default here: ADD COLUMN ... DEFAULT <expr> would apply that default to
+-- every pre-existing row, including companies already on a paid tier, not
+-- just to new inserts. The default is added separately below, after the
+-- backfill, so it only ever applies going forward.
 alter table public.companies
-  add column trial_ends_at timestamptz default now() + interval '30 days',
+  add column trial_ends_at timestamptz,
   add column stripe_customer_id text unique,
   add column stripe_subscription_id text unique,
   add column subscription_status text
@@ -18,6 +22,11 @@ alter table public.companies
 update public.companies
    set trial_ends_at = now() + interval '30 days'
  where subscription_tier = 'free';
+
+-- New signups get their 30 days from here on. Each insert evaluates now() at
+-- insert time, so this only ever affects rows created after this migration.
+alter table public.companies
+  alter column trial_ends_at set default now() + interval '30 days';
 
 -- null means "use DEFAULT_HOURLY_RATE_CENTS from lib/consultingRate.ts".
 alter table public.companies
@@ -44,8 +53,16 @@ create table public.stripe_events (
   processed_at timestamptz not null default now()
 );
 
--- RLS on with no policies: only the service role touches this table.
+-- RLS on with no policies, plus a grant scoped to exactly what the webhook
+-- handler does: insert the claim row, and delete it again if processing
+-- fails after the insert so a retry can reclaim the same event id. No
+-- select or update, and no grant to authenticated -- RLS policies are never
+-- evaluated without a base-table grant (see Global Constraints), so the
+-- combination of RLS-with-no-policies and a service_role-only grant is what
+-- actually makes this table service-role only.
 alter table public.stripe_events enable row level security;
+
+grant insert, delete on public.stripe_events to service_role;
 
 -- No new policies on companies. companies_update_staff is the only update
 -- policy, so a client cannot write its own tier or trial date, and
