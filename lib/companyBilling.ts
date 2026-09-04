@@ -13,13 +13,21 @@ export async function fetchCompanyAccess(
   adminClient: ReturnType<typeof createAdminClient>,
   companyId: string
 ): Promise<CompanyAccess> {
-  const { data, error } = await adminClient
-    .from('companies')
-    .select(BILLING_COLUMNS)
-    .eq('id', companyId)
-    .maybeSingle();
+  try {
+    const { data, error } = await adminClient
+      .from('companies')
+      .select(BILLING_COLUMNS)
+      .eq('id', companyId)
+      .maybeSingle();
 
-  if (error) return { state: 'trial_expired', trialEndsAt: null };
+    if (error) return { state: 'trial_expired', trialEndsAt: null };
 
-  return resolveCompanyAccess(data ?? null);
+    return resolveCompanyAccess(data ?? null);
+  } catch {
+    // A thrown client error (network exception, DNS failure, ...) is no more
+    // verifiable than a returned `error` -- both leave us unable to confirm
+    // the company is paid or trialing, so both must lock rather than fall
+    // through to a generic 500 that skips the deliberate 403.
+    return { state: 'trial_expired', trialEndsAt: null };
+  }
 }

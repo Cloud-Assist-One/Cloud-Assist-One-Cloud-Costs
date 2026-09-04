@@ -76,4 +76,19 @@ describe('fetchCompanyAccess', () => {
 
     expect(access.state).toBe('trial_expired');
   });
+
+  it('locks rather than lets an exception escape when the client throws', async () => {
+    // A thrown client error (network exception, DNS failure, ...) is no more
+    // verifiable than a returned `{ error }` -- this must still resolve to
+    // trial_expired instead of propagating out of the guard as a 500.
+    const throwingClient = {
+      from() {
+        throw new Error('network exception');
+      },
+    };
+
+    const access = await fetchCompanyAccess(asAdminClient(throwingClient), 'company-1');
+
+    expect(access.state).toBe('trial_expired');
+  });
 });
