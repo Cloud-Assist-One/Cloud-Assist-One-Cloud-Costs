@@ -20,7 +20,11 @@
 - Route tests use the recording-fake pattern from `lib/connectionAllowance.test.ts`, not network mocks.
 - Tests run with `npm test`. Every task ends green before its commit.
 - Tier to price: `subscription_4` = $150/mo, `subscription_20` = $250/mo. `subscription_unlimited` has **no** Stripe price and is admin-granted only.
-- Env var names, exactly: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_SUB4`, `STRIPE_PRICE_SUB20`. None carry `NEXT_PUBLIC_`.
+- Env var names, exactly: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_SUB4`, `STRIPE_PRICE_SUB20`, `NEXT_PUBLIC_SITE_URL`. None of the
+  four Stripe values carry a `NEXT_PUBLIC_` prefix -- nothing in the browser reads
+  them. `NEXT_PUBLIC_SITE_URL` is the trusted origin for Stripe redirect URLs and
+  must be preferred over the request's own origin, which is derived from the
+  `Host` header and therefore attacker-influencable.
 
 ## Refinement from the spec, decided while planning
 
@@ -169,6 +173,10 @@ STRIPE_WEBHOOK_SECRET=
 # No NEXT_PUBLIC_ prefix: nothing in the browser reads these.
 STRIPE_PRICE_SUB4=
 STRIPE_PRICE_SUB20=
+# Trusted public origin, e.g. https://costs.cloudassistone.com . Used to build
+# Stripe's success_url, cancel_url and portal return_url. Preferred over the
+# request origin, which comes from the Host header and can be forged.
+NEXT_PUBLIC_SITE_URL=
 ```
 
 - [ ] **Step 5: Commit**

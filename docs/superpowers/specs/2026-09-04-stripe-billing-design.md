@@ -246,7 +246,16 @@ STRIPE_SECRET_KEY=sk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 STRIPE_PRICE_SUB4=price_...
 STRIPE_PRICE_SUB20=price_...
+NEXT_PUBLIC_SITE_URL=https://your-domain.example
 ```
+
+`NEXT_PUBLIC_SITE_URL` is the trusted origin used to build Stripe's
+`success_url`, `cancel_url` and portal `return_url`. It must be preferred over
+the request's own origin: `NextRequest.nextUrl.origin` is derived from the
+incoming `Host` / `X-Forwarded-Host` header, so a forged header could otherwise
+send a paying customer to an attacker-controlled page immediately after
+payment. The request origin remains a fallback for local development only, when
+this variable is unset.
 
 The two price ids come from recurring prices created in the Stripe dashboard. No
 publishable key is needed: Checkout is Stripe-hosted.
