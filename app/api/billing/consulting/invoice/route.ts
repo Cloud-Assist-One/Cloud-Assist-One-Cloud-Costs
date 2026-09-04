@@ -3,7 +3,11 @@ import { requireAdmin } from '@/lib/admin-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { getStripe } from '@/lib/stripe';
 import { hourlyRateCentsFor } from '@/lib/consultingRate';
-import { buildInvoiceLines, type TimeEntryRow } from '@/lib/consultingInvoice';
+import {
+  buildInvoiceLines,
+  buildInvoiceIdempotencyKey,
+  type TimeEntryRow,
+} from '@/lib/consultingInvoice';
 
 export const runtime = 'nodejs';
 
@@ -65,27 +69,58 @@ export async function POST(request: NextRequest) {
   const rateCents = hourlyRateCentsFor(company.hourly_rate_cents as number | null);
   const lines = buildInvoiceLines(unbilled, rateCents);
 
-  for (const line of lines) {
-    await stripe.invoiceItems.create(
+  // Tracks which Stripe call was in flight when something threw, so a
+  // mid-sequence failure (say item 3 of 5) reports a structured 500 naming
+  // the stage rather than surfacing as a bare, unhandled framework error.
+  let stage = 'creating invoice items';
+  let invoice: { id: string } | undefined;
+
+  try {
+    for (const line of lines) {
+      await stripe.invoiceItems.create(
+        {
+          customer: customerId,
+          amount: line.amountCents,
+          currency: 'usd',
+          description: line.description,
+        },
+        { idempotencyKey: line.idempotencyKey }
+      );
+    }
+
+    stage = 'creating the invoice';
+
+    // Idempotency key derived from the company and the exact entry set being
+    // billed -- not just the item keys above. Without this, a crash between
+    // invoice creation and finalize/send means a retry finds every item
+    // already attached to the first draft, so this call would otherwise mint
+    // a second, empty invoice that finalizes and sends at $0 while the
+    // entries get stamped as billed against it: the client is billed
+    // nothing, the real invoice sits abandoned, and nothing surfaces it.
+    invoice = await stripe.invoices.create(
       {
         customer: customerId,
-        amount: line.amountCents,
-        currency: 'usd',
-        description: line.description,
+        collection_method: 'send_invoice',
+        days_until_due: 14,
+        metadata: { company_id: companyId },
       },
-      { idempotencyKey: line.idempotencyKey }
+      {
+        idempotencyKey: buildInvoiceIdempotencyKey(
+          companyId,
+          lines.map((line) => line.entryId)
+        ),
+      }
     );
+
+    stage = 'finalizing the invoice';
+    await stripe.invoices.finalizeInvoice(invoice.id);
+
+    stage = 'sending the invoice';
+    await stripe.invoices.sendInvoice(invoice.id);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return NextResponse.json({ error: `Invoicing failed while ${stage}: ${message}` }, { status: 500 });
   }
-
-  const invoice = await stripe.invoices.create({
-    customer: customerId,
-    collection_method: 'send_invoice',
-    days_until_due: 14,
-    metadata: { company_id: companyId },
-  });
-
-  await stripe.invoices.finalizeInvoice(invoice.id as string);
-  await stripe.invoices.sendInvoice(invoice.id as string);
 
   const { error: stampError } = await adminClient
     .from('time_entries')

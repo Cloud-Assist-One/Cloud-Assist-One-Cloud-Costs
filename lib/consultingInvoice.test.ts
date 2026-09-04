@@ -1,4 +1,4 @@
-import { buildInvoiceLines } from './consultingInvoice';
+import { buildInvoiceLines, buildInvoiceIdempotencyKey } from './consultingInvoice';
 
 const entries = [
   { id: 'entry-1', entry_date: '2026-09-02', minutes_spent: 90, description: 'Cost review call' },
@@ -42,5 +42,48 @@ describe('buildInvoiceLines', () => {
 
   it('returns nothing for an empty list', () => {
     expect(buildInvoiceLines([], 17500)).toEqual([]);
+  });
+});
+
+describe('buildInvoiceIdempotencyKey', () => {
+  // A retry of the same billing run -- same company, same unbilled entries --
+  // must reuse the same draft invoice rather than minting a second, empty one
+  // if the process crashed between creating it and sending it.
+  it('is stable across retries for the same company and entry set', () => {
+    const first = buildInvoiceIdempotencyKey('company-1', ['entry-1', 'entry-2']);
+    const second = buildInvoiceIdempotencyKey('company-1', ['entry-1', 'entry-2']);
+
+    expect(first).toBe(second);
+  });
+
+  it('does not depend on the order the entry ids are passed in', () => {
+    const forward = buildInvoiceIdempotencyKey('company-1', ['entry-1', 'entry-2']);
+    const reversed = buildInvoiceIdempotencyKey('company-1', ['entry-2', 'entry-1']);
+
+    expect(forward).toBe(reversed);
+  });
+
+  it('differs for a different entry set on the same company', () => {
+    const runA = buildInvoiceIdempotencyKey('company-1', ['entry-1', 'entry-2']);
+    const runB = buildInvoiceIdempotencyKey('company-1', ['entry-1', 'entry-3']);
+
+    expect(runA).not.toBe(runB);
+  });
+
+  it('differs for the same entry set on a different company', () => {
+    const companyA = buildInvoiceIdempotencyKey('company-1', ['entry-1']);
+    const companyB = buildInvoiceIdempotencyKey('company-2', ['entry-1']);
+
+    expect(companyA).not.toBe(companyB);
+  });
+
+  // Stripe caps idempotency keys at 255 characters; a raw, unhashed key made
+  // from many entry ids could exceed that for a company with a lot of
+  // unbilled work.
+  it('stays well under Stripe\'s 255-character idempotency key limit for a large entry set', () => {
+    const manyIds = Array.from({ length: 500 }, (_, i) => `entry-${i}`);
+    const key = buildInvoiceIdempotencyKey('company-1', manyIds);
+
+    expect(key.length).toBeLessThan(255);
   });
 });
