@@ -93,6 +93,7 @@ export default function PlanCards({
                   type="button"
                   variant="outline"
                   disabled={busy !== null}
+                  aria-busy={busy === 'portal'}
                   onClick={() => go('/api/billing/portal', { companyId }, 'portal')}
                   className="w-full"
                 >
@@ -102,6 +103,7 @@ export default function PlanCards({
                 <Button
                   type="button"
                   disabled={busy !== null || currentTier === plan.tier}
+                  aria-busy={busy === plan.tier}
                   onClick={() => go('/api/billing/checkout', { companyId, tier: plan.tier }, plan.tier)}
                   className="w-full"
                 >
@@ -126,6 +128,7 @@ export default function PlanCards({
           type="button"
           variant="outline"
           disabled={busy !== null}
+          aria-busy={busy === 'portal'}
           onClick={() => go('/api/billing/portal', { companyId }, 'portal')}
           className="self-start"
         >

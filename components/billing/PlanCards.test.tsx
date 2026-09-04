@@ -151,6 +151,30 @@ describe('PlanCards', () => {
     });
   });
 
+  // Regression test for Minor 7: the "Opening Stripe..." label swap is a
+  // visual-only cue -- without aria-busy, assistive tech never learns the
+  // button is doing anything.
+  it('sets aria-busy on the button while the checkout request is pending', async () => {
+    let resolveFetch: (value: unknown) => void = () => {};
+    (global.fetch as jest.Mock).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveFetch = resolve;
+      })
+    );
+    const user = userEvent.setup();
+
+    render(<PlanCards companyId="company-1" access={trialingAccess} hasCustomer={false} />);
+
+    const button = screen.getByRole('button', { name: /choose subscription 4/i });
+    expect(button).toHaveAttribute('aria-busy', 'false');
+
+    await user.click(button);
+
+    expect(screen.getByRole('button', { name: /opening stripe/i })).toHaveAttribute('aria-busy', 'true');
+
+    resolveFetch({ ok: true, json: async () => ({ url: 'https://checkout.stripe.com/session' }) });
+  });
+
   it('sends only companyId and tier to checkout, never a price id', async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
