@@ -8,13 +8,23 @@
 -- every pre-existing row, including companies already on a paid tier, not
 -- just to new inserts. The default is added separately below, after the
 -- backfill, so it only ever applies going forward.
+-- subscription_status is intentionally unconstrained. Stripe types
+-- Subscription.status as 'active'|'canceled'|'incomplete'|
+-- 'incomplete_expired'|'past_due'|'paused'|'trialing'|'unpaid'|OtherString --
+-- an open-ended union, so no fixed CHECK list can stay correct as Stripe adds
+-- values. The webhook writes object.status verbatim; a CHECK rejecting an
+-- unlisted value would fail the write, cause the webhook to release its claim
+-- and return 500, and Stripe would retry the same event forever with the
+-- company's status never updating. The domain belongs to Stripe, not this
+-- schema. resolveCompanyAccess (lib/companyAccess.ts) already locks any
+-- status it does not positively recognise as 'active'/'trialing'/'past_due',
+-- so an unexpected value fails closed in code, where the safe default
+-- already lives -- not in the database.
 alter table public.companies
   add column trial_ends_at timestamptz,
   add column stripe_customer_id text unique,
   add column stripe_subscription_id text unique,
-  add column subscription_status text
-    check (subscription_status in
-      ('trialing','active','past_due','canceled','incomplete'));
+  add column subscription_status text;
 
 -- Existing free companies start their 30 days at deploy rather than at
 -- signup, so shipping this locks nobody out on day one. Companies an admin
